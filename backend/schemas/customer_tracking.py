@@ -4,10 +4,20 @@ Customer-safe tracking schemas for the public dispute tracking endpoint.
 NEVER expose: AI reasoning, fraud signals, confidence scores, risk tags,
 workflow states, LangGraph nodes, or any internal investigation details.
 """
+from datetime import datetime, timezone
 from typing import List, Optional
 from pydantic import BaseModel
 
 from database.models import DisputeCase, AuditLog
+
+
+def _utc_iso(dt: datetime | None) -> str | None:
+    """Return an ISO-8601 string with explicit UTC offset so browsers convert to local time."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 
 # ── Status mapping — internal → customer-visible ───────────────────────────────
@@ -93,7 +103,7 @@ def build_tracking_response(
         if event_type == "CASE_CREATED":
             timeline.append(TimelineEvent(
                 description="Dispute received — case reference assigned",
-                timestamp=log.created_at.isoformat() if log.created_at else None,
+                timestamp=_utc_iso(log.created_at),
             ))
 
         elif event_type == "STATUS_CHANGED":
@@ -103,7 +113,7 @@ def build_tracking_response(
             if msg:
                 timeline.append(TimelineEvent(
                     description=msg,
-                    timestamp=log.created_at.isoformat() if log.created_at else None,
+                    timestamp=_utc_iso(log.created_at),
                 ))
 
     return CustomerTrackingResponse(
@@ -114,8 +124,8 @@ def build_tracking_response(
         amount               = case.amount,
         currency             = case.currency or "INR",
         transaction_type     = case.transaction_type,
-        submission_date      = case.created_at.isoformat() if case.created_at else "",
-        last_updated         = case.updated_at.isoformat() if case.updated_at else None,
+        submission_date      = _utc_iso(case.created_at) or "",
+        last_updated         = _utc_iso(case.updated_at),
         estimated_resolution = est_resolution,
         document_requested   = doc_requested,
         timeline             = timeline,

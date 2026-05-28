@@ -22,6 +22,15 @@ def _utc_now():
     return datetime.now(timezone.utc)
 
 
+def _iso(dt) -> str | None:
+    """Return ISO-8601 with +00:00 so JavaScript converts to browser local time."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
 # ── Dispute Cases ─────────────────────────────────────────────────────────────
 
 class DisputeCase(Base):
@@ -96,8 +105,8 @@ class DisputeCase(Base):
             "structured_reasoning": self.structured_reasoning,
             "status": self.status,
             "workflow_ready": self.workflow_ready,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": _iso(self.created_at),
+            "updated_at": _iso(self.updated_at),
         }
 
 
@@ -127,7 +136,7 @@ class AuditLog(Base):
             "actor": self.actor,
             "payload": self.payload,
             "message": self.message,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": _iso(self.created_at),
         }
 
 
@@ -157,5 +166,5 @@ class WorkflowState(Base):
             "execution_time_ms": self.execution_time_ms,
             "success": self.success,
             "error_message": self.error_message,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": _iso(self.created_at),
         }
