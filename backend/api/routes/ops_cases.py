@@ -4,6 +4,7 @@ Ops-facing case management endpoints.
 Covers: notes, document requests, locks, analyst actions, investigation timeline,
 risk explanations, and advanced search.
 """
+import pathlib
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -197,6 +198,109 @@ def reanalyse_case(case_id: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(case)
     return case.to_dict()
+
+
+# ── Uploaded evidence files ───────────────────────────────────────────────────
+
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
+_UPLOADS_ROOT = pathlib.Path("uploads")
+
+@router.get("/{case_id}/uploads")
+def list_uploads(case_id: str, db: Session = Depends(get_db)):
+    case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    case_dir = _UPLOADS_ROOT / case_id
+    if not case_dir.exists():
+        return {"case_id": case_id, "files": []}
+
+    # Build index of image analysis findings keyed by filename
+    meta = case.transaction_metadata or {}
+    findings_by_file = {f["file"]: f for f in meta.get("image_findings", [])}
+
+    files = []
+    for f in sorted(case_dir.iterdir()):
+        if not f.is_file():
+            continue
+        ext = f.suffix.lower()
+        files.append({
+            "name": f.name,
+            "url": f"/uploads/{case_id}/{f.name}",
+            "is_image": ext in _IMAGE_EXTS,
+            "analysis": findings_by_file.get(f.name),
+        })
+
+    return {"case_id": case_id, "files": files}
+
+
+@router.post("/{case_id}/uploads/analyse")
+def analyse_uploads(case_id: str, db: Session = Depends(get_db)):
+    """Run (or re-run) vision AI analysis on all images uploaded for a case."""
+    from agents.image_analysis_agent import ImageAnalysisAgent
+
+    case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    case_dir = _UPLOADS_ROOT / case_id
+    if not case_dir.exists():
+        return {"case_id": case_id, "analysed": 0, "files": []}
+
+    agent = ImageAnalysisAgent()
+    case_details = case.to_dict()
+    meta = case.transaction_metadata or {}
+    findings_by_file = {f["file"]: f for f in meta.get("image_findings", [])}
+
+    analysed = 0
+    for img_path in sorted(case_dir.iterdir()):
+        if not img_path.is_file() or img_path.suffix.lower() not in _IMAGE_EXTS:
+            continue
+
+        findings = agent.analyze(str(img_path), case_details)
+        if not findings:
+            continue
+
+        findings["file"] = img_path.name
+        findings_by_file[img_path.name] = findings
+
+        # Accumulate confidence adjustment
+        adjustment = float(findings.get("confidence_adjustment", 0.0))
+        if adjustment != 0.0:
+            case.confidence_score = max(0.0, min(1.0, (case.confidence_score or 0.0) + adjustment))
+
+        db.add(AuditLog(
+            case_id=case_id,
+            event_type="IMAGE_ANALYSED",
+            actor="ai_vision",
+            message=findings.get("summary", "Image analysed"),
+            payload={
+                "file": img_path.name,
+                "document_type": findings.get("document_type"),
+                "matches_case": findings.get("matches_case"),
+                "mismatches": findings.get("mismatches", []),
+                "confidence_adjustment": adjustment,
+            },
+        ))
+        analysed += 1
+
+    meta["image_findings"] = list(findings_by_file.values())
+    case.transaction_metadata = meta
+    db.commit()
+    db.refresh(case)
+
+    # Return updated file list
+    files = []
+    for f in sorted(case_dir.iterdir()):
+        if f.is_file():
+            files.append({
+                "name": f.name,
+                "url": f"/uploads/{case_id}/{f.name}",
+                "is_image": f.suffix.lower() in _IMAGE_EXTS,
+                "analysis": findings_by_file.get(f.name),
+            })
+
+    return {"case_id": case_id, "analysed": analysed, "files": files}
 
 
 # ── Advanced search ───────────────────────────────────────────────────────────

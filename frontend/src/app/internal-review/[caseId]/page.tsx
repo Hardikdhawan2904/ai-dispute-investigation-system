@@ -7,9 +7,11 @@ import toast from "react-hot-toast";
 import {
   ArrowLeft, AlertTriangle, Brain, Shield, CreditCard,
   FileText, CheckCircle, Loader2, Activity, RefreshCw,
+  ImageIcon, X, ZoomIn, CheckCircle2, XCircle,
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, getPriorityColor, getStatusColor, formatConfidence } from "@/lib/utils";
-import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase } from "@/lib/api";
+import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads, analyseUploads } from "@/lib/api";
+import type { CaseUploadFile } from "@/lib/api";
 import type { DisputeCase, AuditLog, WorkflowState, CaseStatus } from "@/types";
 import RiskTags from "@/components/dispute/RiskTags";
 import ConfidenceScore from "@/components/dispute/ConfidenceScore";
@@ -41,6 +43,9 @@ export default function InternalReviewCaseDetail() {
   const [loading, setLoading]               = useState(true);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [reanalysing, setReanalysing]       = useState(false);
+  const [uploads, setUploads]               = useState<CaseUploadFile[]>([]);
+  const [lightbox, setLightbox]             = useState<string | null>(null);
+  const [analysing, setAnalysing]           = useState(false);
 
   async function handleReanalyse() {
     if (!caseData || reanalysing) return;
@@ -55,17 +60,18 @@ export default function InternalReviewCaseDetail() {
       setReanalysing(false);
     }
   }
-  const [activeTab, setActiveTab]           = useState<"overview" | "ai" | "audit" | "workflow">("overview");
+  const [activeTab, setActiveTab]           = useState<"overview" | "ai" | "evidence" | "audit" | "workflow">("overview");
   const [liveUpdate, setLiveUpdate]         = useState(false);
 
   useEffect(() => {
     if (!caseId) return;
     setLoading(true);
-    Promise.all([getCase(caseId), getAuditLogs(caseId), getWorkflowStates(caseId)])
-      .then(([c, a, w]) => {
+    Promise.all([getCase(caseId), getAuditLogs(caseId), getWorkflowStates(caseId), getCaseUploads(caseId)])
+      .then(([c, a, w, up]) => {
         setCaseData(c);
         setAuditLogs(a.audit_logs);
         setWorkflowStates(w.workflow_states);
+        setUploads(up);
       })
       .catch(() => {
         toast.error("Case not found");
@@ -109,10 +115,11 @@ export default function InternalReviewCaseDetail() {
   if (!caseData) return null;
 
   const tabs = [
-    { key: "overview", label: "Transaction", icon: CreditCard },
-    { key: "ai",       label: "AI Analysis", icon: Brain },
-    { key: "audit",    label: "Audit Trail", icon: FileText },
-    { key: "workflow", label: "Workflow",     icon: Activity },
+    { key: "overview",  label: "Transaction",              icon: CreditCard },
+    { key: "ai",        label: "AI Analysis",              icon: Brain },
+    { key: "evidence",  label: `Evidence (${uploads.length})`, icon: ImageIcon },
+    { key: "audit",     label: "Audit Trail",              icon: FileText },
+    { key: "workflow",  label: "Workflow",                 icon: Activity },
   ] as const;
 
   return (
@@ -299,6 +306,211 @@ export default function InternalReviewCaseDetail() {
               : <p className="text-sm text-bfsi-text-dim">No risk signals detected.</p>
             }
           </div>
+
+          {/* Evidence Verification — only shown when images have been analysed */}
+          {uploads.filter(u => u.is_image && u.analysis).length > 0 && (
+            <div className="bfsi-card p-5 lg:col-span-2">
+              <div className="flex items-center gap-2 mb-4">
+                <ImageIcon className="w-4 h-4 text-bfsi-gold" />
+                <p className="section-header mb-0">Evidence Verification</p>
+                <span className="text-[10px] text-bfsi-text-dim ml-1">AI-analysed uploaded images vs submitted case details</span>
+              </div>
+              <div className="space-y-4">
+                {uploads.filter(u => u.is_image && u.analysis).map((file) => {
+                  const a = file.analysis!;
+                  const allMatch = a.matches_case && (a.mismatches ?? []).length === 0;
+                  return (
+                    <div key={file.name} className={cn(
+                      "rounded-lg border p-4",
+                      allMatch ? "border-green-500/20 bg-green-500/5" : "border-red-500/20 bg-red-500/5"
+                    )}>
+                      <div className="flex items-center gap-3 mb-3">
+                        {allMatch
+                          ? <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0" />
+                          : <XCircle    className="w-5 h-5 text-red-400 flex-shrink-0" />
+                        }
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-bfsi-text truncate">{file.name}</p>
+                          <p className={cn("text-xs mt-0.5", allMatch ? "text-green-400" : "text-red-400")}>
+                            {allMatch ? "Evidence is consistent with submitted case details" : "Evidence contains discrepancies with submitted case details"}
+                          </p>
+                        </div>
+                        {a.document_type && (
+                          <span className="text-[10px] text-bfsi-text-dim bg-bfsi-muted px-2 py-1 rounded border border-bfsi-border capitalize flex-shrink-0">
+                            {a.document_type.replace(/_/g, " ")}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Side-by-side comparison */}
+                      {(a.extracted_amount != null || a.extracted_merchant || a.extracted_date) && (
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                          <div className="bg-bfsi-muted rounded p-3">
+                            <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2">Extracted from Image</p>
+                            <div className="space-y-1.5">
+                              {a.extracted_amount != null && <div className="flex justify-between"><span className="text-[11px] text-bfsi-text-dim">Amount</span><span className="text-xs font-mono text-bfsi-text">₹{a.extracted_amount.toLocaleString()}</span></div>}
+                              {a.extracted_merchant    && <div className="flex justify-between"><span className="text-[11px] text-bfsi-text-dim">Merchant</span><span className="text-xs text-bfsi-text truncate ml-2">{a.extracted_merchant}</span></div>}
+                              {a.extracted_date        && <div className="flex justify-between"><span className="text-[11px] text-bfsi-text-dim">Date</span><span className="text-xs text-bfsi-text">{a.extracted_date}</span></div>}
+                            </div>
+                          </div>
+                          <div className="bg-bfsi-muted rounded p-3">
+                            <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2">Submitted by Customer</p>
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between"><span className="text-[11px] text-bfsi-text-dim">Amount</span><span className="text-xs font-mono text-bfsi-text">₹{caseData.amount?.toLocaleString()}</span></div>
+                              <div className="flex justify-between"><span className="text-[11px] text-bfsi-text-dim">Merchant</span><span className="text-xs text-bfsi-text truncate ml-2">{caseData.merchant}</span></div>
+                              <div className="flex justify-between"><span className="text-[11px] text-bfsi-text-dim">Date</span><span className="text-xs text-bfsi-text">{caseData.transaction_date}</span></div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AI summary */}
+                      {a.summary && <p className="text-xs text-bfsi-text-dim leading-relaxed mb-2">{a.summary}</p>}
+
+                      {/* Mismatches */}
+                      {(a.mismatches ?? []).length > 0 && (
+                        <div className="p-2.5 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-400 space-y-1">
+                          <p className="font-semibold text-[10px] uppercase tracking-wider mb-1">Mismatches</p>
+                          {a.mismatches!.map((m, i) => <p key={i}>• {m}</p>)}
+                        </div>
+                      )}
+
+                      {/* Fraud indicators */}
+                      {(a.fraud_indicators ?? []).length > 0 && (
+                        <div className="mt-2 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded text-xs text-amber-400 space-y-1">
+                          <p className="font-semibold text-[10px] uppercase tracking-wider mb-1">Fraud Signals in Image</p>
+                          {a.fraud_indicators!.map((f, i) => <p key={i}>⚠ {f}</p>)}
+                        </div>
+                      )}
+
+                      {/* Confidence adjustment */}
+                      {a.confidence_adjustment != null && a.confidence_adjustment !== 0 && (
+                        <p className={cn("mt-2 text-[11px] font-mono", (a.confidence_adjustment ?? 0) > 0 ? "text-green-400" : "text-red-400")}>
+                          Confidence score adjusted {(a.confidence_adjustment ?? 0) > 0 ? "+" : ""}{((a.confidence_adjustment ?? 0) * 100).toFixed(0)}% based on this evidence
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Evidence tab ──────────────────────────────────────────────────── */}
+      {activeTab === "evidence" && (
+        <div className="space-y-4">
+          {uploads.length > 0 && (
+            <div className="flex justify-end">
+              <button
+                onClick={async () => {
+                  if (!caseData || analysing) return;
+                  setAnalysing(true);
+                  try {
+                    const res = await analyseUploads(caseData.case_id);
+                    setUploads(res.files);
+                    const updated = await getCase(caseData.case_id);
+                    setCaseData(updated);
+                    toast.success(`AI analysed ${res.analysed} image${res.analysed !== 1 ? "s" : ""} — confidence updated`);
+                  } catch { toast.error("Analysis failed"); }
+                  finally { setAnalysing(false); }
+                }}
+                disabled={analysing}
+                className="flex items-center gap-2 text-xs px-3 py-1.5 rounded border border-bfsi-gold/40 text-bfsi-gold hover:bg-bfsi-gold/10 transition-colors disabled:opacity-50"
+              >
+                {analysing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {analysing ? "Analysing…" : "Run AI Analysis"}
+              </button>
+            </div>
+          )}
+          {uploads.length === 0 ? (
+            <div className="bfsi-card p-10 text-center">
+              <ImageIcon className="w-10 h-10 text-bfsi-text-dim mx-auto mb-3" />
+              <p className="text-sm text-bfsi-text-dim">No evidence files uploaded for this case</p>
+            </div>
+          ) : (
+            uploads.map((file) => (
+              <div key={file.name} className="bfsi-card p-5">
+                <div className="flex items-start gap-5">
+                  {file.is_image ? (
+                    <div
+                      className="relative w-40 h-28 flex-shrink-0 rounded-lg overflow-hidden border border-bfsi-border cursor-pointer group"
+                      onClick={() => setLightbox(`http://localhost:8000${file.url}`)}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={`http://localhost:8000${file.url}`} alt={file.name} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <ZoomIn className="w-6 h-6 text-white" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-40 h-28 flex-shrink-0 rounded-lg border border-bfsi-border bg-bfsi-muted flex items-center justify-center">
+                      <FileText className="w-8 h-8 text-bfsi-text-dim" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-bfsi-text mb-2 truncate">{file.name}</p>
+                    {file.analysis ? (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {file.analysis.matches_case ? (
+                            <span className="flex items-center gap-1 text-[11px] text-green-400 bg-green-400/10 border border-green-400/20 px-2 py-0.5 rounded-full">
+                              <CheckCircle2 className="w-3 h-3" /> Consistent with case
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[11px] text-red-400 bg-red-400/10 border border-red-400/20 px-2 py-0.5 rounded-full">
+                              <XCircle className="w-3 h-3" /> Mismatches found
+                            </span>
+                          )}
+                          {file.analysis.document_type && (
+                            <span className="text-[11px] text-bfsi-text-dim bg-bfsi-muted px-2 py-0.5 rounded-full border border-bfsi-border capitalize">
+                              {file.analysis.document_type.replace(/_/g, " ")}
+                            </span>
+                          )}
+                        </div>
+                        {file.analysis.summary && <p className="text-xs text-bfsi-text-dim leading-relaxed">{file.analysis.summary}</p>}
+                        <div className="grid grid-cols-3 gap-x-4 gap-y-1">
+                          {file.analysis.extracted_amount != null && (
+                            <div><span className="text-[10px] text-bfsi-text-dim">Amount</span><p className="text-xs text-bfsi-text font-mono">₹{file.analysis.extracted_amount.toLocaleString()}</p></div>
+                          )}
+                          {file.analysis.extracted_merchant && (
+                            <div><span className="text-[10px] text-bfsi-text-dim">Merchant</span><p className="text-xs text-bfsi-text truncate">{file.analysis.extracted_merchant}</p></div>
+                          )}
+                          {file.analysis.extracted_date && (
+                            <div><span className="text-[10px] text-bfsi-text-dim">Date</span><p className="text-xs text-bfsi-text">{file.analysis.extracted_date}</p></div>
+                          )}
+                        </div>
+                        {(file.analysis.mismatches ?? []).length > 0 && (
+                          <div className="p-2 bg-red-400/5 border border-red-400/20 rounded text-xs text-red-400 space-y-0.5">
+                            {file.analysis.mismatches!.map((m, i) => <p key={i}>• {m}</p>)}
+                          </div>
+                        )}
+                        {(file.analysis.fraud_indicators ?? []).length > 0 && (
+                          <div className="p-2 bg-amber-400/5 border border-amber-400/20 rounded text-xs text-amber-400 space-y-0.5">
+                            {file.analysis.fraud_indicators!.map((f, i) => <p key={i}>⚠ {f}</p>)}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-bfsi-text-dim">No AI analysis available</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ── Lightbox ──────────────────────────────────────────────────────────── */}
+      {lightbox && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+          <button className="absolute top-4 right-4 text-white hover:text-gray-300" onClick={() => setLightbox(null)}>
+            <X className="w-7 h-7" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox} alt="Evidence" className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
 

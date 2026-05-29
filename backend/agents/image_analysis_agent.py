@@ -17,7 +17,7 @@ from groq import Groq
 from utils.logger import agent_logger
 from utils.helpers import extract_json_from_text
 
-_VISION_MODEL = "llama-3.2-11b-vision-preview"
+_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 _SUPPORTED_EXTS = {".jpg", ".jpeg", ".png"}
 
 _ANALYSIS_PROMPT = """\

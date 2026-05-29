@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -90,6 +91,12 @@ app.include_router(customer.router)
 app.include_router(ops_cases.router)
 app.include_router(ops_analytics.router)
 app.include_router(queues.router)
+
+# Serve uploaded evidence files
+import pathlib as _pl
+_uploads_dir = _pl.Path("uploads")
+_uploads_dir.mkdir(exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
 
 @app.websocket("/ws/disputes")

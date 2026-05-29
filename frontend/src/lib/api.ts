@@ -262,6 +262,35 @@ export async function reanalyseCase(caseId: string): Promise<DisputeCase> {
   return res.data;
 }
 
+// ── Ops — Uploaded evidence ───────────────────────────────────────────────────
+
+export interface CaseUploadFile {
+  name: string;
+  url: string;
+  is_image: boolean;
+  analysis?: {
+    document_type?: string;
+    extracted_amount?: number | null;
+    extracted_merchant?: string | null;
+    extracted_date?: string | null;
+    matches_case?: boolean;
+    mismatches?: string[];
+    fraud_indicators?: string[];
+    confidence_adjustment?: number;
+    summary?: string;
+  } | null;
+}
+
+export async function getCaseUploads(caseId: string): Promise<CaseUploadFile[]> {
+  const res = await api.get<{ case_id: string; files: CaseUploadFile[] }>(`/api/ops/cases/${caseId}/uploads`);
+  return res.data.files;
+}
+
+export async function analyseUploads(caseId: string): Promise<{ analysed: number; files: CaseUploadFile[] }> {
+  const res = await api.post<{ analysed: number; files: CaseUploadFile[] }>(`/api/ops/cases/${caseId}/uploads/analyse`);
+  return res.data;
+}
+
 // ── Ops — Advanced search ─────────────────────────────────────────────────────
 
 export async function searchCases(params: {
