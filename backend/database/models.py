@@ -99,6 +99,9 @@ class DisputeCase(Base):
     locked_by             = Column(String(128), nullable=True)
     locked_at             = Column(DateTime, nullable=True)
 
+    # Supporting evidence (raw form fields for re-analysis)
+    transaction_metadata  = Column(JSON, default=dict)
+
     # Timestamps
     created_at            = Column(DateTime, default=_utc_now, nullable=False)
     updated_at            = Column(DateTime, default=_utc_now, onupdate=_utc_now)
@@ -147,6 +150,7 @@ class DisputeCase(Base):
             "manual_review_reason": self.manual_review_reason,
             "locked_by": self.locked_by,
             "locked_at": _iso(self.locked_at),
+            "transaction_metadata": self.transaction_metadata or {},
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
         }

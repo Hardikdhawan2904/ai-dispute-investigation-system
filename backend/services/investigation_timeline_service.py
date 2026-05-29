@@ -25,6 +25,8 @@ _EVENT_DISPLAY = {
     "MANUAL_REVIEW_FLAGGED": {"label": "Flagged for Manual Review","color": "red",    "icon": "Flag"},
     "LOCK_ACQUIRED":         {"label": "Case Locked",              "color": "gray",   "icon": "Lock"},
     "LOCK_RELEASED":         {"label": "Case Unlocked",            "color": "gray",   "icon": "Unlock"},
+    "IMAGE_ANALYSED":        {"label": "Image Evidence Analysed",  "color": "violet", "icon": "ScanLine"},
+    "REANALYSED":            {"label": "AI Re-analysis",           "color": "blue",   "icon": "RefreshCw"},
 }
 
 
@@ -73,6 +75,6 @@ def _actor_type(actor: str | None) -> str:
         return "system"
     if actor == "customer":
         return "customer"
-    if actor in ("system", "ai", "workflow"):
+    if actor in ("system", "ai", "workflow", "ai_vision"):
         return "system"
     return "analyst"

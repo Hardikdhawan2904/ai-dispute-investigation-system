@@ -174,8 +174,10 @@ async def upload_case_documents(
     """
     Public endpoint — customers upload supporting documents after submitting a dispute.
     Accepts PDF, JPG, PNG, XLSX (max 10 MB per file).
+    Images (JPG/PNG) are automatically analyzed by vision AI and findings are logged.
     """
     from database.models import DisputeCase, AuditLog
+    from agents.image_analysis_agent import ImageAnalysisAgent
 
     case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
     if not case:
@@ -185,6 +187,9 @@ async def upload_case_documents(
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     saved: List[str] = []
+    image_analyst = ImageAnalysisAgent()
+    case_details = case.to_dict()
+
     for upload in files:
         ext = Path(upload.filename or "").suffix.lower()
         if ext not in _ALLOWED_EXTENSIONS:
@@ -199,18 +204,53 @@ async def upload_case_documents(
                 detail=f"'{upload.filename}' exceeds the 10 MB file size limit",
             )
         safe_name = Path(upload.filename).name
-        (upload_dir / safe_name).write_bytes(content)
+        save_path = upload_dir / safe_name
+        save_path.write_bytes(content)
         saved.append(safe_name)
 
+        # ── Vision analysis for images ────────────────────────────────────
+        if ext in {".jpg", ".jpeg", ".png"}:
+            findings = image_analyst.analyze(str(save_path), case_details)
+            if findings:
+                # Adjust confidence score based on image evidence
+                adjustment = float(findings.get("confidence_adjustment", 0.0))
+                if adjustment != 0.0:
+                    old_score = case.confidence_score or 0.0
+                    case.confidence_score = max(0.0, min(1.0, old_score + adjustment))
+
+                # Store findings in transaction_metadata
+                meta = case.transaction_metadata or {}
+                image_findings = meta.get("image_findings", [])
+                image_findings.append({"file": safe_name, **findings})
+                meta["image_findings"] = image_findings
+                case.transaction_metadata = meta
+
+                # Write image analysis audit log
+                db.add(AuditLog(
+                    case_id=case_id,
+                    event_type="IMAGE_ANALYSED",
+                    actor="ai_vision",
+                    message=findings.get("summary", "Image analyzed"),
+                    payload={
+                        "file": safe_name,
+                        "document_type": findings.get("document_type"),
+                        "matches_case": findings.get("matches_case"),
+                        "mismatches": findings.get("mismatches", []),
+                        "fraud_indicators": findings.get("fraud_indicators", []),
+                        "confidence_adjustment": adjustment,
+                        "new_confidence_score": case.confidence_score,
+                    },
+                ))
+                api_logger.info(f"Image analysed for {case_id}: {safe_name}, adjustment={adjustment:+.2f}")
+
     if saved:
-        log = AuditLog(
+        db.add(AuditLog(
             case_id=case_id,
             event_type="DOCUMENT_UPLOADED",
             actor="customer",
             message=f"Customer uploaded {len(saved)} document(s): {', '.join(saved)}",
             payload={"files": saved, "count": len(saved)},
-        )
-        db.add(log)
+        ))
         db.commit()
         api_logger.info(f"Documents uploaded for {case_id}: {saved}")
 

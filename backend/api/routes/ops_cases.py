@@ -164,7 +164,7 @@ def reanalyse_case(case_id: str, db: Session = Depends(get_db)):
         "dispute_reason":   case.dispute_reason or "",
         "fraud_selected":   case.fraud_suspicion,
         "customer_comment": case.customer_comment or "",
-        "transaction_metadata": {},
+        "transaction_metadata": case.transaction_metadata or {},
     }
 
     agent = DisputeUnderstandingAgent()

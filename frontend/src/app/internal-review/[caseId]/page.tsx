@@ -147,6 +147,11 @@ export default function InternalReviewCaseDetail() {
                   <AlertTriangle className="w-3 h-3" /> Fraud Suspected
                 </span>
               )}
+              {caseData.requires_manual_review && (
+                <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2 py-0.5 rounded-full">
+                  <CheckCircle className="w-3 h-3" /> Human Review Required
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
@@ -172,6 +177,11 @@ export default function InternalReviewCaseDetail() {
           <div className="lg:w-64 bfsi-card p-4">
             <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-3">AI Confidence Score</p>
             <ConfidenceScore score={caseData.confidence_score} size="lg" />
+            {caseData.requires_manual_review && caseData.manual_review_reason && (
+              <p className="mt-3 text-[11px] text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded px-2 py-1.5 leading-relaxed">
+                {caseData.manual_review_reason}
+              </p>
+            )}
           </div>
         </div>
         {caseData.risk_tags?.length > 0 && (
