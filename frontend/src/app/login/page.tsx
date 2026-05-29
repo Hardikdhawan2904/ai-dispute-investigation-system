@@ -46,19 +46,19 @@ export default function LoginPage() {
               <span className="text-white font-bold text-lg">B</span>
             </div>
             <div>
-              <div className="text-white font-bold text-xl leading-none">DisputeAI</div>
+              <div className="text-white font-bold text-xl leading-none">DisputeHQ</div>
               <div className="text-blue-400 text-xs mt-0.5">BFSI Enterprise Platform</div>
             </div>
           </div>
           <h1 className="text-4xl font-bold text-white leading-tight mb-4">
-            AI-Powered Dispute<br />Resolution System
+            Dispute<br />Resolution System
           </h1>
           <p className="text-slate-400 text-lg leading-relaxed max-w-md">
-            Enterprise-grade banking dispute management with LangGraph AI workflow orchestration, real-time fraud detection, and full audit compliance.
+            Enterprise-grade banking dispute management with automated workflow orchestration, real-time fraud detection, and full audit compliance.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          {["LangGraph AI Workflow","Real-time Fraud Detection","Regulatory Compliance","Role-Based Security"].map((f) => (
+          {["Automated Workflow","Real-time Fraud Detection","Regulatory Compliance","Role-Based Security"].map((f) => (
             <div key={f} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3">
               <div className="w-2 h-2 bg-blue-400 rounded-full mb-2" />
               <p className="text-white text-sm font-medium">{f}</p>
@@ -74,7 +74,7 @@ export default function LoginPage() {
             <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
               <span className="text-white font-bold">B</span>
             </div>
-            <span className="text-white font-bold text-lg">DisputeAI</span>
+            <span className="text-white font-bold text-lg">DisputeHQ</span>
           </div>
 
           <h2 className="text-2xl font-bold text-white mb-2">Welcome back</h2>

@@ -177,7 +177,7 @@ async def upload_case_documents(
     Images (JPG/PNG) are automatically analyzed by vision AI and findings are logged.
     """
     from database.models import DisputeCase, AuditLog
-    from agents.image_analysis_agent import ImageAnalysisAgent
+    from agents.image_agent import run_image_agent
 
     case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
     if not case:
@@ -187,7 +187,6 @@ async def upload_case_documents(
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     saved: List[str] = []
-    image_analyst = ImageAnalysisAgent()
     case_details = case.to_dict()
 
     for upload in files:
@@ -208,40 +207,49 @@ async def upload_case_documents(
         save_path.write_bytes(content)
         saved.append(safe_name)
 
-        # ── Vision analysis for images ────────────────────────────────────
+        # ── AI analysis by file type ──────────────────────────────────────
         if ext in {".jpg", ".jpeg", ".png"}:
-            findings = image_analyst.analyze(str(save_path), case_details)
-            if findings:
-                # Adjust confidence score based on image evidence
-                adjustment = float(findings.get("confidence_adjustment", 0.0))
-                if adjustment != 0.0:
-                    old_score = case.confidence_score or 0.0
-                    case.confidence_score = max(0.0, min(1.0, old_score + adjustment))
+            findings = run_image_agent(str(save_path), case_details)
+            findings_key = "image_findings"
+            event_type = "IMAGE_ANALYSED"
+        elif ext in {".pdf", ".xlsx", ".xls"}:
+            from agents.document_agent import run_document_agent
+            findings = run_document_agent(str(save_path), case_details)
+            findings_key = "document_findings"
+            event_type = "DOCUMENT_ANALYSED"
+        else:
+            findings = None
+            findings_key = None
+            event_type = None
 
-                # Store findings in transaction_metadata
-                meta = case.transaction_metadata or {}
-                image_findings = meta.get("image_findings", [])
-                image_findings.append({"file": safe_name, **findings})
-                meta["image_findings"] = image_findings
-                case.transaction_metadata = meta
+        if findings and findings_key:
+            adjustment = float(findings.get("confidence_adjustment", 0.0))
+            if adjustment != 0.0:
+                old_score = case.confidence_score or 0.0
+                case.confidence_score = max(0.0, min(1.0, old_score + adjustment))
 
-                # Write image analysis audit log
-                db.add(AuditLog(
-                    case_id=case_id,
-                    event_type="IMAGE_ANALYSED",
-                    actor="ai_vision",
-                    message=findings.get("summary", "Image analyzed"),
-                    payload={
-                        "file": safe_name,
-                        "document_type": findings.get("document_type"),
-                        "matches_case": findings.get("matches_case"),
-                        "mismatches": findings.get("mismatches", []),
-                        "fraud_indicators": findings.get("fraud_indicators", []),
-                        "confidence_adjustment": adjustment,
-                        "new_confidence_score": case.confidence_score,
-                    },
-                ))
-                api_logger.info(f"Image analysed for {case_id}: {safe_name}, adjustment={adjustment:+.2f}")
+            meta = case.transaction_metadata or {}
+            file_findings = meta.get(findings_key, [])
+            file_findings.append({"file": safe_name, **findings})
+            meta[findings_key] = file_findings
+            case.transaction_metadata = meta
+
+            db.add(AuditLog(
+                case_id=case_id,
+                event_type=event_type,
+                actor="ai_vision",
+                message=findings.get("summary", "Document analyzed"),
+                payload={
+                    "file": safe_name,
+                    "document_type": findings.get("document_type"),
+                    "matches_case": findings.get("matches_case"),
+                    "mismatches": findings.get("mismatches", []),
+                    "fraud_indicators": findings.get("fraud_indicators", []),
+                    "confidence_adjustment": adjustment,
+                    "new_confidence_score": case.confidence_score,
+                },
+            ))
+            api_logger.info(f"File analysed for {case_id}: {safe_name}, adjustment={adjustment:+.2f}")
 
     if saved:
         db.add(AuditLog(

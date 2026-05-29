@@ -12,9 +12,9 @@ const LANGGRAPH_NODES = ["intake","validation","dispute_understanding","reasonin
 const NODE_DESC: Record<string, string> = {
   intake:                "Initial case registration and data normalization",
   validation:            "Input validation and completeness checks",
-  dispute_understanding: "LLM-powered dispute classification and intent analysis",
+  dispute_understanding: "Automated dispute classification and intent analysis",
   reasoning:             "Multi-step structured reasoning chain generation",
-  structured_output:     "AI output formatting and case record assembly",
+  structured_output:     "Output formatting and case record assembly",
 };
 
 export default function OpsWorkflowsPage() {

@@ -44,7 +44,7 @@ export default function OpsNav() {
             <Shield className="w-4 h-4 text-bfsi-gold" />
           </div>
           <div className="hidden sm:block">
-            <div className="text-sm font-semibold text-bfsi-text leading-none">DisputeAI</div>
+            <div className="text-sm font-semibold text-bfsi-text leading-none">DisputeHQ</div>
             <div className="text-[10px] text-bfsi-text-dim mt-0.5">Operations Platform</div>
           </div>
         </Link>
@@ -75,7 +75,7 @@ export default function OpsNav() {
         <div className="flex items-center gap-3 shrink-0">
           <div className="hidden lg:flex items-center gap-1.5 text-xs text-bfsi-text-dim">
             <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-            AI Online
+            System Online
           </div>
           {user && (
             <div className="flex items-center gap-2 border-l border-bfsi-border pl-3">

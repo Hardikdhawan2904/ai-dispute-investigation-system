@@ -3,8 +3,8 @@ import "./globals.css";
 import { Toaster } from "react-hot-toast";
 
 export const metadata: Metadata = {
-  title: "BFSI Dispute Resolution Platform | AI Operations",
-  description: "Enterprise AI-powered banking dispute investigation and resolution system",
+  title: "BFSI Dispute Resolution Platform",
+  description: "Enterprise banking dispute investigation and resolution system",
   icons: { icon: "/favicon.ico" },
 };
 

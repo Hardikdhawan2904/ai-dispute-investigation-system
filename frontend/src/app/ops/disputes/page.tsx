@@ -57,7 +57,7 @@ export default function OpsDisputesPage() {
     setSubmitting(true);
     try {
       const res = await submitDispute({ ...form, amount: Number(form.amount) });
-      toast.success(`Case ${res.case_id} created — AI analysis complete`);
+      toast.success(`Case ${res.case_id} created — analysis complete`);
       setShowForm(false);
       setForm(EMPTY_FORM);
       const r = await listCases({ limit: 200 });
@@ -91,7 +91,7 @@ export default function OpsDisputesPage() {
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
               <Brain className="w-4 h-4 text-bfsi-gold" />
-              <h2 className="font-semibold text-bfsi-text">New Dispute Intake — AI Analysis</h2>
+              <h2 className="font-semibold text-bfsi-text">New Dispute Intake</h2>
             </div>
             <button onClick={() => setShowForm(false)} className="text-bfsi-text-dim hover:text-bfsi-text"><X className="w-4 h-4" /></button>
           </div>

@@ -5,7 +5,7 @@ import type { CaseStatus } from "@/types";
 
 const WORKFLOW_STAGES: { key: CaseStatus; label: string; description: string }[] = [
   { key: "Dispute Raised",       label: "Dispute Raised",       description: "Customer complaint registered" },
-  { key: "Under Investigation",  label: "Under Investigation",  description: "AI analysis initiated" },
+  { key: "Under Investigation",  label: "Under Investigation",  description: "Analysis initiated" },
   { key: "Pending Documents",    label: "Pending Documents",    description: "Additional info required" },
   { key: "Escalated",            label: "Escalated",            description: "Routed to senior team" },
   { key: "Resolved",             label: "Resolved",             description: "Case closed with resolution" },

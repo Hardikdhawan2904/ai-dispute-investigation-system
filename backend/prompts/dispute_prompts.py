@@ -29,11 +29,8 @@ DISPUTE_ANALYSIS_PROMPT = """BFSI DISPUTE INVESTIGATION REQUEST
 CUSTOMER SUBMISSION:
   Customer Name    : {customer_name}
   Customer ID      : {customer_id}
-  Email            : {email}
-  Phone            : {phone}
 
 TRANSACTION DETAILS:
-  Transaction ID   : {transaction_id}
   Transaction Type : {transaction_type}
   Merchant / Payee : {merchant}
   Amount           : {amount} {currency}
@@ -120,7 +117,6 @@ REQUIRED OUTPUT FORMAT (return ONLY this JSON — no other text):
 {{
   "case_id": "{case_id}",
   "customer_id": "{customer_id}",
-  "transaction_id": "{transaction_id}",
   "transaction_type": "{transaction_type}",
   "merchant": "{merchant}",
   "amount": {amount},

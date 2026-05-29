@@ -62,7 +62,7 @@ export default function CaseCard({ case_data: c }: CaseCardProps) {
 
         {/* Confidence score */}
         <div className="mb-4">
-          <div className="text-[10px] text-bfsi-text-dim mb-1 uppercase tracking-wider">AI Confidence</div>
+          <div className="text-[10px] text-bfsi-text-dim mb-1 uppercase tracking-wider">Confidence Score</div>
           <ConfidenceScore score={c.confidence_score} showLabel={false} size="sm" />
         </div>
 

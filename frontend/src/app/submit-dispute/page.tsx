@@ -52,6 +52,7 @@ export default function SubmitDisputePage() {
   const [files,         setFiles]         = useState<File[]>([]);
   const [submitting,    setSubmitting]    = useState(false);
   const [apiError,      setApiError]      = useState("");
+  const [filesError,    setFilesError]    = useState("");
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -99,7 +100,20 @@ export default function SubmitDisputePage() {
     const valid =
       stepData.fields.length === 0 ||
       (await form.trigger(stepData.fields));
-    if (valid) setStep(step + 1);
+
+    if (!valid) return;
+
+    // Step 4 — require at least one image proof (JPG/PNG)
+    if (step === 4) {
+      const hasImage = files.some((f) => /\.(jpg|jpeg|png)$/i.test(f.name));
+      if (!hasImage) {
+        setFilesError("Please upload at least one image proof (JPG or PNG) to continue.");
+        return;
+      }
+      setFilesError("");
+    }
+
+    setStep(step + 1);
   }
 
   async function handleSubmit() {
@@ -266,9 +280,13 @@ export default function SubmitDisputePage() {
               {step === 4 && (
                 <Step4
                   files={files}
-                  onAdd={(newFiles) => setFiles((prev) => [...prev, ...newFiles])}
+                  onAdd={(newFiles) => {
+                    setFiles((prev) => [...prev, ...newFiles]);
+                    setFilesError("");
+                  }}
                   onRemove={(idx) => setFiles((prev) => prev.filter((_, i) => i !== idx))}
                   suggestions={txConfig?.uploadSuggestions ?? []}
+                  error={filesError}
                 />
               )}
               {step === 5 && (

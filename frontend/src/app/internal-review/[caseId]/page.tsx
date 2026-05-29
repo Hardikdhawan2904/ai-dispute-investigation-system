@@ -116,7 +116,7 @@ export default function InternalReviewCaseDetail() {
 
   const tabs = [
     { key: "overview",  label: "Transaction",              icon: CreditCard },
-    { key: "ai",        label: "AI Analysis",              icon: Brain },
+    { key: "ai",        label: "Analysis",                 icon: Brain },
     { key: "evidence",  label: `Evidence (${uploads.length})`, icon: ImageIcon },
     { key: "audit",     label: "Audit Trail",              icon: FileText },
     { key: "workflow",  label: "Workflow",                 icon: Activity },
@@ -182,7 +182,7 @@ export default function InternalReviewCaseDetail() {
             </div>
           </div>
           <div className="lg:w-64 bfsi-card p-4">
-            <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-3">AI Confidence Score</p>
+            <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-3">Confidence Score</p>
             <ConfidenceScore score={caseData.confidence_score} size="lg" />
             {caseData.requires_manual_review && caseData.manual_review_reason && (
               <p className="mt-3 text-[11px] text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded px-2 py-1.5 leading-relaxed">
@@ -208,7 +208,7 @@ export default function InternalReviewCaseDetail() {
         <button onClick={handleReanalyse} disabled={reanalysing}
           className="btn-ghost flex items-center gap-1.5 text-xs text-bfsi-gold border border-bfsi-gold/30 disabled:opacity-50">
           {reanalysing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          Re-analyse with AI
+          Re-analyse
         </button>
         <div className="flex items-center gap-2">
           <select
@@ -276,7 +276,7 @@ export default function InternalReviewCaseDetail() {
       {activeTab === "ai" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bfsi-card p-5">
-            <p className="section-header">AI Classification</p>
+            <p className="section-header">Classification</p>
             <InfoRow label="Dispute Category" value={caseData.dispute_category} />
             <InfoRow label="Priority"         value={caseData.priority} />
             <InfoRow label="Fraud Suspicion"  value={caseData.fraud_suspicion} />
@@ -292,7 +292,7 @@ export default function InternalReviewCaseDetail() {
           <div className="bfsi-card p-5 lg:col-span-2">
             <div className="flex items-center gap-2 mb-4">
               <Brain className="w-4 h-4 text-bfsi-gold" />
-              <p className="section-header mb-0">AI Structured Reasoning</p>
+              <p className="section-header mb-0">Structured Reasoning</p>
             </div>
             <div className="ai-reasoning">{caseData.structured_reasoning || "No reasoning available"}</div>
             <p className="text-[10px] text-bfsi-text-dim mt-3">
@@ -313,7 +313,7 @@ export default function InternalReviewCaseDetail() {
               <div className="flex items-center gap-2 mb-4">
                 <ImageIcon className="w-4 h-4 text-bfsi-gold" />
                 <p className="section-header mb-0">Evidence Verification</p>
-                <span className="text-[10px] text-bfsi-text-dim ml-1">AI-analysed uploaded images vs submitted case details</span>
+                <span className="text-[10px] text-bfsi-text-dim ml-1">Automated analysis of uploaded evidence vs submitted case details</span>
               </div>
               <div className="space-y-4">
                 {uploads.filter(u => u.is_image && u.analysis).map((file) => {
@@ -364,7 +364,7 @@ export default function InternalReviewCaseDetail() {
                         </div>
                       )}
 
-                      {/* AI summary */}
+                      {/* summary */}
                       {a.summary && <p className="text-xs text-bfsi-text-dim leading-relaxed mb-2">{a.summary}</p>}
 
                       {/* Mismatches */}
@@ -412,7 +412,7 @@ export default function InternalReviewCaseDetail() {
                     setUploads(res.files);
                     const updated = await getCase(caseData.case_id);
                     setCaseData(updated);
-                    toast.success(`AI analysed ${res.analysed} image${res.analysed !== 1 ? "s" : ""} — confidence updated`);
+                    toast.success(`Analysed ${res.analysed} file${res.analysed !== 1 ? "s" : ""} — confidence updated`);
                   } catch { toast.error("Analysis failed"); }
                   finally { setAnalysing(false); }
                 }}
@@ -420,7 +420,7 @@ export default function InternalReviewCaseDetail() {
                 className="flex items-center gap-2 text-xs px-3 py-1.5 rounded border border-bfsi-gold/40 text-bfsi-gold hover:bg-bfsi-gold/10 transition-colors disabled:opacity-50"
               >
                 {analysing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                {analysing ? "Analysing…" : "Run AI Analysis"}
+                {analysing ? "Analysing…" : "Run Analysis"}
               </button>
             </div>
           )}
@@ -493,7 +493,7 @@ export default function InternalReviewCaseDetail() {
                         )}
                       </div>
                     ) : (
-                      <p className="text-xs text-bfsi-text-dim">No AI analysis available</p>
+                      <p className="text-xs text-bfsi-text-dim">No analysis available</p>
                     )}
                   </div>
                 </div>

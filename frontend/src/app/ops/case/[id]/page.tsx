@@ -463,7 +463,7 @@ export default function OpsCaseDetail() {
               <div className="flex items-center gap-2 mb-4">
                 <ImageIcon className="w-4 h-4 text-bfsi-gold" />
                 <p className="section-header mb-0">Evidence Verification</p>
-                <span className="text-[10px] text-bfsi-text-dim ml-1">AI-analysed uploaded images vs submitted case details</span>
+                <span className="text-[10px] text-bfsi-text-dim ml-1">Automated analysis of uploaded evidence vs submitted case details</span>
               </div>
               <div className="space-y-4">
                 {uploads.filter(u => u.is_image && u.analysis).map((file) => {
@@ -663,7 +663,7 @@ export default function OpsCaseDetail() {
                     const res = await analyseUploads(caseData.case_id);
                     setUploads(res.files);
                     await load();
-                    toast.success(`AI analysed ${res.analysed} image${res.analysed !== 1 ? "s" : ""} — confidence updated`);
+                    toast.success(`Analysed ${res.analysed} file${res.analysed !== 1 ? "s" : ""} — confidence updated`);
                   } catch { toast.error("Analysis failed"); }
                   finally { setAnalysing(false); }
                 }}
@@ -671,7 +671,7 @@ export default function OpsCaseDetail() {
                 className="flex items-center gap-2 text-xs px-3 py-1.5 rounded border border-bfsi-gold/40 text-bfsi-gold hover:bg-bfsi-gold/10 transition-colors disabled:opacity-50"
               >
                 {analysing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                {analysing ? "Analysing…" : "Run AI Analysis"}
+                {analysing ? "Analysing…" : "Run Analysis"}
               </button>
             </div>
           )}
@@ -731,7 +731,7 @@ export default function OpsCaseDetail() {
                             )}
                           </div>
 
-                          {/* AI summary */}
+                          {/* summary */}
                           {file.analysis.summary && (
                             <p className="text-xs text-bfsi-text-dim leading-relaxed">{file.analysis.summary}</p>
                           )}
@@ -764,7 +764,7 @@ export default function OpsCaseDetail() {
                           )}
                         </div>
                       ) : (
-                        <p className="text-xs text-bfsi-text-dim mt-1">No AI analysis available for this file</p>
+                        <p className="text-xs text-bfsi-text-dim mt-1">No analysis available for this file</p>
                       )}
                     </div>
                   </div>

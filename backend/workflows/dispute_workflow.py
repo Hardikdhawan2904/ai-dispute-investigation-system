@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from langgraph.graph import StateGraph, END
 
-from agents.dispute_understanding_agent import DisputeUnderstandingAgent
+from agents.dispute_agent import run_dispute_agent
 from utils.logger import workflow_logger, log_workflow_event
 from utils.helpers import generate_case_id, utc_now_iso, sanitize_amount
 
@@ -161,8 +161,7 @@ def dispute_understanding_node(state: DisputeWorkflowState) -> dict:
     start = time.time()
     node = "dispute_understanding"
 
-    agent = DisputeUnderstandingAgent()
-    analysis = agent.analyze_dispute(state["dispute_input"])
+    analysis = run_dispute_agent(state["dispute_input"])
 
     log_workflow_event(
         workflow_logger,

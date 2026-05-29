@@ -29,7 +29,7 @@ from services import (
     case_search_service,
 )
 from services import priority_engine, manual_review_service
-from agents.dispute_understanding_agent import DisputeUnderstandingAgent
+from agents.dispute_agent import run_dispute_agent
 
 router = APIRouter(prefix="/api/ops/cases", tags=["Ops — Cases"])
 
@@ -168,8 +168,7 @@ def reanalyse_case(case_id: str, db: Session = Depends(get_db)):
         "transaction_metadata": case.transaction_metadata or {},
     }
 
-    agent = DisputeUnderstandingAgent()
-    result = agent.analyze_dispute(dispute_input)
+    result = run_dispute_agent(dispute_input)
 
     case.dispute_category        = result.get("dispute_category", case.dispute_category)
     case.fraud_suspicion         = result.get("fraud_suspicion", case.fraud_suspicion)
@@ -215,9 +214,13 @@ def list_uploads(case_id: str, db: Session = Depends(get_db)):
     if not case_dir.exists():
         return {"case_id": case_id, "files": []}
 
-    # Build index of image analysis findings keyed by filename
+    # Build index of all findings (image + document) keyed by filename
     meta = case.transaction_metadata or {}
-    findings_by_file = {f["file"]: f for f in meta.get("image_findings", [])}
+    findings_by_file = {}
+    for f in meta.get("image_findings", []):
+        findings_by_file[f["file"]] = f
+    for f in meta.get("document_findings", []):
+        findings_by_file[f["file"]] = f
 
     files = []
     for f in sorted(case_dir.iterdir()):
@@ -237,7 +240,7 @@ def list_uploads(case_id: str, db: Session = Depends(get_db)):
 @router.post("/{case_id}/uploads/analyse")
 def analyse_uploads(case_id: str, db: Session = Depends(get_db)):
     """Run (or re-run) vision AI analysis on all images uploaded for a case."""
-    from agents.image_analysis_agent import ImageAnalysisAgent
+    from agents.image_agent import run_image_agent
 
     case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
     if not case:
@@ -247,35 +250,54 @@ def analyse_uploads(case_id: str, db: Session = Depends(get_db)):
     if not case_dir.exists():
         return {"case_id": case_id, "analysed": 0, "files": []}
 
-    agent = ImageAnalysisAgent()
+    from agents.document_agent import run_document_agent
+
+    _DOC_EXTS = {".pdf", ".xlsx", ".xls"}
+
     case_details = case.to_dict()
     meta = case.transaction_metadata or {}
-    findings_by_file = {f["file"]: f for f in meta.get("image_findings", [])}
+
+    # Rebuild findings index from both buckets
+    findings_by_file: dict = {}
+    for f in meta.get("image_findings", []):
+        findings_by_file[f["file"]] = ("image_findings", f)
+    for f in meta.get("document_findings", []):
+        findings_by_file[f["file"]] = ("document_findings", f)
 
     analysed = 0
-    for img_path in sorted(case_dir.iterdir()):
-        if not img_path.is_file() or img_path.suffix.lower() not in _IMAGE_EXTS:
+    for file_path in sorted(case_dir.iterdir()):
+        if not file_path.is_file():
+            continue
+        ext = file_path.suffix.lower()
+
+        if ext in _IMAGE_EXTS:
+            findings = run_image_agent(str(file_path), case_details)
+            findings_key = "image_findings"
+            event_type = "IMAGE_ANALYSED"
+        elif ext in _DOC_EXTS:
+            findings = run_document_agent(str(file_path), case_details)
+            findings_key = "document_findings"
+            event_type = "DOCUMENT_ANALYSED"
+        else:
             continue
 
-        findings = agent.analyze(str(img_path), case_details)
         if not findings:
             continue
 
-        findings["file"] = img_path.name
-        findings_by_file[img_path.name] = findings
+        findings["file"] = file_path.name
+        findings_by_file[file_path.name] = (findings_key, findings)
 
-        # Accumulate confidence adjustment
         adjustment = float(findings.get("confidence_adjustment", 0.0))
         if adjustment != 0.0:
             case.confidence_score = max(0.0, min(1.0, (case.confidence_score or 0.0) + adjustment))
 
         db.add(AuditLog(
             case_id=case_id,
-            event_type="IMAGE_ANALYSED",
+            event_type=event_type,
             actor="ai_vision",
-            message=findings.get("summary", "Image analysed"),
+            message=findings.get("summary", "File analysed"),
             payload={
-                "file": img_path.name,
+                "file": file_path.name,
                 "document_type": findings.get("document_type"),
                 "matches_case": findings.get("matches_case"),
                 "mismatches": findings.get("mismatches", []),
@@ -284,7 +306,9 @@ def analyse_uploads(case_id: str, db: Session = Depends(get_db)):
         ))
         analysed += 1
 
-    meta["image_findings"] = list(findings_by_file.values())
+    # Write back separated buckets
+    meta["image_findings"]    = [f for key, f in findings_by_file.values() if key == "image_findings"]
+    meta["document_findings"] = [f for key, f in findings_by_file.values() if key == "document_findings"]
     case.transaction_metadata = meta
     db.commit()
     db.refresh(case)

@@ -52,9 +52,9 @@ export default function OpsAnalysisPage() {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <div className="w-1 h-5 bg-bfsi-gold rounded-full" />
-            <span className="text-xs text-bfsi-gold font-semibold tracking-widest uppercase">AI Intelligence</span>
+            <span className="text-xs text-bfsi-gold font-semibold tracking-widest uppercase">Intelligence</span>
           </div>
-          <h1 className="text-2xl font-bold text-bfsi-text">AI Analysis Center</h1>
+          <h1 className="text-2xl font-bold text-bfsi-text">Analysis Center</h1>
           <p className="text-bfsi-text-dim text-sm mt-1">Confidence scores, classification performance, and risk signal intelligence</p>
         </div>
         <button onClick={() => setRefreshKey((k) => k + 1)} className="btn-ghost flex items-center gap-2">
@@ -62,12 +62,12 @@ export default function OpsAnalysisPage() {
         </button>
       </div>
 
-      {/* AI performance summary */}
+      {/* performance summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <div className="bfsi-card p-5 bfsi-card-accent">
           <div className="flex items-center gap-2 mb-3">
             <Brain className="w-4 h-4 text-bfsi-gold" />
-            <p className="text-xs text-bfsi-text-dim uppercase tracking-wider">Avg AI Confidence</p>
+            <p className="text-xs text-bfsi-text-dim uppercase tracking-wider">Avg Confidence</p>
           </div>
           <p className={cn("text-4xl font-bold font-mono", getConfidenceColor(avgConfidence))}>
             {formatConfidence(avgConfidence)}
@@ -95,7 +95,7 @@ export default function OpsAnalysisPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Confidence distribution */}
         <div className="bfsi-card p-5">
-          <p className="section-header">AI Confidence Distribution</p>
+          <p className="section-header">Confidence Distribution</p>
           <div className="space-y-3">
             {CONFIDENCE_BUCKETS.map((bucket) => {
               const count = cases.filter((c) => c.confidence_score >= bucket.min && c.confidence_score < bucket.max).length;

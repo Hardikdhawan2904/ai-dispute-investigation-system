@@ -284,7 +284,7 @@ function LiveEntryRow({ entry }: { entry: LiveEntry }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono text-bfsi-text-dim">{entry.case_id}</span>
-          {entry.status === "analyzing" && <span className="text-xs text-yellow-400 animate-pulse">AI analysing…</span>}
+          {entry.status === "analyzing" && <span className="text-xs text-yellow-400 animate-pulse">Analysing…</span>}
           {entry.status === "complete"  && <span className="text-xs text-green-400">Analysis complete</span>}
           {entry.status === "failed"    && <span className="text-xs text-red-400">Failed: {entry.errors?.join(", ")}</span>}
         </div>

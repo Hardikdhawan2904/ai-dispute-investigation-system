@@ -40,7 +40,7 @@ export default function OpsfraudPage() {
             <span className="text-xs text-red-400 font-semibold tracking-widest uppercase">Fraud Intelligence</span>
           </div>
           <h1 className="text-2xl font-bold text-bfsi-text">Fraud Analysis Center</h1>
-          <p className="text-bfsi-text-dim text-sm mt-1">AI-detected fraud signals and suspicious transaction patterns</p>
+          <p className="text-bfsi-text-dim text-sm mt-1">Detected fraud signals and suspicious transaction patterns</p>
         </div>
         <button onClick={() => setRefreshKey((k) => k + 1)} className="btn-ghost flex items-center gap-2">
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Refresh

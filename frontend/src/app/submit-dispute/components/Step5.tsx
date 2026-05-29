@@ -18,6 +18,7 @@ interface Step5Props {
   onAdd: (files: File[]) => void;
   onRemove: (index: number) => void;
   suggestions: string[];
+  error?: string;
 }
 
 function formatBytes(bytes: number): string {
@@ -43,7 +44,7 @@ const FALLBACK_SUGGESTIONS = [
   "Receipt or invoice",
 ];
 
-export default function Step5({ files, onAdd, onRemove, suggestions }: Step5Props) {
+export default function Step5({ files, onAdd, onRemove, suggestions, error }: Step5Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   function handleFiles(selected: FileList | null) {
@@ -81,7 +82,7 @@ export default function Step5({ files, onAdd, onRemove, suggestions }: Step5Prop
       </Panel>
 
       {/* ── Upload ────────────────────────────────────────────────────────── */}
-      <Panel label="Upload Supporting Documents">
+      <Panel label="Upload Supporting Documents *">
 
         {/* Drop zone */}
         <div
@@ -140,10 +141,15 @@ export default function Step5({ files, onAdd, onRemove, suggestions }: Step5Prop
           </div>
         )}
 
-        {files.length === 0 && (
-          <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-400">
+        <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500">
+          <Info className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+          At least one image proof (JPG or PNG) is required to submit your dispute.
+        </p>
+
+        {error && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-red-600 font-medium">
             <Info className="w-3.5 h-3.5 shrink-0" />
-            Documents are optional but significantly improve resolution speed and accuracy.
+            {error}
           </p>
         )}
       </Panel>

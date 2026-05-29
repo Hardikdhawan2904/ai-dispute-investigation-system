@@ -115,7 +115,7 @@ export default function OpsInvestigationsPage() {
                   <div className="flex items-center gap-4 mt-2">
                     <span className="font-mono text-sm font-bold text-bfsi-text">{formatCurrency(c.amount, c.currency)}</span>
                     <span className={cn("text-xs font-semibold", getConfidenceColor(c.confidence_score))}>
-                      {formatConfidence(c.confidence_score)} AI confidence
+                      {formatConfidence(c.confidence_score)} confidence
                     </span>
                     <span className="text-xs text-bfsi-text-dim flex items-center gap-1">
                       <Clock className="w-3 h-3" /> {formatDate(c.created_at)}
