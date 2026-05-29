@@ -16,6 +16,7 @@ load_dotenv()
 from groq import Groq
 from utils.logger import agent_logger
 from utils.helpers import extract_json_from_text
+from utils.pii_masker import mask_case_details_for_llm
 
 _VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 _SUPPORTED_EXTS = {".jpg", ".jpeg", ".png"}
@@ -72,14 +73,16 @@ class ImageAnalysisAgent:
             ext = path.suffix.lower()
             mime = "image/jpeg" if ext in {".jpg", ".jpeg"} else "image/png"
 
+            safe = mask_case_details_for_llm(case_details)
+
             prompt = _ANALYSIS_PROMPT.format(
-                customer_name=case_details.get("customer_name", "Unknown"),
-                merchant=case_details.get("merchant", "Unknown"),
-                currency=case_details.get("currency", "INR"),
-                amount=case_details.get("amount", "Unknown"),
-                transaction_date=case_details.get("transaction_date", "Unknown"),
-                dispute_reason=case_details.get("dispute_reason", "Not specified"),
-                fraud_selected=case_details.get("fraud_selected", False),
+                customer_name=safe.get("customer_name", "Unknown"),
+                merchant=safe.get("merchant", "Unknown"),
+                currency=safe.get("currency", "INR"),
+                amount=safe.get("amount", "Unknown"),
+                transaction_date=safe.get("transaction_date", "Unknown"),
+                dispute_reason=safe.get("dispute_reason", "Not specified"),
+                fraud_selected=safe.get("fraud_selected", False),
             )
 
             response = self.client.chat.completions.create(

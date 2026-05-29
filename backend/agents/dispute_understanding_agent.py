@@ -24,6 +24,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from prompts.dispute_prompts import SYSTEM_PROMPT, DISPUTE_ANALYSIS_PROMPT
 from utils.logger import agent_logger, log_workflow_event
 from utils.helpers import extract_json_from_text, generate_case_id, utc_now_iso, determine_priority
+from utils.pii_masker import mask_case_for_llm
 
 
 class DisputeUnderstandingAgent:
@@ -94,13 +95,16 @@ class DisputeUnderstandingAgent:
             f"  Steps Already Taken          : {meta.get('fraud_additional_details') or 'None stated'}\n"
         )
 
+        # Mask identifier fields before sending to external LLM
+        masked = mask_case_for_llm(dispute_input)
+
         # Build the analysis prompt
         prompt_text = DISPUTE_ANALYSIS_PROMPT.format(
             customer_name=dispute_input.get("customer_name", "Unknown"),
             customer_id=dispute_input.get("customer_id", ""),
-            email=dispute_input.get("email", ""),
-            phone=dispute_input.get("phone", ""),
-            transaction_id=dispute_input.get("transaction_id", ""),
+            email=masked["email"],
+            phone=masked["phone"],
+            transaction_id=masked["transaction_id"],
             transaction_type=dispute_input.get("transaction_type", ""),
             merchant=dispute_input.get("merchant", ""),
             amount=dispute_input.get("amount", 0),
