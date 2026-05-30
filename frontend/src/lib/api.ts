@@ -66,6 +66,24 @@ export async function login(email: string, password: string): Promise<AuthUser> 
   };
 }
 
+// ── Customer lookup ───────────────────────────────────────────────────────────
+
+export interface BankCustomer {
+  customer_id: string;
+  full_name: string;
+  email: string;
+  phone: string;
+}
+
+export async function lookupCustomer(customerId: string): Promise<BankCustomer | null> {
+  try {
+    const res = await api.get<BankCustomer>(`/api/customer/lookup/${customerId.toUpperCase()}`);
+    return res.data;
+  } catch {
+    return null;
+  }
+}
+
 // ── Internal bank disputes ────────────────────────────────────────────────────
 
 export async function submitDispute(data: DisputeSubmissionInput): Promise<DisputeSubmissionResponse> {

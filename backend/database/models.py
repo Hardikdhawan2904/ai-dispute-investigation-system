@@ -34,6 +34,26 @@ def _iso(dt) -> str | None:
     return dt.isoformat()
 
 
+# ── Bank Customers ────────────────────────────────────────────────────────────
+
+class BankCustomer(Base):
+    __tablename__ = "bank_customers"
+
+    customer_id   = Column(String(64), primary_key=True, index=True)
+    full_name     = Column(String(256), nullable=False)
+    email         = Column(String(256), nullable=False)
+    phone         = Column(String(32), nullable=False)
+    created_at    = Column(DateTime, default=_utc_now, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "customer_id": self.customer_id,
+            "full_name":   self.full_name,
+            "email":       self.email,
+            "phone":       self.phone,
+        }
+
+
 # ── Dispute Cases ─────────────────────────────────────────────────────────────
 
 class DisputeCase(Base):

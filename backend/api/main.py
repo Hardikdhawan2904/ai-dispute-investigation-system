@@ -34,10 +34,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="BFSI Dispute Resolution Platform",
-    description=(
-        "Enterprise-grade AI-powered banking dispute investigation and resolution system. "
-        "Powered by LangGraph + Groq (llama3-8b-8192). Audit-compliant, explainable AI."
-    ),
+    description="Enterprise-grade banking dispute investigation and resolution system. Powered by LangGraph + Groq.",
     version=os.getenv("APP_VERSION", "1.0.0"),
     docs_url="/docs",
     redoc_url="/redoc",

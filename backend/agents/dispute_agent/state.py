@@ -1,22 +1,17 @@
-from typing import TypedDict, Optional, List
+from typing import TypedDict, Optional, List, Annotated
+from langgraph.graph.message import add_messages
+from langchain_core.messages import BaseMessage
 
 
 class DisputeAgentState(TypedDict):
-    # ── Input ───────────────────────────────────────────────────────────────────
+    # Message channel — orchestrator LLM reads/writes here each turn
+    messages: Annotated[List[BaseMessage], add_messages]
+
+    # Passed in at invocation time
     dispute_input: dict
-    document_texts: List[str]   # extracted text from each uploaded file
+    document_texts: List[str]
 
-    # ── Derived in validate_input ───────────────────────────────────────────────
+    # Populated by extract_final_case after the agent loop finishes
     case_id: str
-
-    # ── Derived in build_evidence ───────────────────────────────────────────────
-    supporting_evidence: str
-
-    # ── Derived in run_llm ─────────────────────────────────────────────────────
-    raw_llm_response: str
-
-    # ── Derived in enrich_output ───────────────────────────────────────────────
     final_case: dict
-
-    # ── Error channel ──────────────────────────────────────────────────────────
     error: Optional[str]

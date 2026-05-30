@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database.database import get_db
+from database.models import BankCustomer
 from services.dispute_service import DisputeService
 from schemas.dispute_schemas import DisputeSubmissionRequest
 from schemas.customer_schemas import (
@@ -18,6 +19,15 @@ from auth.dependencies import get_current_user
 from utils.logger import api_logger
 
 router = APIRouter(prefix="/api/customer", tags=["Customer Portal"])
+
+
+@router.get("/lookup/{customer_id}")
+def lookup_customer(customer_id: str, db: Session = Depends(get_db)):
+    """Public endpoint — returns basic customer info for form pre-fill."""
+    customer = db.query(BankCustomer).filter(BankCustomer.customer_id == customer_id.upper()).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return customer.to_dict()
 
 
 def _require_customer(user: dict = Depends(get_current_user)) -> dict:

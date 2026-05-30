@@ -134,25 +134,3 @@ REQUIRED OUTPUT FORMAT (return ONLY this JSON — no other text):
   "workflow_ready": true,
   "created_at": "{created_at}"
 }}"""
-
-
-VALIDATION_PROMPT = """You are a BFSI data quality validator. Check the following dispute submission for data quality issues.
-
-Submission:
-{submission_data}
-
-Check for:
-1. Missing critical fields (transaction_id, amount, customer_comment)
-2. Invalid amounts (negative, zero, suspiciously round numbers)
-3. Date inconsistencies (future dates, dates more than 180 days old)
-4. Contradictions (e.g., dispute_reason says "refund" but comment says "never ordered")
-5. Spam or test submissions (customer_comment like "test", "aaa", random characters)
-
-Return ONLY this JSON:
-{{
-  "is_valid": <true|false>,
-  "quality_score": <0.0 to 1.0>,
-  "issues": ["<issue1>", "<issue2>"],
-  "warnings": ["<warning1>"],
-  "recommendation": "<proceed|review|reject>"
-}}"""

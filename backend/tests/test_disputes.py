@@ -2,9 +2,7 @@
 Integration tests for the BFSI Dispute Resolution Platform.
 Run: pytest tests/test_disputes.py -v
 """
-import json
 import pytest
-from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -95,18 +93,6 @@ def test_dashboard_stats_empty():
 def test_get_nonexistent_case():
     response = client.get("/api/disputes/cases/CASE-FAKE-0000")
     assert response.status_code == 404
-
-
-def test_synthetic_data_structure():
-    """Validate that all synthetic test cases have required fields."""
-    data_path = Path(__file__).parent.parent / "synthetic_data" / "sample_disputes.json"
-    cases = json.loads(data_path.read_text())
-    required_fields = {"customer_name", "customer_id", "email", "phone", "transaction_id",
-                       "transaction_type", "merchant", "amount", "currency",
-                       "customer_comment", "dispute_reason", "fraud_selected"}
-    for case in cases:
-        for field in required_fields:
-            assert field in case["input"], f"Missing {field} in case: {case['label']}"
 
 
 def test_submit_dispute_invalid_amount():

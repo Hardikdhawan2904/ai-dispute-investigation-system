@@ -19,15 +19,13 @@ _EVENT_DISPLAY = {
     "NOTE_ADDED":            {"label": "Note Added",               "color": "gray",   "icon": "MessageSquare"},
     "CASE_REASSIGNED":       {"label": "Case Reassigned",          "color": "purple", "icon": "Users"},
     "SLA_BREACHED":          {"label": "SLA Breach",               "color": "red",    "icon": "AlertTriangle"},
-    "WORKFLOW_START":        {"label": "AI Analysis Started",      "color": "blue",   "icon": "Cpu"},
+    "WORKFLOW_START":        {"label": "Analysis Started",          "color": "blue",   "icon": "Cpu"},
     "ANALYSIS_COMPLETE":     {"label": "Analysis Complete",        "color": "green",  "icon": "CheckSquare"},
     "DUPLICATE_DETECTED":    {"label": "Duplicate Detected",       "color": "orange", "icon": "Copy"},
     "MANUAL_REVIEW_FLAGGED": {"label": "Flagged for Manual Review","color": "red",    "icon": "Flag"},
     "LOCK_ACQUIRED":         {"label": "Case Locked",              "color": "gray",   "icon": "Lock"},
     "LOCK_RELEASED":         {"label": "Case Unlocked",            "color": "gray",   "icon": "Unlock"},
-    "IMAGE_ANALYSED":        {"label": "Image Evidence Analysed",    "color": "violet", "icon": "ScanLine"},
-    "DOCUMENT_ANALYSED":     {"label": "Document Evidence Analysed", "color": "indigo", "icon": "FileText"},
-    "REANALYSED":            {"label": "AI Re-analysis",             "color": "blue",   "icon": "RefreshCw"},
+    "REANALYSED":            {"label": "Re-analysis Complete",       "color": "blue",   "icon": "RefreshCw"},
 }
 
 
@@ -76,6 +74,6 @@ def _actor_type(actor: str | None) -> str:
         return "system"
     if actor == "customer":
         return "customer"
-    if actor in ("system", "ai", "workflow", "ai_vision"):
+    if actor in ("system", "ai", "workflow"):
         return "system"
     return "analyst"
