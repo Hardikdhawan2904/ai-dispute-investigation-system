@@ -1,13 +1,11 @@
 """
-ARIA dispute agent tools — all pure, deterministic @tool functions.
-No LLM call lives inside any tool; the agent LLM calls these autonomously.
+ARIA dispute agent tools — pure, deterministic @tool functions.
+No LLM call lives inside any tool; the LLM calls these autonomously via the ReAct loop.
 
-Usage anywhere in the codebase:
-    from agents.dispute_agent.tools import validate_dispute_input
-    result = validate_dispute_input.invoke({"customer_id": "C123"})
-
-    from agents.dispute_agent.tools import TOOLS
-    llm.bind_tools(TOOLS)
+To add a new tool:
+  1. Define it here with @tool and register it in TOOL_REGISTRY.
+  2. Add its name to agent_tools in agent.yaml.
+  That's it — graph.py and pipeline.py pick it up automatically.
 """
 import json
 from typing import List

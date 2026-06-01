@@ -4,7 +4,6 @@ agent:
   version: "1.0"
   domain: BFSI — Banking, Financial Services & Insurance
 
-  # ── Identity ────────────────────────────────────────────────────────────────
   role: >
     Senior AI Dispute Analyst embedded in the bank's internal dispute
     operations platform. ARIA receives raw customer dispute submissions,
@@ -16,17 +15,14 @@ agent:
     assess fraud suspicion, assign a priority level (CRITICAL / HIGH / MEDIUM / LOW),
     generate risk tags, compute a calibrated confidence score, and return a
     fully structured JSON case record — ready for immediate DB storage and
-    analyst review — within a single deterministic pipeline execution.
+    analyst review.
 
   backstory: >
     ARIA was designed after the bank's dispute operations team was overwhelmed
     by high case volumes, inconsistent manual triage, and slow fraud escalation.
-    The mandate was clear: automate first-pass investigation without sacrificing
-    auditability. ARIA was trained on RBI dispute resolution guidelines and BFSI
-    audit standards. It never gives legal advice, never fabricates data, and
-    flags uncertainty explicitly via confidence_score rather than guessing.
-    Every decision it makes is traceable through structured_reasoning — a
-    written audit trail embedded in every case record it produces.
+    It never gives legal advice, never fabricates data, and flags uncertainty
+    explicitly via confidence_score. Every decision is traceable through
+    structured_reasoning embedded in every case record it produces.
 
   constraints:
     - Factual analysis only — no legal or financial advice
@@ -34,9 +30,9 @@ agent:
     - Returns ONLY valid parseable JSON — no prose, no markdown
     - Every dispute treated with equal seriousness regardless of amount
     - Governed by RBI dispute resolution guidelines and BFSI audit standards
-    - Temperature locked at 0 for full determinism
     - Confidence uncertainty expressed numerically, never suppressed
 
+  # ── LLM config — read by config.py → get_llm_config() ──────────────────────
   llm:
     provider: Groq
     model: llama-3.3-70b-versatile
@@ -45,177 +41,46 @@ agent:
     retry_attempts: 3
     retry_wait: exponential (min 2s, max 10s)
 
-  # ── LangGraph Integration ───────────────────────────────────────────────────
+  # ── LangGraph — read by config.py → get_entry_point() / get_agent_tool_names()
   langgraph:
     framework: LangGraph (StateGraph)
     pattern: ReAct — Agent-Tools Loop
     state_schema: DisputeAgentState
 
-    # ── Executable pipeline config — imported by config.py, drives graph.py and nodes/
     pipeline:
       entry_point: agent
 
-      # Tools the LLM agent calls autonomously — all 4 are LLM-driven (pure agentic)
+      # Tools the LLM calls autonomously — add/remove here to change LLM tool access
+      # Each name must exist as a key in tools.py → TOOL_REGISTRY
       agent_tools:
         - validate_dispute_input
         - build_evidence_summary
         - calculate_priority
         - clamp_score
 
-      nodes:
-        - id: agent
-          type: llm
-          llm_call: true
-          purpose: "LLM with bound tools — reasons over dispute, calls tools autonomously"
-
-        - id: tools
-          type: ToolNode
-          llm_call: false
-          purpose: "Executes whichever tool the agent LLM requested"
-
-        - id: finalize
-          type: function
-          llm_call: false
-          purpose: "Parse LLM final JSON response, enrich with DB fields, build final_case"
-
-      edges:
-        - {from: agent,    to: tools,    condition: has_tool_calls}
-        - {from: agent,    to: finalize, condition: no_tool_calls}
-        - {from: tools,    to: agent}
-        - {from: finalize, to: END}
-
-    description: >
-      ARIA runs as a compiled LangGraph StateGraph. The graph is a strict
-      linear pipeline with no conditional edges and no branching — every
-      dispute follows the same four-node path. This is intentional: agentic
-      autonomy lives inside the LLM call at run_analysis; the graph provides
-      structure, state isolation, and a clear audit trace. The compiled graph
-      is a singleton instantiated once at module load and reused across all
-      API requests.
-
-    state:
-      class: DisputeAgentState
-      type: TypedDict
-      fields:
-        dispute_input:       "Raw dict from the API — customer and transaction data"
-        document_texts:      "List of OCR-extracted strings from uploaded evidence files"
-        case_id:             "Unique case identifier assigned or confirmed by validate node"
-        supporting_evidence: "Formatted fraud-indicator checklist built by build_evidence node"
-        document_section:    "Truncated document text (max 3000 chars) passed to the LLM"
-        raw_llm_response:    "Raw string response from Groq — may contain JSON + surrounding text"
-        final_case:          "Parsed, validated, enriched case dict — written to the database"
-        error:               "Optional error string set if a node fails"
-
-    graph_topology:
-      - node: validate
-        purpose: >
-          Confirms or generates the case_id. Accepts an existing pre-generated
-          ID (if the API layer created one) or auto-generates via generate_case_id().
-          Writes case_id into state.
-        tool: validate_dispute_input
-        llm_call: false
-
-      - node: build_evidence
-        purpose: >
-          Transforms the raw transaction_metadata dict into a human-readable,
-          line-by-line fraud-indicator checklist. Simultaneously formats all
-          uploaded document texts into a document_section string (capped at
-          3000 chars per document to control token usage). Both outputs are
-          written into state for the LLM to consume.
-        tool: build_evidence_summary
-        llm_call: false
-
-      - node: run_analysis
-        purpose: >
-          THE ONLY NODE THAT CALLS THE LLM. Assembles the full analysis prompt
-          from all prior state fields and invokes Groq (llama-3.3-70b-versatile)
-          with temperature=0. Returns the raw LLM string response into state.
-          Retries up to 3 times with exponential backoff on failure.
-        tool: run_dispute_analysis
-        llm_call: true
-
-      - node: finalize
-        purpose: >
-          Parses the raw LLM JSON response (with regex fallback for malformed
-          output). Enriches the parsed dict with fields the LLM does not own
-          (case_id, customer_id, transaction_id, status, created_at).
-          Clamps confidence_score to [0.0, 1.0] via clamp_score tool.
-          Recalculates priority via calculate_priority tool if LLM returned
-          an invalid value. Falls back to a safe default case record if JSON
-          parsing fails entirely. Writes final_case into state.
-        tools:
-          - clamp_score
-          - calculate_priority
-        llm_call: false
-
-    edges:
-      - {from: validate,       to: build_evidence}
-      - {from: build_evidence, to: run_analysis}
-      - {from: run_analysis,   to: finalize}
-      - {from: finalize,       to: END}
-
   # ── Tools ───────────────────────────────────────────────────────────────────
   tools:
     - name: validate_dispute_input
-      node: validate
-      description: >
-        Validates the dispute submission and assigns a case ID.
-        Returns the existing case_id if provided, otherwise auto-generates one.
-      inputs:
-        - customer_id: string
-        - existing_case_id: string (optional)
+      description: Validates the dispute submission and returns a case_id (auto-generated if not provided).
+      inputs: [customer_id: string, existing_case_id: string (optional)]
       output: case_id string
 
     - name: build_evidence_summary
-      node: build_evidence
-      description: >
-        Converts the transaction_metadata dict into a structured 14-field
-        fraud-indicator checklist covering OTP status, card/SIM/device flags,
-        phishing and remote-access indicators, and steps already taken.
-        This evidence block is injected verbatim into the LLM prompt.
-      inputs:
-        - metadata_json: JSON string of transaction_metadata
+      description: Converts transaction_metadata into a 14-field fraud-indicator checklist.
+      inputs: [metadata_json: JSON string]
       output: formatted multi-line evidence string
 
-    - name: run_dispute_analysis
-      node: run_analysis
-      description: >
-        Core intelligence tool. Invokes Groq LLM with the full dispute
-        context — customer submission, fraud-indicator checklist, and
-        document text. The LLM classifies the dispute, assesses fraud,
-        assigns priority and risk tags, computes confidence_score, and
-        writes structured_reasoning for the analyst audit trail.
-        Returns raw LLM string (JSON expected but not guaranteed).
-      inputs:
-        - case_id: string
-        - dispute_input_json: JSON string
-        - supporting_evidence: string (from build_evidence_summary)
-        - document_section: string (from document parsing)
-      output: raw LLM response string containing structured JSON
+    - name: calculate_priority
+      description: Returns CRITICAL / HIGH / MEDIUM / LOW from amount, fraud_suspicion, and risk_tags.
+      inputs: [amount: float, fraud_suspicion: bool, risk_tags: list]
+      output: CRITICAL | HIGH | MEDIUM | LOW
 
     - name: clamp_score
-      node: finalize
-      description: >
-        Deterministic guard that clamps the LLM-returned confidence_score
-        to the valid [0.0, 1.0] range. Prevents out-of-range values from
-        polluting the database.
-      inputs:
-        - score: float
+      description: Clamps a confidence score to the valid [0.0, 1.0] range.
+      inputs: [score: float]
       output: float in [0.0, 1.0]
 
-    - name: calculate_priority
-      node: finalize
-      description: >
-        Rule-based priority engine used as a fallback when the LLM returns
-        an invalid or missing priority value. Evaluates amount thresholds,
-        fraud_suspicion flag, and risk_tags to assign CRITICAL / HIGH / MEDIUM / LOW.
-      inputs:
-        - amount: float
-        - fraud_suspicion: bool
-        - risk_tags: list of strings
-      output: one of CRITICAL | HIGH | MEDIUM | LOW
-
-  # ── Output Schema ───────────────────────────────────────────────────────────
+  # ── Output schema ────────────────────────────────────────────────────────────
   output:
     format: JSON dict (DisputeCase)
     fields:
@@ -228,9 +93,9 @@ agent:
       currency:                "ISO currency code (default INR)"
       dispute_category:        "One of 9 canonical BFSI dispute categories"
       fraud_suspicion:         "Boolean — true if fraud indicators are present"
-      customer_intent_summary: "2-3 sentence plain-language summary of the customer's claim"
+      customer_intent_summary: "2-3 sentence plain-language summary of the customer claim"
       priority:                "CRITICAL | HIGH | MEDIUM | LOW"
-      confidence_score:        "Float [0.1, 1.0] — LLM's self-assessed certainty"
+      confidence_score:        "Float [0.0, 1.0] — LLM self-assessed certainty"
       risk_tags:               "List of applicable risk signal tags"
       structured_reasoning:    "3-5 sentence audit-trail explanation of the classification"
       evidence_match:          "true | false | null — document corroboration result"
@@ -256,14 +121,11 @@ agent:
     MEDIUM:   "Moderate-confidence dispute, amounts 10000–50000, refund/product issues"
     LOW:      "Minor merchant disputes, low amounts, clear resolution path"
 
-  # ── Invocation ──────────────────────────────────────────────────────────────
+  # ── Invocation ───────────────────────────────────────────────────────────────
   invocation:
     entry_function: run_dispute_agent
     file: agents/dispute_agent/__init__.py
     signature: "run_dispute_agent(dispute_input: dict, document_texts: List[str]) -> dict"
     called_from:
-      - "services/dispute_service.py  →  via workflows/dispute_workflow.py (primary path)"
-      - "api/routes/ops_cases.py      →  direct call (ops analyst re-analysis endpoint)"
-    returns: >
-      final_case dict — the complete structured case record ready for
-      immediate persistence to the disputes table via DisputeService.
+      - "services/dispute_service.py → via workflows/dispute_workflow.py (primary path)"
+      - "api/routes/ops_cases.py     → direct call (ops analyst re-analysis endpoint)"

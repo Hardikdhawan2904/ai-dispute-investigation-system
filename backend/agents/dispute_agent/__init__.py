@@ -1,10 +1,8 @@
 """
-ARIA entry point.
+ARIA entry point — run_dispute_agent(dispute_input, document_texts) -> dict
 
-run_dispute_agent builds the initial message list (SystemMessage + HumanMessage)
-and invokes the LangGraph ReAct loop. The LLM calls all 4 tools autonomously —
-validate_dispute_input, build_evidence_summary, calculate_priority, clamp_score —
-in whatever order it decides, then produces the final JSON.
+Builds the initial message list and invokes the LangGraph ReAct loop.
+The LLM calls tools autonomously in whatever order it decides, then returns final JSON.
 """
 import json
 from typing import List, Optional
