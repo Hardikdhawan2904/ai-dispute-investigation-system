@@ -76,5 +76,15 @@ def calculate_priority(amount: float, fraud_suspicion: bool, risk_tags: List[str
     return determine_priority(amount, fraud_suspicion, risk_tags)
 
 
-# ── All tools — the LLM agent calls all of these autonomously ────────────────
-TOOLS = [validate_dispute_input, build_evidence_summary, calculate_priority, clamp_score]
+# ── Registry — maps agent.yaml tool name → callable ──────────────────────────
+# graph.py and pipeline.py resolve tools by reading agent_tools from agent.yaml,
+# then looking each name up here. Add a new tool here + in agent.yaml — nowhere else.
+TOOL_REGISTRY: dict = {
+    "validate_dispute_input": validate_dispute_input,
+    "build_evidence_summary": build_evidence_summary,
+    "calculate_priority":     calculate_priority,
+    "clamp_score":            clamp_score,
+}
+
+# Convenience list — all registered tools in declaration order
+TOOLS = list(TOOL_REGISTRY.values())

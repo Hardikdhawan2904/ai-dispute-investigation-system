@@ -1,9 +1,11 @@
 """
-Agent config loader — reads agent.yaml once (cached) and exposes
-typed helpers used by pipeline.py and graph.py.
+Agent config loader — reads agent.yaml once (LRU-cached) and exposes
+typed helpers consumed by graph.py and nodes/pipeline.py.
 
-All pipeline structure (nodes, edges, tools, entry point) is
-sourced exclusively from agent.yaml. Nothing is hardcoded here.
+agent.yaml is the single source of truth for:
+  - LLM settings      (model, temperature, max_tokens)
+  - Entry point       (which node the graph starts at)
+  - Agent tools       (which tools the LLM can call — drives bind_tools + ToolNode)
 """
 from __future__ import annotations
 
@@ -26,34 +28,15 @@ def _pipeline() -> dict:
 
 
 def get_entry_point() -> str:
+    """Return the graph entry-point node id (e.g. 'agent')."""
     return _pipeline()["entry_point"]
 
 
-def get_pipeline_nodes() -> List[dict]:
-    return _pipeline()["nodes"]
-
-
-def get_pipeline_edges() -> List[dict]:
-    return _pipeline()["edges"]
-
-
-def get_node_tools(node_id: str) -> List[str]:
-    """Return all tool names declared for a node in agent.yaml."""
-    for node in get_pipeline_nodes():
-        if node["id"] == node_id:
-            if "tools" in node:
-                return node["tools"]
-            if "tool" in node:
-                return [node["tool"]]
-    raise KeyError(f"Node '{node_id}' not found in agent.yaml pipeline")
+def get_agent_tool_names() -> List[str]:
+    """Return the list of tool names the LLM agent can call, as declared in agent.yaml."""
+    return _pipeline()["agent_tools"]
 
 
 def get_llm_config() -> dict:
+    """Return the LLM block (model, temperature, max_tokens, etc.)."""
     return load_agent_config()["agent"]["llm"]
-
-
-def is_llm_node(node_id: str) -> bool:
-    for node in get_pipeline_nodes():
-        if node["id"] == node_id:
-            return bool(node.get("llm_call", False))
-    return False

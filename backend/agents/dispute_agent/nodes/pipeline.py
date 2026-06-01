@@ -14,21 +14,23 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langchain_groq import ChatGroq
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from agents.dispute_agent.config import get_llm_config
+from agents.dispute_agent.config import get_llm_config, get_agent_tool_names
 from agents.dispute_agent.state import DisputeAgentState
-from agents.dispute_agent.tools import TOOLS
+from agents.dispute_agent.tools import TOOL_REGISTRY
 from utils.helpers import extract_json_from_text, utc_now_iso, generate_case_id
 from utils.logger import agent_logger, log_workflow_event
 
-# ── LLM (config sourced from agent.yaml) ─────────────────────────────────────
-_cfg = get_llm_config()
+# ── LLM + tools (both sourced from agent.yaml) ───────────────────────────────
+_cfg   = get_llm_config()
+_tools = [TOOL_REGISTRY[name] for name in get_agent_tool_names()]   # driven by YAML
+
 _llm = ChatGroq(
     model_name=_cfg["model"],
     temperature=_cfg["temperature"],
     max_tokens=_cfg["max_tokens"],
     api_key=os.environ.get("GROQ_API_KEY"),
 )
-_llm_with_tools = _llm.bind_tools(TOOLS)
+_llm_with_tools = _llm.bind_tools(_tools)
 
 
 # ── Nodes ─────────────────────────────────────────────────────────────────────
