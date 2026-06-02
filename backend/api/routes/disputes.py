@@ -267,6 +267,10 @@ def _safe_case_dict(case: dict) -> dict:
         "structured_reasoning": case.get("structured_reasoning"),
         "evidence_match": case.get("evidence_match"),
         "evidence_match_note": case.get("evidence_match_note"),
+        "confidence_factors": case.get("confidence_factors") or [],
+        "tools_used": case.get("tools_used") or [],
+        "agent_metadata": case.get("agent_metadata"),
+        "metrics": case.get("metrics"),
         "status": case.get("status", "Dispute Raised"),
         "workflow_ready": case.get("workflow_ready", False),
         # Enterprise fields

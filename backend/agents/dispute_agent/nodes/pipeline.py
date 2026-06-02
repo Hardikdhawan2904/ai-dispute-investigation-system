@@ -11,22 +11,26 @@ finalize_node       : parse the LLM's final JSON, stamp server-owned fields, ret
 from __future__ import annotations
 
 import os
+import time
 from typing import Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from groq import RateLimitError as GroqRateLimitError
 from langchain_groq import ChatGroq
 from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
-from agents.dispute_agent.config import get_llm_config, get_agent_tool_names
+from agents.dispute_agent.config import get_llm_config, get_agent_tool_names, load_agent_config
 from agents.dispute_agent.state import DisputeAgentState
 from agents.dispute_agent.tools import TOOL_REGISTRY
 from prompts.dispute_prompts import SYSTEM_PROMPT, DISPUTE_DATA_TEMPLATE
 from utils.helpers import extract_json_from_text, utc_now_iso, generate_case_id
 from utils.logger import agent_logger, log_workflow_event
 
-# ── LLM + tools (both sourced from agent.yaml) ────────────────────────────────
-_cfg   = get_llm_config()
+# ── LLM + tools + agent identity (all sourced from agent.yaml) ───────────────
+_cfg        = get_llm_config()
+_agent_yaml = load_agent_config()["agent"]
+_AGENT_NAME = _agent_yaml["name"]      # "ARIA"
+_AGENT_VER  = str(_agent_yaml["version"])  # "1.0"
 _tools = [TOOL_REGISTRY[name] for name in get_agent_tool_names()]
 
 _llm = ChatGroq(
@@ -43,7 +47,7 @@ _llm_with_tools = _llm.bind_tools(_tools)
 def validate_node(state: DisputeAgentState) -> dict:
     d = state["dispute_input"]
     case_id = d.get("case_id") or d.get("_preset_case_id") or generate_case_id()
-    return {"case_id": case_id}
+    return {"case_id": case_id, "agent_start_time": time.time()}
 
 
 # ── Node 2 — build_evidence ───────────────────────────────────────────────────
@@ -144,22 +148,63 @@ def finalize_node(state: DisputeAgentState) -> dict:
     case_id = state["case_id"]
     d       = state["dispute_input"]
 
-    last = state["messages"][-1]
-    raw  = last.content if hasattr(last, "content") else ""
+    # ── Timing ───────────────────────────────────────────────────────────────
+    start_time  = state.get("agent_start_time") or 0.0
+    duration_ms = round((time.time() - start_time) * 1000, 1) if start_time else 0.0
+
+    # ── Audit trail from message history ─────────────────────────────────────
+    messages       = state.get("messages") or []
+    tools_used:    list = []
+    llm_call_count = 0
+    tool_msg_count = 0
+
+    for msg in messages:
+        if isinstance(msg, AIMessage):
+            llm_call_count += 1
+            for tc in (getattr(msg, "tool_calls", None) or []):
+                name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
+                if name and name not in tools_used:
+                    tools_used.append(name)
+        elif isinstance(msg, ToolMessage):
+            tool_msg_count += 1
+
+    metrics = {
+        "total_duration_ms": duration_ms,
+        "llm_calls":         llm_call_count,
+        "tool_calls":        tool_msg_count,
+        "retry_count":       0,
+    }
+    agent_metadata = {
+        "name":        _AGENT_NAME,
+        "version":     _AGENT_VER,
+        "model":       _cfg["model"],
+        "timestamp":   utc_now_iso(),
+        "duration_ms": duration_ms,
+    }
+
+    # ── Parse LLM output ─────────────────────────────────────────────────────
+    last = messages[-1] if messages else None
+    raw  = last.content if last and hasattr(last, "content") else ""
     parsed = extract_json_from_text(raw) if raw else None
 
     if not parsed:
         agent_logger.warning("ARIA JSON parse failed — using fallback", extra={"case_id": case_id})
         amount = float(d.get("amount", 0))
         fraud  = bool(d.get("fraud_selected", False))
-        return {"final_case": _fallback_case(d, case_id, amount, fraud)}
+        fc = _fallback_case(d, case_id, amount, fraud, tools_used, agent_metadata, metrics)
+        return {"final_case": fc, "tools_used": tools_used, "agent_metadata": agent_metadata, "metrics": metrics}
 
+    # ── Stamp server-owned and audit fields ───────────────────────────────────
     parsed["case_id"]        = case_id
     parsed["customer_id"]    = d.get("customer_id", "")
     parsed["transaction_id"] = d.get("transaction_id", "")
-    parsed.setdefault("status",         "Dispute Raised")
-    parsed.setdefault("workflow_ready", True)
-    parsed.setdefault("created_at",     utc_now_iso())
+    parsed.setdefault("status",             "Dispute Raised")
+    parsed.setdefault("workflow_ready",     True)
+    parsed.setdefault("created_at",         utc_now_iso())
+    parsed.setdefault("confidence_factors", [])
+    parsed["tools_used"]     = tools_used
+    parsed["agent_metadata"] = agent_metadata
+    parsed["metrics"]        = metrics
 
     log_workflow_event(
         agent_logger,
@@ -169,25 +214,27 @@ def finalize_node(state: DisputeAgentState) -> dict:
         customer_id=d.get("customer_id"),
         extra={
             "dispute_category": parsed.get("dispute_category"),
-            "priority":         parsed.get("priority"),
             "confidence_score": parsed.get("confidence_score"),
             "fraud_suspicion":  parsed.get("fraud_suspicion"),
             "evidence_match":   parsed.get("evidence_match"),
+            "tools_used":       tools_used,
+            "duration_ms":      duration_ms,
         },
     )
-    return {"final_case": parsed}
+    return {
+        "final_case":     parsed,
+        "tools_used":     tools_used,
+        "agent_metadata": agent_metadata,
+        "metrics":        metrics,
+    }
 
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
 
-def _priority(amount: float, fraud: bool) -> str:
-    if fraud and amount > 50_000: return "CRITICAL"
-    if fraud or amount > 50_000:  return "HIGH"
-    if amount > 10_000:           return "MEDIUM"
-    return "LOW"
-
-
-def _fallback_case(d: dict, case_id: str, amount: float, fraud: bool) -> dict:
+def _fallback_case(
+    d: dict, case_id: str, amount: float, fraud: bool,
+    tools_used: list, agent_metadata: dict, metrics: dict,
+) -> dict:
     return {
         "case_id":                 case_id,
         "customer_id":             d.get("customer_id", ""),
@@ -202,8 +249,8 @@ def _fallback_case(d: dict, case_id: str, amount: float, fraud: bool) -> dict:
             "Automated analysis failed — manual review required. "
             f"Customer reported: {d.get('dispute_reason', 'N/A')}"
         ),
-        "priority":                _priority(amount, fraud),
         "confidence_score":        0.1,
+        "confidence_factors":      [],
         "risk_tags":               ["HIGH_PRIORITY_CASE"] if fraud else [],
         "structured_reasoning":    "AI analysis could not be completed. Manual investigation required.",
         "evidence_match":          None,
@@ -211,4 +258,7 @@ def _fallback_case(d: dict, case_id: str, amount: float, fraud: bool) -> dict:
         "status":                  "Dispute Raised",
         "workflow_ready":          True,
         "created_at":              utc_now_iso(),
+        "tools_used":              tools_used,
+        "agent_metadata":          agent_metadata,
+        "metrics":                 metrics,
     }

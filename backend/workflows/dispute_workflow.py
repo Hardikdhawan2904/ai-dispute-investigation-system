@@ -306,12 +306,16 @@ def structured_output_node(state: DisputeWorkflowState) -> dict:
         "dispute_category": a.get("dispute_category", "Other"),
         "fraud_suspicion": a.get("fraud_suspicion", False),
         "customer_intent_summary": a.get("customer_intent_summary", ""),
-        "priority": a.get("priority", "MEDIUM"),
         "confidence_score": a.get("confidence_score", 0.5),
+        "confidence_factors": a.get("confidence_factors", []),
         "risk_tags": a.get("risk_tags", []),
         "structured_reasoning": a.get("structured_reasoning", ""),
         "evidence_match": a.get("evidence_match"),
         "evidence_match_note": a.get("evidence_match_note", ""),
+        # Agent 1 audit trail
+        "tools_used": a.get("tools_used", []),
+        "agent_metadata": a.get("agent_metadata", {}),
+        "metrics": a.get("metrics", {}),
         # Supporting evidence (preserved for re-analysis)
         "transaction_metadata": d.get("transaction_metadata") or {},
         # Investigation plan (Agent 2)
@@ -329,7 +333,7 @@ def structured_output_node(state: DisputeWorkflowState) -> dict:
         event="WORKFLOW_COMPLETE",
         stage=node,
         case_id=state["case_id"],
-        extra={"status": "Dispute Raised", "priority": final_case["priority"]},
+        extra={"status": "Dispute Raised", "category": final_case.get("dispute_category")},
     )
 
     return {

@@ -281,6 +281,10 @@ class DisputeService:
             manual_review_reason=final_case.get("manual_review_reason"),
             transaction_metadata=final_case.get("transaction_metadata") or {},
             investigation_plan=final_case.get("investigation_plan"),
+            confidence_factors=final_case.get("confidence_factors") or [],
+            tools_used=final_case.get("tools_used") or [],
+            agent_metadata=final_case.get("agent_metadata"),
+            metrics=final_case.get("metrics"),
         )
         db.add(db_case)
         db.flush()  # Get PK without committing

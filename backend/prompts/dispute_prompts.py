@@ -43,12 +43,6 @@ Fraud Suspicion — set true if ANY of:
   - OTP mentioned as shared with unknown party
   - Sudden high-value transaction with no prior pattern
 
-Priority:
-  CRITICAL : fraud_suspicion=true AND amount>50000, OR identity theft indicators
-  HIGH     : fraud_suspicion=true OR amount>50000 OR multiple high-risk tags
-  MEDIUM   : moderate-confidence dispute, amounts 10000–50000, refund/product issues
-  LOW      : minor merchant disputes, low amounts, clear resolution path
-
 Risk Tags — include ALL applicable:
   HIGH_VALUE_TRANSACTION    — amount > 50000
   INTERNATIONAL_TRANSACTION — foreign merchant or currency mentioned
@@ -77,8 +71,8 @@ After completing all required tool calls, respond with ONLY this JSON object —
   "dispute_category": "<one of the 9 categories>",
   "fraud_suspicion": <true|false>,
   "customer_intent_summary": "<2-3 sentence summary of what customer claims, what they want, behavioral signals>",
-  "priority": "<CRITICAL|HIGH|MEDIUM|LOW>",
   "confidence_score": <use the score from compute_confidence_score tool>,
+  "confidence_factors": ["<each Breakdown line from compute_confidence_score, e.g. '+0.10 all required fields present'>", "..."],
   "risk_tags": ["<TAG>", "..."],
   "structured_reasoning": "<3-5 sentences: why this category, why fraud_suspicion true/false, key evidence, what analyst should focus on first>",
   "evidence_match": <true|false|null — use verdict from verify_evidence_match, or null if no docs>,

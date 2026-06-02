@@ -126,6 +126,12 @@ class DisputeCase(Base):
     # Investigation plan (Agent 2 — IIA output, full JSON)
     investigation_plan    = Column(JSON, nullable=True)
 
+    # Agent 1 audit trail (ARIA — tools called, performance, metadata)
+    confidence_factors    = Column(JSON, default=list)
+    tools_used            = Column(JSON, default=list)
+    agent_metadata        = Column(JSON, nullable=True)
+    metrics               = Column(JSON, nullable=True)
+
     # Supporting evidence (raw form fields for re-analysis)
     transaction_metadata  = Column(JSON, default=dict)
 
@@ -181,6 +187,10 @@ class DisputeCase(Base):
             "locked_at": _iso(self.locked_at),
             "transaction_metadata": self.transaction_metadata or {},
             "investigation_plan": self.investigation_plan,
+            "confidence_factors": self.confidence_factors or [],
+            "tools_used": self.tools_used or [],
+            "agent_metadata": self.agent_metadata,
+            "metrics": self.metrics,
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
         }

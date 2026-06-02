@@ -67,6 +67,11 @@ def _apply_migrations() -> None:
         ("dispute_cases", "evidence_match",          "BOOLEAN"),
         ("dispute_cases", "evidence_match_note",     "TEXT"),
         ("dispute_cases", "investigation_plan",      "TEXT"),
+        # Agent 1 audit trail (Change 2-5)
+        ("dispute_cases", "confidence_factors",      "TEXT"),
+        ("dispute_cases", "tools_used",              "TEXT"),
+        ("dispute_cases", "agent_metadata",          "TEXT"),
+        ("dispute_cases", "metrics",                 "TEXT"),
     ]
     with engine.connect() as conn:
         for table, col, col_type in _new_cols:

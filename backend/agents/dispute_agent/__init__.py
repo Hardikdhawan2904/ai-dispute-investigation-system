@@ -35,6 +35,10 @@ def run_dispute_agent(dispute_input: dict, document_texts: Optional[List[str]] =
         "document_section":    "",
         "final_case":          {},
         "error":               None,
+        "tools_used":          [],
+        "agent_metadata":      {},
+        "metrics":             {},
+        "agent_start_time":    0.0,
     }
     result = dispute_graph.invoke(initial)
     return result["final_case"]

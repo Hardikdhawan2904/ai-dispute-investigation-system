@@ -173,6 +173,10 @@ class DisputeCaseResponse(BaseModel):
     structured_reasoning: Optional[str]
     evidence_match: Optional[bool] = None
     evidence_match_note: Optional[str] = None
+    confidence_factors: List[str] = []
+    tools_used: List[str] = []
+    agent_metadata: Optional[dict] = None
+    metrics: Optional[dict] = None
     status: str
     workflow_ready: bool
     # Enterprise fields
