@@ -13,7 +13,6 @@ Wiring (identical pattern to Agent 1):
   graph.py        → TOOL_REGISTRY[name] for name in names → ToolNode
   here            → investigation_graph.invoke({messages: [...], ...})
 """
-import json
 from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage

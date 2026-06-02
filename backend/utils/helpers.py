@@ -59,31 +59,3 @@ def extract_json_from_text(text: str) -> Optional[dict]:
             pass
 
     return None
-
-
-def mask_sensitive_data(data: dict) -> dict:
-    """Mask PII fields for safe logging."""
-    sensitive_keys = {"email", "phone", "customer_name"}
-    masked = {}
-    for k, v in data.items():
-        if k in sensitive_keys and isinstance(v, str) and len(v) > 4:
-            masked[k] = v[:3] + "*" * (len(v) - 3)
-        else:
-            masked[k] = v
-    return masked
-
-
-def determine_priority(amount: float, fraud_suspicion: bool, risk_tags: list) -> str:
-    """
-    Heuristic priority assignment used as a fallback when LLM output
-    is missing or invalid.
-    """
-    high_risk_tags = {"POSSIBLE_FRAUD", "DEVICE_MISMATCH", "OTP_VERIFIED", "SUSPICIOUS_BEHAVIOR"}
-
-    if fraud_suspicion and amount > 50_000:
-        return "CRITICAL"
-    if fraud_suspicion or amount > 50_000 or bool(high_risk_tags & set(risk_tags)):
-        return "HIGH"
-    if amount > 10_000:
-        return "MEDIUM"
-    return "LOW"

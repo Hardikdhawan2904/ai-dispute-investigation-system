@@ -422,5 +422,3 @@ TOOL_REGISTRY: dict = {
     "lookup_related_cases":       lookup_related_cases,
     "recommend_documents":        recommend_documents,
 }
-
-TOOLS = list(TOOL_REGISTRY.values())

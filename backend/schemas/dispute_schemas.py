@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import List, Optional, Literal
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 import re
 
 

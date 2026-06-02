@@ -38,24 +38,33 @@ const WS_URL =
   (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000")
     .replace(/^http/, "ws") + "/ws/disputes";
 
+const BACKOFF_BASE = 2_000;
+const BACKOFF_MAX  = 30_000;
+
 export function useDisputeSocket(
   onEvent: (event: DisputeSocketEvent) => void
 ): { isConnected: boolean } {
-  const [isConnected, setIsConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
-  const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
-  const isMounted = useRef(true);
-  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isConnected, setIsConnected]  = useState(false);
+  // Always holds the latest callback without causing the effect to re-run.
+  const onEventRef    = useRef(onEvent);
+  onEventRef.current  = onEvent;
+
+  const isMounted     = useRef(true);
+  const wsRef         = useRef<WebSocket | null>(null);
+  const retryCount    = useRef(0);
+  const retryTimeout  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const connect = useCallback(() => {
     if (!isMounted.current) return;
 
-    const ws = new WebSocket(WS_URL);
+    const ws        = new WebSocket(WS_URL);
+    wsRef.current   = ws;          // set immediately so old sockets detect they're superseded
 
     ws.onopen = () => {
+      // If cleanup ran and a newer socket was created, discard this one silently.
+      if (wsRef.current !== ws) { ws.close(); return; }
+      retryCount.current = 0;
       setIsConnected(true);
-      // Ping every 20 s to keep the connection alive
       const ping = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) ws.send("ping");
         else clearInterval(ping);
@@ -73,22 +82,38 @@ export function useDisputeSocket(
 
     ws.onclose = () => {
       setIsConnected(false);
-      if (!isMounted.current) return;
-      reconnectTimeout.current = setTimeout(connect, 2_000);
+      // Only the current socket should schedule a reconnect.
+      if (!isMounted.current || wsRef.current !== ws) return;
+
+      retryCount.current += 1;
+      const delay = Math.min(BACKOFF_BASE * 2 ** (retryCount.current - 1), BACKOFF_MAX);
+      retryTimeout.current = setTimeout(connect, delay);
     };
 
-    ws.onerror = () => ws.close();
-
-    wsRef.current = ws;
+    ws.onerror = () => {
+      // No-op: the browser automatically closes the socket on error and fires onclose.
+      // Calling ws.close() here while readyState is still CONNECTING produces a
+      // spurious "WebSocket is closed before the connection is established" warning.
+    };
   }, []);
 
   useEffect(() => {
-    isMounted.current = true;
+    isMounted.current  = true;
+    retryCount.current = 0;
     connect();
+
     return () => {
       isMounted.current = false;
-      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
-      wsRef.current?.close();
+      if (retryTimeout.current) clearTimeout(retryTimeout.current);
+      const ws = wsRef.current;
+      if (!ws) return;
+      // Only close sockets that are already open/closing.
+      // A CONNECTING socket will detect it has been superseded via wsRef identity
+      // check in onopen, and close itself then — avoids the browser console warning
+      // "WebSocket is closed before the connection is established."
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
+        ws.close();
+      }
     };
   }, [connect]);
 

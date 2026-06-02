@@ -72,9 +72,15 @@ async def request_logging_middleware(request: Request, call_next):
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     api_logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    origin = request.headers.get("origin", "")
+    headers = {}
+    if origin in cors_origins:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error — please contact support", "type": type(exc).__name__},
+        headers=headers,
     )
 
 
@@ -103,7 +109,9 @@ async def disputes_websocket(websocket: WebSocket):
     try:
         while True:
             await websocket.receive_text()  # keep connection alive; client sends pings
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
         ws_manager.disconnect(websocket)
 
 

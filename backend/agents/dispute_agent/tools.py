@@ -385,5 +385,3 @@ TOOL_REGISTRY: dict = {
     "verify_evidence_match":    verify_evidence_match,
     "compute_confidence_score": compute_confidence_score,
 }
-
-TOOLS = list(TOOL_REGISTRY.values())

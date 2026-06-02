@@ -28,6 +28,9 @@ from services import (
     risk_explanation_service,
     case_search_service,
 )
+from groq import RateLimitError as GroqRateLimitError
+from tenacity import RetryError
+
 from services import priority_engine, manual_review_service
 from agents.dispute_agent import run_dispute_agent
 
@@ -179,7 +182,28 @@ def reanalyse_case(case_id: str, db: Session = Depends(get_db)):
                 if text.strip():
                     document_texts.append(f"[{f.name}]\n{text}")
 
-    result = run_dispute_agent(dispute_input, document_texts=document_texts)
+    try:
+        result = run_dispute_agent(dispute_input, document_texts=document_texts)
+    except RetryError as exc:
+        cause = exc.last_attempt.exception()
+        if isinstance(cause, GroqRateLimitError):
+            msg = str(cause)
+            import re
+            m = re.search(r"try again in (\S+)", msg, re.IGNORECASE)
+            wait = f" Please try again in {m.group(1)}." if m else ""
+            raise HTTPException(
+                status_code=503,
+                detail=f"Groq API daily token limit exceeded.{wait}",
+            ) from exc
+        raise HTTPException(
+            status_code=503,
+            detail="AI analysis service is temporarily unavailable. Please try again in a moment.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Analysis failed: {type(exc).__name__}",
+        ) from exc
 
     case.dispute_category        = result.get("dispute_category", case.dispute_category)
     case.fraud_suspicion         = result.get("fraud_suspicion", case.fraud_suspicion)

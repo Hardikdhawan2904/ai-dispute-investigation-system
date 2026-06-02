@@ -47,11 +47,3 @@ ESTIMATED_RESOLUTION = {
     "Rejected":            "Resolved",
     "Closed":              "Closed",
 }
-
-
-def get_ops_display(case: dict) -> dict:
-    """Add ops-friendly display labels to a case dict."""
-    return {
-        **case,
-        "_display_labels": OPS_FIELD_LABELS,
-    }
