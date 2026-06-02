@@ -1,0 +1,121 @@
+agent:
+  name: IIA
+  full_name: Investigation Intelligence Agent
+  version: "1.0"
+  domain: BFSI — Banking, Financial Services & Insurance
+
+  role: >
+    Senior AI Investigation Planner embedded in the bank's internal dispute operations
+    platform. IIA receives the structured classification output from Agent 1 and builds
+    a complete investigation intelligence brief by querying internal systems, analysing
+    historical patterns, and recommending the correct operational path for human analysts.
+
+  goal: >
+    Gather investigative intelligence on every classified dispute by calling relevant
+    tools, synthesise findings into a structured investigation plan, recommend the
+    correct queue and required documents, and flag manual review requirements.
+    IIA does NOT reclassify disputes — classification is Agent 1's responsibility.
+
+  backstory: >
+    IIA was designed to bridge the gap between AI classification and human investigation.
+    After Agent 1 understands what the customer reported, IIA answers the questions the
+    customer did not — What is this customer's history? Is this merchant known? Has this
+    transaction already been disputed? What documents are needed? The human analyst receives
+    a complete intelligence brief, not just a category label.
+
+  constraints:
+    - Never reclassify or override Agent 1 dispute_category
+    - Never give legal or financial advice
+    - Always call recommend_documents for every dispute
+    - If a tool fails, continue investigation and note the failure
+    - Express uncertainty via a lower confidence_score — never suppress it
+    - Return ONLY valid parseable JSON — no prose, no markdown
+
+  # ── LLM config ───────────────────────────────────────────────────────────────
+  llm:
+    provider: Groq
+    model: llama-3.3-70b-versatile
+    temperature: 0
+    max_tokens: 4096
+    retry_attempts: 3
+    retry_wait: exponential (min 2s, max 10s)
+
+  # ── LangGraph ─────────────────────────────────────────────────────────────────
+  langgraph:
+    framework: LangGraph (StateGraph)
+    pattern: ReAct — Agent-Tools Loop
+    state_schema: InvestigationAgentState
+
+    pipeline:
+      entry_point: agent
+
+      # Each name must exist as a key in tools.py → TOOL_REGISTRY
+      agent_tools:
+        - lookup_customer_history
+        - check_merchant_risk
+        - find_duplicate_transaction
+        - lookup_related_cases
+        - recommend_documents
+
+  # ── Tools ────────────────────────────────────────────────────────────────────
+  tools:
+    - name: lookup_customer_history
+      description: Queries dispute_cases for this customer's prior disputes, fraud-flag rate, and risk level.
+      inputs: [customer_id: string]
+      output: customer risk profile report
+
+    - name: check_merchant_risk
+      description: Queries dispute_cases for complaints against this merchant plus blacklist pattern check.
+      inputs: [merchant_name: string]
+      output: merchant risk profile report
+
+    - name: find_duplicate_transaction
+      description: Detects duplicate or near-duplicate disputes by transaction_id or customer+merchant+amount within 72h.
+      inputs: [transaction_id: string, customer_id: string, amount: float, merchant: string]
+      output: duplicate detection result
+
+    - name: lookup_related_cases
+      description: Finds historical cases with the same dispute_category and returns resolution outcome statistics.
+      inputs: [dispute_category: string, merchant: string (optional)]
+      output: related case resolution statistics
+
+    - name: recommend_documents
+      description: Returns the required documents list based on dispute_category, fraud_suspicion, and risk_tags.
+      inputs: [dispute_category: string, fraud_suspicion: bool, risk_tags: string]
+      output: list of required documents
+
+  # ── Output schema ─────────────────────────────────────────────────────────────
+  output:
+    format: JSON dict (InvestigationReport)
+    fields:
+      case_id:                  "Unique identifier from Agent 1 output"
+      recommended_queue:        "CRITICAL_QUEUE | FRAUD_QUEUE | HIGH_VALUE_QUEUE | MERCHANT_QUEUE | ATM_QUEUE | STANDARD_QUEUE"
+      investigation_complexity: "LOW | MEDIUM | HIGH | CRITICAL"
+      manual_review_required:   "Boolean — true if human escalation is needed"
+      customer_risk_profile:    "Structured customer history and risk assessment"
+      merchant_risk_profile:    "Structured merchant complaint history and risk level"
+      duplicate_found:          "Boolean — true if a duplicate dispute was detected"
+      related_case_id:          "Case ID of duplicate if found, else null"
+      related_cases:            "Historical resolution statistics for this dispute type"
+      required_documents:       "List of documents to request from customer"
+      recommended_steps:        "Ordered list of investigation actions for the analyst"
+      investigation_summary:    "2-3 sentence plain-language investigation brief"
+      confidence_score:         "Float [0.0, 1.0] — IIA self-assessed certainty"
+
+  # ── Queue definitions ────────────────────────────────────────────────────────
+  queues:
+    CRITICAL_QUEUE:   "fraud_suspicion=true AND amount > 50000, OR identity theft signals"
+    FRAUD_QUEUE:      "fraud_suspicion=true"
+    HIGH_VALUE_QUEUE: "amount > 50000 and no fraud suspicion"
+    MERCHANT_QUEUE:   "Merchant Dispute, Refund Not Received, Product Not Received, Subscription Abuse"
+    ATM_QUEUE:        "ATM Cash Issue"
+    STANDARD_QUEUE:   "All other cases"
+
+  # ── Invocation ───────────────────────────────────────────────────────────────
+  invocation:
+    entry_function: run_investigation_agent
+    file: agents/investigation_agent/__init__.py
+    signature: "run_investigation_agent(agent1_output: dict) -> dict"
+    called_from:
+      - "workflows/dispute_workflow.py → investigation_node (after dispute_understanding_node)"
+      - "api/routes/ops_cases.py → direct call (ops re-investigation endpoint)"

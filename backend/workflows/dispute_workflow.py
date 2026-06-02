@@ -2,7 +2,7 @@
 LangGraph workflow for BFSI Dispute Resolution.
 
 Graph topology:
-  intake → validation → dispute_understanding → reasoning → structured_output → END
+  intake → validation → dispute_understanding → reasoning → investigation → structured_output → END
 
 Each node appends to execution_trace for full audit traceability.
 Conditional routing after validation allows early-exit on invalid inputs.
@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from langgraph.graph import StateGraph, END
 
 from agents.dispute_agent import run_dispute_agent
+from agents.investigation_agent import run_investigation_agent
 from utils.logger import workflow_logger, log_workflow_event
 from utils.helpers import generate_case_id, utc_now_iso, sanitize_amount
 
@@ -41,6 +42,9 @@ class DisputeWorkflowState(TypedDict):
 
     # AI analysis
     ai_analysis: Optional[dict]
+
+    # Investigation plan (Agent 2 output)
+    investigation_output: Optional[dict]
 
     # Final output
     final_case: Optional[dict]
@@ -228,6 +232,46 @@ def reasoning_node(state: DisputeWorkflowState) -> dict:
     }
 
 
+def investigation_node(state: DisputeWorkflowState) -> dict:
+    """
+    Invokes the Investigation Intelligence Agent (IIA, Agent 2).
+    Runs a ReAct loop with 5 investigative tools and returns a complete
+    investigation plan: queue, complexity, risk profiles, document checklist, steps.
+    """
+    start = time.time()
+    node = "investigation"
+
+    try:
+        investigation_plan = run_investigation_agent(state["ai_analysis"])
+        log_workflow_event(
+            workflow_logger,
+            event="NODE_INVESTIGATION_COMPLETE",
+            stage=node,
+            case_id=state.get("case_id"),
+            extra={
+                "recommended_queue":        investigation_plan.get("recommended_queue"),
+                "investigation_complexity": investigation_plan.get("investigation_complexity"),
+                "duplicate_found":          investigation_plan.get("duplicate_found"),
+            },
+        )
+        return {
+            "investigation_output": investigation_plan,
+            "current_stage": node,
+            "execution_trace": _trace(
+                node, start, True,
+                f"queue={investigation_plan.get('recommended_queue')} "
+                f"complexity={investigation_plan.get('investigation_complexity')}"
+            ),
+        }
+    except Exception as exc:
+        workflow_logger.warning(f"Investigation agent failed: {exc}", exc_info=True)
+        return {
+            "investigation_output": None,
+            "current_stage": node,
+            "execution_trace": _trace(node, start, False, f"agent failed: {exc}"),
+        }
+
+
 def structured_output_node(state: DisputeWorkflowState) -> dict:
     """
     Merge intake data + AI analysis into the canonical DisputeCase dict.
@@ -270,6 +314,8 @@ def structured_output_node(state: DisputeWorkflowState) -> dict:
         "evidence_match_note": a.get("evidence_match_note", ""),
         # Supporting evidence (preserved for re-analysis)
         "transaction_metadata": d.get("transaction_metadata") or {},
+        # Investigation plan (Agent 2)
+        "investigation_plan": state.get("investigation_output"),
         # Workflow
         "status": "Dispute Raised",
         "workflow_ready": True,
@@ -330,6 +376,7 @@ def build_dispute_workflow() -> Any:
     graph.add_node("validation", validation_node)
     graph.add_node("dispute_understanding", dispute_understanding_node)
     graph.add_node("reasoning", reasoning_node)
+    graph.add_node("investigation", investigation_node)
     graph.add_node("structured_output", structured_output_node)
     graph.add_node("invalid_submission", invalid_submission_node)
 
@@ -349,7 +396,8 @@ def build_dispute_workflow() -> Any:
     )
 
     graph.add_edge("dispute_understanding", "reasoning")
-    graph.add_edge("reasoning", "structured_output")
+    graph.add_edge("reasoning", "investigation")
+    graph.add_edge("investigation", "structured_output")
     graph.add_edge("structured_output", END)
     graph.add_edge("invalid_submission", END)
 
@@ -376,8 +424,9 @@ def run_dispute_workflow(dispute_input: dict, document_texts: Optional[List[str]
         "validation_passed":  False,
         "validation_errors":  [],
         "validation_warnings": [],
-        "ai_analysis":        None,
-        "final_case":         None,
+        "ai_analysis":          None,
+        "investigation_output": None,
+        "final_case":           None,
         "execution_trace":    [],
         "current_stage":      "start",
         "error_message":      None,

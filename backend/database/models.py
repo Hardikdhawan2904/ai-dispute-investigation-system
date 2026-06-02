@@ -123,6 +123,9 @@ class DisputeCase(Base):
     evidence_match        = Column(Boolean, nullable=True)   # null = no docs, true/false = match verdict
     evidence_match_note   = Column(Text, nullable=True)
 
+    # Investigation plan (Agent 2 — IIA output, full JSON)
+    investigation_plan    = Column(JSON, nullable=True)
+
     # Supporting evidence (raw form fields for re-analysis)
     transaction_metadata  = Column(JSON, default=dict)
 
@@ -177,6 +180,7 @@ class DisputeCase(Base):
             "locked_by": self.locked_by,
             "locked_at": _iso(self.locked_at),
             "transaction_metadata": self.transaction_metadata or {},
+            "investigation_plan": self.investigation_plan,
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
         }

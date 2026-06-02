@@ -64,6 +64,9 @@ def _apply_migrations() -> None:
         ("dispute_cases", "locked_by",               "VARCHAR(128)"),
         ("dispute_cases", "locked_at",               "DATETIME"),
         ("dispute_cases", "transaction_metadata",    "TEXT"),
+        ("dispute_cases", "evidence_match",          "BOOLEAN"),
+        ("dispute_cases", "evidence_match_note",     "TEXT"),
+        ("dispute_cases", "investigation_plan",      "TEXT"),
     ]
     with engine.connect() as conn:
         for table, col, col_type in _new_cols:

@@ -44,39 +44,47 @@ agent:
   # ── LangGraph — read by config.py → get_entry_point() / get_agent_tool_names()
   langgraph:
     framework: LangGraph (StateGraph)
-    pattern: ReAct — Agent calls 4 investigative tools, then outputs final JSON
+    pattern: ReAct — pre-processing then Agent-Tools Loop
     state_schema: DisputeAgentState
 
     pipeline:
-      entry_point: agent
+      entry_point: validate
 
+      # Understanding tools — pure computation, no DB queries (investigation is Agent 2's job)
       agent_tools:
-        - lookup_customer_history
-        - check_merchant_risk
-        - find_duplicate_transaction
-        - analyze_fraud_signals
+        - assess_transaction_context
+        - score_fraud_indicators
+        - verify_evidence_match
+        - compute_confidence_score
 
-  # ── Tools ───────────────────────────────────────────────────────────────────
+    nodes:
+      - validate        # extract case_id from submission
+      - build_evidence  # format fraud checklist + document text + build initial messages
+      - agent           # ReAct loop start — LLM calls tools autonomously
+      - tools           # ToolNode executes whichever tools the LLM requested
+      - finalize        # parse LLM final JSON, stamp server-owned fields
+
+  # ── Tools — understanding only, no DB queries ────────────────────────────────
   tools:
-    - name: lookup_customer_history
-      description: Queries DB for this customer's prior disputes, fraud-flag rate, and risk assessment.
-      inputs: [customer_id: string]
-      output: formatted customer history report
+    - name: assess_transaction_context
+      description: Assesses full transaction context — amount tier, off-hours flag, card-not-present risk, weekend and international merchant patterns.
+      inputs: [amount, transaction_type, merchant, transaction_date, transaction_time]
+      output: structured transaction risk report with active signals
 
-    - name: check_merchant_risk
-      description: Queries DB for complaints against this merchant + blacklist pattern check.
-      inputs: [merchant_name: string]
-      output: formatted merchant risk report
+    - name: score_fraud_indicators
+      description: Scores fraud signals from metadata checklist and customer comment keywords.
+      inputs: [customer_comment, otp_received, otp_shared, bank_impersonation, remote_access, phishing_link, sim_swap_suspected, card_lost, device_lost, bank_contacted, card_blocked]
+      output: fraud signal level (NONE/LOW/MEDIUM/HIGH/CRITICAL) + active indicators list
 
-    - name: find_duplicate_transaction
-      description: Detects duplicate disputes by transaction_id or customer+merchant+amount within 72h.
-      inputs: [transaction_id: string, customer_id: string, amount: float, merchant: string]
-      output: duplicate case IDs or "No duplicates found"
+    - name: verify_evidence_match
+      description: Verifies whether submitted document text supports the customer's claim using amount, merchant, and keyword matching.
+      inputs: [document_text, claimed_amount, claimed_merchant, dispute_description]
+      output: MATCH | PARTIAL_MATCH | MISMATCH | NO_DOCUMENTS + explanation
 
-    - name: analyze_fraud_signals
-      description: Deterministic rule-based fraud signal analyser — returns severity report.
-      inputs: [metadata_json: JSON string, customer_comment: string, transaction_time: string, amount: float]
-      output: structured fraud signal report with NONE/LOW/MEDIUM/HIGH/CRITICAL severity
+    - name: compute_confidence_score
+      description: Calibrated confidence calculator — call last with findings from the other 3 tools.
+      inputs: [fields_complete, comment_quality, fraud_signal_level, fraud_category_consistent, evidence_verdict, has_contradictions]
+      output: final confidence score (0.10–1.00) with full breakdown
 
   # ── Output schema ────────────────────────────────────────────────────────────
   output:

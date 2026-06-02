@@ -75,6 +75,39 @@ export type QueueName =
   | "HIGH_PRIORITY"
   | "GENERAL";
 
+export interface InvestigationPlan {
+  case_id: string;
+  recommended_queue: string;
+  investigation_complexity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  manual_review_required: boolean;
+  customer_risk_profile: {
+    previous_disputes: number;
+    fraud_claims: number;
+    last_dispute_days_ago: number;
+    risk_level: string;
+    assessment: string;
+  };
+  merchant_risk_profile: {
+    merchant_risk: string;
+    prior_complaints: number;
+    fraud_rate: number;
+    assessment: string;
+  };
+  duplicate_found: boolean;
+  related_case_id: string | null;
+  related_cases: {
+    similar_cases: number;
+    resolved_in_favor: number;
+    resolved_against: number;
+    resolution_rate: number;
+  };
+  required_documents: string[];
+  recommended_steps: string[];
+  investigation_summary: string;
+  confidence_score: number;
+  created_at?: string;
+}
+
 export interface DisputeCase {
   case_id: string;
   customer_id: string;
@@ -112,6 +145,7 @@ export interface DisputeCase {
   manual_review_reason?: string;
   locked_by?: string;
   locked_at?: string;
+  investigation_plan?: InvestigationPlan | null;
   created_at: string;
   updated_at?: string;
 }

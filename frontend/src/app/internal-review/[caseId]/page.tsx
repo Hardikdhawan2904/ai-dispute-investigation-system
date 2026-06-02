@@ -7,7 +7,7 @@ import toast from "react-hot-toast";
 import {
   ArrowLeft, AlertTriangle, Brain, Shield, CreditCard,
   FileText, CheckCircle, Loader2, Activity, RefreshCw,
-  ImageIcon, X, ZoomIn,
+  ImageIcon, X, ZoomIn, Search, ListChecks,
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, getPriorityColor, getStatusColor, formatConfidence } from "@/lib/utils";
 import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads } from "@/lib/api";
@@ -59,7 +59,7 @@ export default function InternalReviewCaseDetail() {
       setReanalysing(false);
     }
   }
-  const [activeTab, setActiveTab]           = useState<"overview" | "ai" | "evidence" | "audit" | "workflow">("overview");
+  const [activeTab, setActiveTab]           = useState<"overview" | "ai" | "investigation" | "evidence" | "audit" | "workflow">("overview");
   const [liveUpdate, setLiveUpdate]         = useState(false);
 
   useEffect(() => {
@@ -114,11 +114,12 @@ export default function InternalReviewCaseDetail() {
   if (!caseData) return null;
 
   const tabs = [
-    { key: "overview",  label: "Transaction",              icon: CreditCard },
-    { key: "ai",        label: "Analysis",                 icon: Brain },
-    { key: "evidence",  label: `Evidence (${uploads.length})`, icon: ImageIcon },
-    { key: "audit",     label: "Audit Trail",              icon: FileText },
-    { key: "workflow",  label: "Workflow",                 icon: Activity },
+    { key: "overview",      label: "Transaction",              icon: CreditCard },
+    { key: "ai",            label: "Analysis",                 icon: Brain },
+    { key: "investigation", label: "Investigation",            icon: Search },
+    { key: "evidence",      label: `Evidence (${uploads.length})`, icon: ImageIcon },
+    { key: "audit",         label: "Audit Trail",              icon: FileText },
+    { key: "workflow",      label: "Workflow",                 icon: Activity },
   ] as const;
 
   return (
@@ -341,6 +342,141 @@ export default function InternalReviewCaseDetail() {
 
         </div>
       )}
+
+      {/* ── Investigation tab ─────────────────────────────────────────────── */}
+      {activeTab === "investigation" && (() => {
+        const plan = caseData.investigation_plan;
+        if (!plan) return (
+          <div className="bfsi-card p-10 text-center">
+            <Search className="w-10 h-10 text-bfsi-text-dim mx-auto mb-3" />
+            <p className="text-sm text-bfsi-text-dim">Investigation plan not yet generated for this case.</p>
+            <p className="text-xs text-bfsi-text-dim mt-1">Re-submit or re-analyse to trigger Agent 2.</p>
+          </div>
+        );
+
+        const complexityColor: Record<string, string> = {
+          CRITICAL: "text-red-400 bg-red-400/10 border-red-400/30",
+          HIGH:     "text-orange-400 bg-orange-400/10 border-orange-400/30",
+          MEDIUM:   "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
+          LOW:      "text-green-400 bg-green-400/10 border-green-400/30",
+        };
+        const queueColor: Record<string, string> = {
+          CRITICAL_QUEUE:   "text-red-400 bg-red-400/10 border-red-400/30",
+          FRAUD_QUEUE:      "text-orange-400 bg-orange-400/10 border-orange-400/30",
+          HIGH_VALUE_QUEUE: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
+          MERCHANT_QUEUE:   "text-blue-400 bg-blue-400/10 border-blue-400/30",
+          ATM_QUEUE:        "text-purple-400 bg-purple-400/10 border-purple-400/30",
+          STANDARD_QUEUE:   "text-bfsi-text-dim bg-bfsi-muted border-bfsi-border",
+        };
+
+        return (
+          <div className="space-y-5">
+            {/* Summary banner */}
+            <div className="bfsi-card bfsi-card-accent p-5">
+              <div className="flex flex-wrap items-center gap-3 mb-3">
+                <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full border", queueColor[plan.recommended_queue] ?? "text-bfsi-text bg-bfsi-muted border-bfsi-border")}>
+                  {plan.recommended_queue?.replace(/_/g, " ")}
+                </span>
+                <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full border", complexityColor[plan.investigation_complexity] ?? "")}>
+                  {plan.investigation_complexity} COMPLEXITY
+                </span>
+                {plan.duplicate_found && (
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full border text-red-400 bg-red-400/10 border-red-400/30">
+                    DUPLICATE DETECTED
+                  </span>
+                )}
+                {plan.manual_review_required && (
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full border text-amber-400 bg-amber-400/10 border-amber-400/30">
+                    MANUAL REVIEW
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-bfsi-text-muted leading-relaxed">{plan.investigation_summary}</p>
+              <div className="flex items-center gap-4 mt-3 pt-3 border-t border-bfsi-border">
+                <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">IIA Confidence</span>
+                <span className="text-sm font-mono font-semibold text-bfsi-gold">{((plan.confidence_score ?? 0) * 100).toFixed(0)}%</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Customer Risk */}
+              <div className="bfsi-card p-5">
+                <p className="section-header">Customer Risk Profile</p>
+                <InfoRow label="Previous Disputes"    value={plan.customer_risk_profile?.previous_disputes ?? "—"} />
+                <InfoRow label="Fraud Claims"         value={plan.customer_risk_profile?.fraud_claims ?? "—"} />
+                <InfoRow label="Last Dispute (days)"  value={plan.customer_risk_profile?.last_dispute_days_ago ?? "—"} />
+                <InfoRow label="Risk Level"           value={plan.customer_risk_profile?.risk_level} />
+                {plan.customer_risk_profile?.assessment && (
+                  <div className="mt-3 text-xs text-bfsi-text-muted bg-bfsi-muted rounded px-3 py-2 leading-relaxed">
+                    {plan.customer_risk_profile.assessment}
+                  </div>
+                )}
+              </div>
+
+              {/* Merchant Risk */}
+              <div className="bfsi-card p-5">
+                <p className="section-header">Merchant Risk Profile</p>
+                <InfoRow label="Merchant Risk"       value={plan.merchant_risk_profile?.merchant_risk} />
+                <InfoRow label="Prior Complaints"    value={plan.merchant_risk_profile?.prior_complaints ?? "—"} />
+                <InfoRow label="Fraud Rate"          value={plan.merchant_risk_profile?.fraud_rate != null ? `${(plan.merchant_risk_profile.fraud_rate * 100).toFixed(0)}%` : "—"} />
+                {plan.merchant_risk_profile?.assessment && (
+                  <div className="mt-3 text-xs text-bfsi-text-muted bg-bfsi-muted rounded px-3 py-2 leading-relaxed">
+                    {plan.merchant_risk_profile.assessment}
+                  </div>
+                )}
+              </div>
+
+              {/* Related Cases */}
+              <div className="bfsi-card p-5">
+                <p className="section-header">Historical Precedent</p>
+                <InfoRow label="Similar Cases"        value={plan.related_cases?.similar_cases ?? "—"} />
+                <InfoRow label="Resolved in Favour"   value={plan.related_cases?.resolved_in_favor ?? "—"} />
+                <InfoRow label="Resolved Against"     value={plan.related_cases?.resolved_against ?? "—"} />
+                <InfoRow label="Resolution Rate"      value={plan.related_cases?.resolution_rate != null ? `${(plan.related_cases.resolution_rate * 100).toFixed(0)}%` : "—"} />
+                {plan.duplicate_found && plan.related_case_id && (
+                  <InfoRow label="Duplicate Of" value={plan.related_case_id} mono />
+                )}
+              </div>
+
+              {/* Recommended Steps */}
+              <div className="bfsi-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <ListChecks className="w-4 h-4 text-bfsi-gold" />
+                  <p className="section-header mb-0">Recommended Steps</p>
+                </div>
+                {plan.recommended_steps?.length > 0 ? (
+                  <ol className="space-y-2">
+                    {plan.recommended_steps.map((step, i) => (
+                      <li key={i} className="flex gap-3 text-xs text-bfsi-text-muted">
+                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-bfsi-gold/20 text-bfsi-gold text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
+                        <span className="leading-relaxed pt-0.5">{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : <p className="text-xs text-bfsi-text-dim">No steps available.</p>}
+              </div>
+            </div>
+
+            {/* Required Documents */}
+            <div className="bfsi-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <FileText className="w-4 h-4 text-bfsi-gold" />
+                <p className="section-header mb-0">Required Documents Checklist</p>
+              </div>
+              {plan.required_documents?.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {plan.required_documents.map((doc, i) => (
+                    <div key={i} className="flex items-center gap-2 p-2.5 bg-bfsi-muted rounded-lg border border-bfsi-border">
+                      <CheckCircle className="w-3.5 h-3.5 text-bfsi-gold flex-shrink-0" />
+                      <span className="text-xs text-bfsi-text-muted">{doc}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="text-xs text-bfsi-text-dim">No document checklist available.</p>}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Evidence tab ──────────────────────────────────────────────────── */}
       {activeTab === "evidence" && (
