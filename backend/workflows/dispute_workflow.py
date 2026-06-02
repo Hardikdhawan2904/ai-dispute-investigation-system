@@ -266,6 +266,8 @@ def structured_output_node(state: DisputeWorkflowState) -> dict:
         "confidence_score": a.get("confidence_score", 0.5),
         "risk_tags": a.get("risk_tags", []),
         "structured_reasoning": a.get("structured_reasoning", ""),
+        "evidence_match": a.get("evidence_match"),
+        "evidence_match_note": a.get("evidence_match_note", ""),
         # Supporting evidence (preserved for re-analysis)
         "transaction_metadata": d.get("transaction_metadata") or {},
         # Workflow
