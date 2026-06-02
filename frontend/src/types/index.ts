@@ -78,6 +78,8 @@ export type QueueName =
 export interface InvestigationPlan {
   case_id: string;
   recommended_queue: string;
+  queue_confidence?: number;
+  queue_confidence_factors?: string[];
   investigation_complexity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   manual_review_required: boolean;
   customer_risk_profile: {
@@ -103,8 +105,24 @@ export interface InvestigationPlan {
   };
   required_documents: string[];
   recommended_steps: string[];
+  investigation_reasoning?: string[];
   investigation_summary: string;
   confidence_score: number;
+  // Agent 2 audit trail (Changes 2, 5, 6)
+  tools_used?: string[];
+  agent_metadata?: {
+    agent_name: string;
+    agent_version: string;
+    model: string;
+    execution_timestamp: string;
+    execution_duration_ms: number;
+  };
+  metrics?: {
+    total_duration_ms: number;
+    llm_calls: number;
+    tool_calls: number;
+    retry_count: number;
+  };
   created_at?: string;
 }
 

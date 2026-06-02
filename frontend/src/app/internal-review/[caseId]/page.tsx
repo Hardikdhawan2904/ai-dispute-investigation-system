@@ -7,7 +7,8 @@ import toast from "react-hot-toast";
 import {
   ArrowLeft, AlertTriangle, Brain, Shield, CreditCard,
   FileText, CheckCircle, Loader2, Activity, RefreshCw,
-  ImageIcon, X, ZoomIn, Search, ListChecks,
+  ImageIcon, X, ZoomIn, Search, ListChecks, Lightbulb,
+  BarChart2, Cpu, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, getPriorityColor, getStatusColor, formatConfidence } from "@/lib/utils";
 import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads } from "@/lib/api";
@@ -368,15 +369,26 @@ export default function InternalReviewCaseDetail() {
           ATM_QUEUE:        "text-purple-400 bg-purple-400/10 border-purple-400/30",
           STANDARD_QUEUE:   "text-bfsi-text-dim bg-bfsi-muted border-bfsi-border",
         };
+        const queueConf      = plan.queue_confidence ?? null;
+        const queueConfPct   = queueConf != null ? Math.round(queueConf * 100) : null;
+        const queueConfColor = queueConfPct == null ? "" : queueConfPct >= 90 ? "text-green-400" : queueConfPct >= 75 ? "text-bfsi-gold" : queueConfPct >= 60 ? "text-yellow-400" : "text-red-400";
 
         return (
           <div className="space-y-5">
-            {/* Summary banner */}
+            {/* ── Summary banner ──────────────────────────────────────────── */}
             <div className="bfsi-card bfsi-card-accent p-5">
               <div className="flex flex-wrap items-center gap-3 mb-3">
-                <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full border", queueColor[plan.recommended_queue] ?? "text-bfsi-text bg-bfsi-muted border-bfsi-border")}>
-                  {plan.recommended_queue?.replace(/_/g, " ")}
-                </span>
+                {/* Queue badge + confidence */}
+                <div className="flex items-center gap-1.5">
+                  <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full border", queueColor[plan.recommended_queue] ?? "text-bfsi-text bg-bfsi-muted border-bfsi-border")}>
+                    {plan.recommended_queue?.replace(/_/g, " ")}
+                  </span>
+                  {queueConfPct != null && (
+                    <span className={cn("text-xs font-mono font-semibold", queueConfColor)} title="Queue routing confidence">
+                      {queueConfPct}%
+                    </span>
+                  )}
+                </div>
                 <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full border", complexityColor[plan.investigation_complexity] ?? "")}>
                   {plan.investigation_complexity} COMPLEXITY
                 </span>
@@ -391,12 +403,54 @@ export default function InternalReviewCaseDetail() {
                   </span>
                 )}
               </div>
+
               <p className="text-sm text-bfsi-text-muted leading-relaxed">{plan.investigation_summary}</p>
-              <div className="flex items-center gap-4 mt-3 pt-3 border-t border-bfsi-border">
-                <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">IIA Confidence</span>
-                <span className="text-sm font-mono font-semibold text-bfsi-gold">{((plan.confidence_score ?? 0) * 100).toFixed(0)}%</span>
+
+              {/* Queue confidence factors */}
+              {(plan.queue_confidence_factors ?? []).length > 0 && (
+                <ul className="mt-3 space-y-1">
+                  {(plan.queue_confidence_factors ?? []).map((f: string, i: number) => (
+                    <li key={i} className="flex items-start gap-2 text-xs text-bfsi-text-dim">
+                      <span className="mt-0.5 w-1 h-1 rounded-full bg-bfsi-text-dim flex-shrink-0" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="flex items-center gap-6 mt-3 pt-3 border-t border-bfsi-border">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">IIA Confidence</span>
+                  <span className="text-sm font-mono font-semibold text-bfsi-gold">{((plan.confidence_score ?? 0) * 100).toFixed(0)}%</span>
+                </div>
+                {queueConfPct != null && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">Queue Confidence</span>
+                    <span className={cn("text-sm font-mono font-semibold", queueConfColor)}>{queueConfPct}%</span>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* ── Investigation Reasoning (Change 1) ──────────────────────── */}
+            {(plan.investigation_reasoning ?? []).length > 0 && (
+              <div className="bfsi-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Lightbulb className="w-4 h-4 text-bfsi-gold" />
+                  <p className="section-header mb-0">Key Investigation Findings</p>
+                </div>
+                <ol className="space-y-2">
+                  {(plan.investigation_reasoning ?? []).map((finding: string, i: number) => (
+                    <li key={i} className="flex gap-3 text-xs text-bfsi-text-muted">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-bfsi-accent/20 text-bfsi-accent text-[10px] font-bold flex items-center justify-center border border-bfsi-accent/30">
+                        {i + 1}
+                      </span>
+                      <span className="leading-relaxed pt-0.5">{finding}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               {/* Customer Risk */}
@@ -446,7 +500,7 @@ export default function InternalReviewCaseDetail() {
                 </div>
                 {plan.recommended_steps?.length > 0 ? (
                   <ol className="space-y-2">
-                    {plan.recommended_steps.map((step, i) => (
+                    {plan.recommended_steps.map((step: string, i: number) => (
                       <li key={i} className="flex gap-3 text-xs text-bfsi-text-muted">
                         <span className="flex-shrink-0 w-5 h-5 rounded-full bg-bfsi-gold/20 text-bfsi-gold text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
                         <span className="leading-relaxed pt-0.5">{step}</span>
@@ -465,7 +519,7 @@ export default function InternalReviewCaseDetail() {
               </div>
               {plan.required_documents?.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {plan.required_documents.map((doc, i) => (
+                  {plan.required_documents.map((doc: string, i: number) => (
                     <div key={i} className="flex items-center gap-2 p-2.5 bg-bfsi-muted rounded-lg border border-bfsi-border">
                       <CheckCircle className="w-3.5 h-3.5 text-bfsi-gold flex-shrink-0" />
                       <span className="text-xs text-bfsi-text-muted">{doc}</span>
@@ -474,6 +528,55 @@ export default function InternalReviewCaseDetail() {
                 </div>
               ) : <p className="text-xs text-bfsi-text-dim">No document checklist available.</p>}
             </div>
+
+            {/* ── Agent Execution (Changes 5 & 6) ─────────────────────────── */}
+            {(plan.agent_metadata || plan.metrics || (plan.tools_used ?? []).length > 0) && (
+              <div className="bfsi-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Cpu className="w-4 h-4 text-bfsi-text-dim" />
+                  <p className="text-xs font-semibold text-bfsi-text-dim uppercase tracking-wider mb-0">Agent Execution</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  {/* Metadata */}
+                  {plan.agent_metadata && (
+                    <div>
+                      <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2">Identity</p>
+                      <div className="space-y-1.5 text-xs text-bfsi-text-muted">
+                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Agent</span><span className="font-mono">{plan.agent_metadata.agent_name ?? "IIA"}</span></div>
+                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Version</span><span className="font-mono">{plan.agent_metadata.agent_version ?? "—"}</span></div>
+                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Model</span><span className="font-mono truncate max-w-[140px]">{plan.agent_metadata.model ?? "—"}</span></div>
+                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Duration</span><span className="font-mono">{plan.agent_metadata.execution_duration_ms != null ? `${plan.agent_metadata.execution_duration_ms.toLocaleString()}ms` : "—"}</span></div>
+                      </div>
+                    </div>
+                  )}
+                  {/* Metrics */}
+                  {plan.metrics && (
+                    <div>
+                      <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2">Metrics</p>
+                      <div className="space-y-1.5 text-xs text-bfsi-text-muted">
+                        <div className="flex justify-between"><span className="text-bfsi-text-dim">LLM Calls</span><span className="font-mono">{plan.metrics.llm_calls ?? "—"}</span></div>
+                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Tool Calls</span><span className="font-mono">{plan.metrics.tool_calls ?? "—"}</span></div>
+                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Total Duration</span><span className="font-mono">{plan.metrics.total_duration_ms != null ? `${plan.metrics.total_duration_ms.toLocaleString()}ms` : "—"}</span></div>
+                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Retries</span><span className="font-mono">{plan.metrics.retry_count ?? 0}</span></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {/* Tools used */}
+                {(plan.tools_used ?? []).length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-bfsi-border">
+                    <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2">Tools Executed</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(plan.tools_used ?? []).map((t: string, i: number) => (
+                        <span key={i} className="text-[10px] font-mono px-2 py-1 rounded bg-bfsi-muted border border-bfsi-border text-bfsi-text-dim">
+                          {i + 1}. {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
       })()}

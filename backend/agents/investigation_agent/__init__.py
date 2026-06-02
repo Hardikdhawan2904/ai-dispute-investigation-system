@@ -13,6 +13,7 @@ Wiring (identical pattern to Agent 1):
   graph.py        → TOOL_REGISTRY[name] for name in names → ToolNode
   here            → investigation_graph.invoke({messages: [...], ...})
 """
+import time
 from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -75,6 +76,27 @@ MERCHANT_QUEUE  → Merchant Dispute, Refund Not Received, Product Not Received,
 ATM_QUEUE       → ATM Cash Issue
 STANDARD_QUEUE  → everything else
 
+## Queue Confidence Scoring
+Assign queue_confidence as a float 0.0–1.0 reflecting how certain you are the recommended queue is correct.
+  0.90–1.00 : Very clear routing — strong signals, no ambiguity
+  0.75–0.89 : Strong confidence — most signals agree, minor uncertainty
+  0.60–0.74 : Moderate confidence — some conflicting signals
+  Below 0.60 : Manual routing review recommended
+
+Factors that INCREASE queue_confidence:
+  + Dispute category clearly maps to one queue
+  + Customer history is consistent with current dispute type
+  + Merchant risk level matches the queue direction
+  + No duplicate found (clean case)
+  + Historical cases show high resolution rate in same queue
+
+Factors that DECREASE queue_confidence:
+  - Category is ambiguous between two queues
+  - Customer history contradicts current claim
+  - Merchant risk is unknown or unavailable
+  - Duplicate found (complicates routing)
+  - Tool failures left gaps in intelligence
+
 ## Investigation Complexity
 CRITICAL → fraud + high value + multiple risk signals + high merchant/customer risk
 HIGH     → fraud_suspicion=true OR high merchant risk OR high customer risk OR high amount
@@ -87,6 +109,11 @@ After calling all relevant tools, respond with ONLY this JSON object — no pros
 {
   "case_id": "<from input>",
   "recommended_queue": "CRITICAL_QUEUE | FRAUD_QUEUE | HIGH_VALUE_QUEUE | MERCHANT_QUEUE | ATM_QUEUE | STANDARD_QUEUE",
+  "queue_confidence": <float 0.0-1.0>,
+  "queue_confidence_factors": [
+    "<human-readable sentence grounded in a specific tool output>",
+    "<another factor — 2-4 items total>"
+  ],
   "investigation_complexity": "LOW | MEDIUM | HIGH | CRITICAL",
   "manual_review_required": true,
   "customer_risk_profile": {
@@ -112,7 +139,12 @@ After calling all relevant tools, respond with ONLY this JSON object — no pros
   },
   "required_documents": ["..."],
   "recommended_steps": ["Step 1", "Step 2", "Step 3"],
-  "investigation_summary": "2-3 sentence plain-language brief for the human analyst",
+  "investigation_reasoning": [
+    "<most important finding from tool results>",
+    "<second finding>",
+    "<third finding — 3-6 items, ordered by importance, no hallucination>"
+  ],
+  "investigation_summary": "2-3 sentence plain-language brief for the human analyst — must cite specific tool findings",
   "confidence_score": 0.85
 }
 
@@ -123,6 +155,14 @@ After calling all relevant tools, respond with ONLY this JSON object — no pros
 - related_case_id: the case_id of the duplicate if found, else null.
 - required_documents: exact list from recommend_documents tool.
 - recommended_steps: 3-5 concrete, ordered investigation actions specific to this case.
+- investigation_reasoning: 3-6 factual statements derived ONLY from actual tool outputs. No fabrication.
+  Each item is one finding. Order by importance. Example items:
+    "Customer has 3 prior disputes, 2 of which were fraud-flagged."
+    "No duplicate transaction found — this is a unique submission."
+    "Merchant has no prior complaints on record."
+    "Historical resolution rate for Unauthorized Transaction is 72%."
+    "Fraud suspicion flag received from Agent 1 — POSSIBLE_FRAUD tag present."
+- queue_confidence_factors: 2-4 sentences, each grounded in a tool output or input signal.
 - investigation_summary: must reference specific findings from your tool calls.
 - confidence_score: start at 0.7. +0.1 if no gaps in tool data. -0.1 per tool failure. -0.1 if high risk signals without corroborating data.
 
@@ -148,6 +188,11 @@ def run_investigation_agent(agent1_output: dict) -> dict:
         "investigation_findings": {},
         "final_output":           {},
         "error":                  None,
+        # Audit + observability fields — stamped here so finalize_node can compute duration
+        "tools_used":             [],
+        "agent_metadata":         {},
+        "metrics":                {},
+        "agent_start_time":       time.time(),
     }
     result = investigation_graph.invoke(initial)
     return result["final_output"]

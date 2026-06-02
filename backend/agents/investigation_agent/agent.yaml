@@ -1,7 +1,7 @@
 agent:
   name: IIA
   full_name: Investigation Intelligence Agent
-  version: "1.0"
+  version: "1.1.0"
   domain: BFSI — Banking, Financial Services & Insurance
 
   role: >
@@ -88,19 +88,25 @@ agent:
   output:
     format: JSON dict (InvestigationReport)
     fields:
-      case_id:                  "Unique identifier from Agent 1 output"
-      recommended_queue:        "CRITICAL_QUEUE | FRAUD_QUEUE | HIGH_VALUE_QUEUE | MERCHANT_QUEUE | ATM_QUEUE | STANDARD_QUEUE"
-      investigation_complexity: "LOW | MEDIUM | HIGH | CRITICAL"
-      manual_review_required:   "Boolean — true if human escalation is needed"
-      customer_risk_profile:    "Structured customer history and risk assessment"
-      merchant_risk_profile:    "Structured merchant complaint history and risk level"
-      duplicate_found:          "Boolean — true if a duplicate dispute was detected"
-      related_case_id:          "Case ID of duplicate if found, else null"
-      related_cases:            "Historical resolution statistics for this dispute type"
-      required_documents:       "List of documents to request from customer"
-      recommended_steps:        "Ordered list of investigation actions for the analyst"
-      investigation_summary:    "2-3 sentence plain-language investigation brief"
-      confidence_score:         "Float [0.0, 1.0] — IIA self-assessed certainty"
+      case_id:                    "Unique identifier from Agent 1 output"
+      recommended_queue:          "CRITICAL_QUEUE | FRAUD_QUEUE | HIGH_VALUE_QUEUE | MERCHANT_QUEUE | ATM_QUEUE | STANDARD_QUEUE"
+      queue_confidence:           "Float [0.0, 1.0] — IIA certainty in queue assignment"
+      queue_confidence_factors:   "List of human-readable reasons explaining queue_confidence"
+      investigation_complexity:   "LOW | MEDIUM | HIGH | CRITICAL"
+      manual_review_required:     "Boolean — true if human escalation is needed"
+      customer_risk_profile:      "Structured customer history and risk assessment"
+      merchant_risk_profile:      "Structured merchant complaint history and risk level"
+      duplicate_found:            "Boolean — true if a duplicate dispute was detected"
+      related_case_id:            "Case ID of duplicate if found, else null"
+      related_cases:              "Historical resolution statistics for this dispute type"
+      required_documents:         "List of documents to request from customer"
+      recommended_steps:          "Ordered list of investigation actions for the analyst"
+      investigation_reasoning:    "Ordered list of key findings from tool calls — no hallucination"
+      investigation_summary:      "2-3 sentence plain-language investigation brief"
+      tools_used:                 "Server-stamped list of tool names actually executed"
+      agent_metadata:             "Server-stamped agent identity, model, version, timestamp, duration"
+      metrics:                    "Server-stamped execution metrics — llm_calls, tool_calls, duration_ms"
+      confidence_score:           "Float [0.0, 1.0] — IIA self-assessed certainty in the full investigation plan"
 
   # ── Queue definitions ────────────────────────────────────────────────────────
   queues:

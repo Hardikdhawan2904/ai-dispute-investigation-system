@@ -10,3 +10,8 @@ class InvestigationAgentState(TypedDict):
     investigation_findings:  dict   # intermediate structured findings built during the loop
     final_output:            dict   # final investigation plan returned to the caller
     error:                   Optional[str]
+    # Audit + observability (Changes 2, 5, 6)
+    tools_used:              List[str]  # ordered unique list of tool names called during the ReAct loop
+    agent_metadata:          dict       # agent identity: name, version, model, timestamp, duration_ms
+    metrics:                 dict       # total_duration_ms, llm_calls, tool_calls, retry_count
+    agent_start_time:        float      # wall-clock start set in run_investigation_agent before graph invoke

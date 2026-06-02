@@ -4,25 +4,31 @@ Investigation Intelligence Agent — ReAct pipeline nodes.
 call_model      : invoke LLM with all 5 tools bound (via TOOL_REGISTRY + agent.yaml)
 should_continue : route to 'tools' if tool calls pending, else to 'finalize'
 finalize_node   : parse the LLM's final JSON, extract tool_results from message history,
-                  stamp server-owned fields, assemble final_output
+                  stamp server-owned audit fields (tools_used, agent_metadata, metrics),
+                  assemble final_output
 """
 from __future__ import annotations
 
 import os
+import time
 from typing import Literal
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_groq import ChatGroq
-from tenacity import retry, stop_after_attempt, wait_exponential
+from groq import RateLimitError as GroqRateLimitError
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
-from agents.investigation_agent.config import get_llm_config, get_agent_tool_names
+from agents.investigation_agent.config import get_llm_config, get_agent_tool_names, load_agent_config
 from agents.investigation_agent.state import InvestigationAgentState
 from agents.investigation_agent.tools import TOOL_REGISTRY
 from utils.helpers import extract_json_from_text, utc_now_iso
 from utils.logger import agent_logger, log_workflow_event
 
-# ── LLM + tools (both sourced from agent.yaml) ───────────────────────────────
-_cfg   = get_llm_config()
+# ── LLM + tools + agent identity (all sourced from agent.yaml) ───────────────
+_cfg        = get_llm_config()
+_agent_yaml = load_agent_config()["agent"]
+_AGENT_NAME = _agent_yaml["full_name"]       # "Investigation Intelligence Agent"
+_AGENT_VER  = str(_agent_yaml["version"])    # "1.1.0"
 _tools = [TOOL_REGISTRY[name] for name in get_agent_tool_names()]
 
 _llm = ChatGroq(
@@ -36,7 +42,12 @@ _llm_with_tools = _llm.bind_tools(_tools)
 
 # ── Nodes ──────────────────────────────────────────────────────────────────────
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10))
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(min=2, max=10),
+    retry=retry_if_not_exception_type(GroqRateLimitError),
+    reraise=True,
+)
 def call_model(state: InvestigationAgentState) -> dict:
     """Agent node — invoke LLM with all 5 investigative tools bound."""
     response = _llm_with_tools.invoke(state["messages"])
@@ -58,36 +69,79 @@ def should_continue(state: InvestigationAgentState) -> Literal["tools", "finaliz
 def finalize_node(state: InvestigationAgentState) -> dict:
     """
     Parse the LLM's final JSON investigation plan.
-    Extract tool_results from ToolMessages in the history for audit.
-    Stamp server-owned fields and assemble final_output.
+    Extracts audit trail from message history.
+    Stamps server-owned fields: tools_used, agent_metadata, metrics.
+    Assembles final_output.
     """
     a1      = state["agent1_output"]
     case_id = a1.get("case_id", "")
 
-    # ── Extract tool results from message history (audit trail) ───────────────
-    tool_results: dict = {}
-    for msg in state["messages"]:
-        if isinstance(msg, ToolMessage) and getattr(msg, "name", None):
-            tool_results[msg.name] = msg.content
+    # ── Timing ────────────────────────────────────────────────────────────────
+    start_time  = state.get("agent_start_time") or 0.0
+    duration_ms = round((time.time() - start_time) * 1000, 1) if start_time else 0.0
+
+    # ── Audit trail from message history ──────────────────────────────────────
+    messages       = state.get("messages") or []
+    tool_results:  dict = {}
+    tools_used:    list = []
+    llm_call_count = 0
+    tool_msg_count = 0
+
+    for msg in messages:
+        if isinstance(msg, AIMessage):
+            llm_call_count += 1
+            for tc in (getattr(msg, "tool_calls", None) or []):
+                name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
+                if name and name not in tools_used:
+                    tools_used.append(name)
+        elif isinstance(msg, ToolMessage):
+            tool_msg_count += 1
+            if getattr(msg, "name", None):
+                tool_results[msg.name] = msg.content
+
+    metrics = {
+        "total_duration_ms": duration_ms,
+        "llm_calls":         llm_call_count,
+        "tool_calls":        tool_msg_count,
+        "retry_count":       0,
+    }
+    agent_metadata = {
+        "agent_name":           _AGENT_NAME,
+        "agent_version":        _AGENT_VER,
+        "model":                _cfg["model"],
+        "execution_timestamp":  utc_now_iso(),
+        "execution_duration_ms": duration_ms,
+    }
 
     # ── Parse LLM final JSON ──────────────────────────────────────────────────
-    last   = state["messages"][-1]
-    raw    = last.content if hasattr(last, "content") else ""
+    last   = messages[-1] if messages else None
+    raw    = last.content if last and hasattr(last, "content") else ""
     parsed = extract_json_from_text(raw) if raw else None
 
     if not parsed:
-        agent_logger.warning(
-            "IIA JSON parse failed — using fallback",
-            extra={"case_id": case_id},
-        )
+        agent_logger.warning("IIA JSON parse failed — using fallback", extra={"case_id": case_id})
+        fb = _fallback_output(a1, case_id, tools_used, agent_metadata, metrics)
         return {
-            "final_output":  _fallback_output(a1, case_id),
-            "tool_results":  tool_results,
+            "final_output":   fb,
+            "tool_results":   tool_results,
+            "tools_used":     tools_used,
+            "agent_metadata": agent_metadata,
+            "metrics":        metrics,
         }
 
     # ── Stamp server-owned fields ─────────────────────────────────────────────
     parsed["case_id"]    = case_id
     parsed["created_at"] = utc_now_iso()
+
+    # Server-stamped audit fields — LLM cannot fabricate these
+    parsed["tools_used"]     = tools_used
+    parsed["agent_metadata"] = agent_metadata
+    parsed["metrics"]        = metrics
+
+    # Ensure LLM-generated new fields default gracefully if LLM omits them
+    parsed.setdefault("investigation_reasoning",  [])
+    parsed.setdefault("queue_confidence",         0.7)
+    parsed.setdefault("queue_confidence_factors", [])
 
     log_workflow_event(
         agent_logger,
@@ -97,23 +151,31 @@ def finalize_node(state: InvestigationAgentState) -> dict:
         customer_id=a1.get("customer_id"),
         extra={
             "recommended_queue":        parsed.get("recommended_queue"),
+            "queue_confidence":         parsed.get("queue_confidence"),
             "investigation_complexity": parsed.get("investigation_complexity"),
             "manual_review_required":   parsed.get("manual_review_required"),
             "duplicate_found":          parsed.get("duplicate_found"),
             "confidence_score":         parsed.get("confidence_score"),
-            "tools_called":             list(tool_results.keys()),
+            "tools_used":               tools_used,
+            "duration_ms":              duration_ms,
         },
     )
 
     return {
-        "final_output": parsed,
-        "tool_results": tool_results,
+        "final_output":   parsed,
+        "tool_results":   tool_results,
+        "tools_used":     tools_used,
+        "agent_metadata": agent_metadata,
+        "metrics":        metrics,
     }
 
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
 
-def _fallback_output(a1: dict, case_id: str) -> dict:
+def _fallback_output(
+    a1: dict, case_id: str,
+    tools_used: list, agent_metadata: dict, metrics: dict,
+) -> dict:
     """Minimal safe investigation plan returned when JSON parsing fails."""
     fraud   = a1.get("fraud_suspicion", False)
     amount  = float(a1.get("amount", 0))
@@ -122,42 +184,60 @@ def _fallback_output(a1: dict, case_id: str) -> dict:
     if fraud and amount > 50_000:
         queue      = "CRITICAL_QUEUE"
         complexity = "CRITICAL"
+        q_conf     = 0.75
     elif fraud:
         queue      = "FRAUD_QUEUE"
         complexity = "HIGH"
+        q_conf     = 0.70
     elif amount > 50_000:
         queue      = "HIGH_VALUE_QUEUE"
         complexity = "HIGH"
+        q_conf     = 0.70
     elif cat in ("Merchant Dispute", "Refund Not Received", "Product Not Received", "Subscription Abuse"):
         queue      = "MERCHANT_QUEUE"
         complexity = "MEDIUM"
+        q_conf     = 0.65
     elif cat == "ATM Cash Issue":
         queue      = "ATM_QUEUE"
         complexity = "MEDIUM"
+        q_conf     = 0.65
     else:
         queue      = "STANDARD_QUEUE"
         complexity = "MEDIUM"
+        q_conf     = 0.50
 
     return {
         "case_id":                  case_id,
         "recommended_queue":        queue,
+        "queue_confidence":         q_conf,
+        "queue_confidence_factors": [
+            "Queue assigned using deterministic fallback rules — automated investigation failed.",
+            "Confidence is reduced because tool-based intelligence could not be gathered.",
+        ],
         "investigation_complexity": complexity,
         "manual_review_required":   True,
-        "customer_risk_profile":    {"risk_level": "UNKNOWN", "assessment": "Tool execution failed"},
-        "merchant_risk_profile":    {"merchant_risk": "UNKNOWN", "assessment": "Tool execution failed"},
+        "customer_risk_profile":    {"risk_level": "UNKNOWN", "assessment": "Tool execution failed — manual assessment required."},
+        "merchant_risk_profile":    {"merchant_risk": "UNKNOWN", "assessment": "Tool execution failed — manual assessment required."},
         "duplicate_found":          False,
         "related_case_id":          None,
         "related_cases":            {"similar_cases": 0, "resolution_rate": 0.0},
         "required_documents":       ["Bank statement (last 3 months)", "Supporting documentation"],
-        "recommended_steps":        [
-            "Manual review required — automated investigation failed",
-            "Gather all available evidence from customer",
-            "Escalate to senior analyst",
+        "recommended_steps": [
+            "Manual review required — automated investigation failed.",
+            "Gather all available evidence from customer.",
+            "Escalate to senior analyst.",
         ],
-        "investigation_summary":    (
+        "investigation_reasoning": [
+            "Automated investigation could not complete — LLM output was not parseable.",
+            f"Fallback queue assignment applied based on dispute category ({cat}) and fraud flag ({fraud}).",
+        ],
+        "investigation_summary": (
             "Automated investigation could not be completed. "
             "Manual review has been flagged. Senior analyst should conduct full investigation."
         ),
-        "confidence_score":         0.1,
-        "created_at":               utc_now_iso(),
+        "tools_used":     tools_used,
+        "agent_metadata": agent_metadata,
+        "metrics":        metrics,
+        "confidence_score": 0.1,
+        "created_at":     utc_now_iso(),
     }
