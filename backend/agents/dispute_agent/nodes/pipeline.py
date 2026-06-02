@@ -14,8 +14,9 @@ import os
 from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from groq import RateLimitError as GroqRateLimitError
 from langchain_groq import ChatGroq
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
 from agents.dispute_agent.config import get_llm_config, get_agent_tool_names
 from agents.dispute_agent.state import DisputeAgentState
@@ -112,7 +113,12 @@ def build_evidence_node(state: DisputeAgentState) -> dict:
 
 # ── Node 3 — agent (ReAct loop) ───────────────────────────────────────────────
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10))
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(min=2, max=10),
+    retry=retry_if_not_exception_type(GroqRateLimitError),
+    reraise=True,
+)
 def call_model(state: DisputeAgentState) -> dict:
     """Agent node — invoke LLM with all 4 understanding tools bound."""
     response = _llm_with_tools.invoke(state["messages"])

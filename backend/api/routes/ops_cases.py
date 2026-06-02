@@ -33,6 +33,7 @@ from tenacity import RetryError
 
 from services import priority_engine, manual_review_service
 from agents.dispute_agent import run_dispute_agent
+from agents.investigation_agent import run_investigation_agent
 
 router = APIRouter(prefix="/api/ops/cases", tags=["Ops — Cases"])
 
@@ -184,17 +185,15 @@ def reanalyse_case(case_id: str, db: Session = Depends(get_db)):
 
     try:
         result = run_dispute_agent(dispute_input, document_texts=document_texts)
+    except GroqRateLimitError as exc:
+        import re
+        m = re.search(r"try again in (\S+)", str(exc), re.IGNORECASE)
+        wait = f" Please try again in {m.group(1)}." if m else ""
+        raise HTTPException(
+            status_code=503,
+            detail=f"Groq API token limit exceeded.{wait}",
+        ) from exc
     except RetryError as exc:
-        cause = exc.last_attempt.exception()
-        if isinstance(cause, GroqRateLimitError):
-            msg = str(cause)
-            import re
-            m = re.search(r"try again in (\S+)", msg, re.IGNORECASE)
-            wait = f" Please try again in {m.group(1)}." if m else ""
-            raise HTTPException(
-                status_code=503,
-                detail=f"Groq API daily token limit exceeded.{wait}",
-            ) from exc
         raise HTTPException(
             status_code=503,
             detail="AI analysis service is temporarily unavailable. Please try again in a moment.",
@@ -213,6 +212,13 @@ def reanalyse_case(case_id: str, db: Session = Depends(get_db)):
     case.structured_reasoning    = result.get("structured_reasoning", case.structured_reasoning)
     case.evidence_match          = result.get("evidence_match")
     case.evidence_match_note     = result.get("evidence_match_note", "")
+
+    # Agent 2 — investigation plan
+    try:
+        investigation_plan = run_investigation_agent(result)
+        case.investigation_plan = investigation_plan
+    except Exception:
+        pass  # Agent 1 result is still valid; leave existing plan intact
 
     priority_score, priority_label = priority_engine.compute_priority(case.to_dict())
     case.priority_score = priority_score

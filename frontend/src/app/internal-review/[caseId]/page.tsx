@@ -53,8 +53,8 @@ export default function InternalReviewCaseDetail() {
       const updated = await reanalyseCase(caseData.case_id);
       setCaseData(updated);
       toast.success(`Re-analysis complete — confidence: ${(updated.confidence_score * 100).toFixed(0)}%`);
-    } catch {
-      toast.error("Re-analysis failed");
+    } catch (err: unknown) {
+      toast.error((err instanceof Error ? err.message : null) || "Re-analysis failed");
     } finally {
       setReanalysing(false);
     }
