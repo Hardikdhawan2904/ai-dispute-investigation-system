@@ -1,12 +1,12 @@
 """
 Database engine and session management for the BFSI Dispute Resolution Platform.
-Supports SQLite (MVP) and PostgreSQL (production).
+PostgreSQL via psycopg2.
 """
 import os
 from contextlib import contextmanager
 from typing import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase
 from dotenv import load_dotenv
 
@@ -14,25 +14,15 @@ from utils.logger import db_logger
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dispute_resolution.db")
-
-# SQLite-specific: enable WAL mode and foreign keys
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args=connect_args,
-    echo=False,         # Set True for SQL query logging in dev
+    echo=False,
     pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
 )
-
-if DATABASE_URL.startswith("sqlite"):
-    @event.listens_for(engine, "connect")
-    def _set_sqlite_pragma(dbapi_conn, _):
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -42,53 +32,10 @@ class Base(DeclarativeBase):
 
 
 def init_db() -> None:
-    """Create all tables if they don't exist, then apply additive migrations."""
-    import database.models  # noqa: F401 — import triggers table registration
+    """Create all tables if they don't exist."""
+    import database.models  # noqa: F401 — registers all ORM models
     Base.metadata.create_all(bind=engine)
-    _apply_migrations()
     db_logger.info("Database initialized — all tables created/verified.")
-
-
-def _apply_migrations() -> None:
-    """Additive ALTER TABLE migrations for existing SQLite databases."""
-    _new_cols = [
-        ("dispute_cases", "assigned_queue",         "VARCHAR(64)"),
-        ("dispute_cases", "assigned_analyst",        "VARCHAR(128)"),
-        ("dispute_cases", "priority_score",          "FLOAT DEFAULT 0.0"),
-        ("dispute_cases", "sla_deadline",            "DATETIME"),
-        ("dispute_cases", "sla_breached",            "BOOLEAN DEFAULT 0"),
-        ("dispute_cases", "sla_paused_at",           "DATETIME"),
-        ("dispute_cases", "duplicate_of",            "VARCHAR(64)"),
-        ("dispute_cases", "requires_manual_review",  "BOOLEAN DEFAULT 0"),
-        ("dispute_cases", "manual_review_reason",    "TEXT"),
-        ("dispute_cases", "locked_by",               "VARCHAR(128)"),
-        ("dispute_cases", "locked_at",               "DATETIME"),
-        ("dispute_cases", "transaction_metadata",    "TEXT"),
-        ("dispute_cases", "evidence_match",          "BOOLEAN"),
-        ("dispute_cases", "evidence_match_note",     "TEXT"),
-        ("dispute_cases", "investigation_plan",      "TEXT"),
-        # Agent 1 audit trail (Change 2-5)
-        ("dispute_cases", "confidence_factors",      "TEXT"),
-        ("dispute_cases", "tools_used",              "TEXT"),
-        ("dispute_cases", "agent_metadata",          "TEXT"),
-        ("dispute_cases", "metrics",                 "TEXT"),
-        # Agent 1 fallback resilience
-        ("dispute_cases", "fallback_mode",           "BOOLEAN DEFAULT 0"),
-        ("dispute_cases", "failure_reason",          "VARCHAR(64)"),
-    ]
-    with engine.connect() as conn:
-        for table, col, col_type in _new_cols:
-            try:
-                conn.execute(
-                    __import__("sqlalchemy").text(
-                        f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
-                    )
-                )
-                conn.commit()
-                db_logger.info(f"Migration: added {table}.{col}")
-            except Exception:
-                # Column already exists — safe to ignore
-                conn.rollback()
 
 
 def get_db() -> Generator[Session, None, None]:

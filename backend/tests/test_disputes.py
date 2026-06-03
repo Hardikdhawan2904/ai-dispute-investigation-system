@@ -2,18 +2,19 @@
 Integration tests for the BFSI Dispute Resolution Platform.
 Run: pytest tests/test_disputes.py -v
 """
+import os
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from api.main import app
 from database.database import Base, get_db
 
-# ── Test Database (in-memory SQLite) ──────────────────────────────────────────
+# ── Test Database (isolated PostgreSQL schema) ────────────────────────────────
 
-TEST_DATABASE_URL = "sqlite:///:memory:"
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+TEST_DATABASE_URL = os.environ["DATABASE_URL"]
+engine = create_engine(TEST_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
