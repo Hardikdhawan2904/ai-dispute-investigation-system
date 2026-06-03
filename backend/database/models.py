@@ -2,18 +2,20 @@
 SQLAlchemy ORM models for the BFSI Dispute Resolution Platform.
 
 Tables:
-  - dispute_cases     : Core dispute case with AI analysis results
-  - audit_logs        : Immutable audit trail for every workflow action
-  - workflow_states   : Per-case workflow execution snapshots
-  - case_notes        : Analyst notes attached to a case
-  - document_requests : Formal document requests sent to customers
-  - case_locks        : 30-minute pessimistic locks for concurrent analyst safety
+  - bank_customers     : Bank customer profiles
+  - merchant_profiles  : Merchant risk and complaint data
+  - transactions       : All customer transactions
+  - dispute_history    : Historical resolved dispute records
+  - dispute_cases      : Core dispute case with AI analysis results
+  - audit_logs         : Immutable audit trail for every workflow action
+  - workflow_states    : Per-case workflow execution snapshots
+  - case_notes         : Analyst notes attached to a case
+  - document_requests  : Formal document requests sent to customers
 """
-import json
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, String, Float, Boolean, Text, DateTime,
+    Column, String, Float, Boolean, Text, DateTime, Date,
     Integer, ForeignKey, JSON,
 )
 from sqlalchemy.orm import relationship
@@ -43,14 +45,126 @@ class BankCustomer(Base):
     full_name     = Column(String(256), nullable=False)
     email         = Column(String(256), nullable=False)
     phone         = Column(String(32), nullable=False)
+    joining_date  = Column(Date, nullable=True)
     created_at    = Column(DateTime, default=_utc_now, nullable=False)
 
     def to_dict(self) -> dict:
         return {
-            "customer_id": self.customer_id,
-            "full_name":   self.full_name,
-            "email":       self.email,
-            "phone":       self.phone,
+            "customer_id":  self.customer_id,
+            "full_name":    self.full_name,
+            "email":        self.email,
+            "phone":        self.phone,
+            "joining_date": str(self.joining_date) if self.joining_date else None,
+        }
+
+
+# ── Merchant Profiles ─────────────────────────────────────────────────────────
+
+class MerchantProfile(Base):
+    __tablename__ = "merchant_profiles"
+
+    merchant_id               = Column(String(64), primary_key=True, index=True)
+    merchant_name             = Column(String(256), nullable=False, index=True)
+    merchant_category         = Column(String(128), nullable=False)
+    total_transactions        = Column(Integer, default=0)
+    total_disputes            = Column(Integer, default=0)
+    fraud_complaints          = Column(Integer, default=0)
+    resolved_customer_favor   = Column(Integer, default=0)
+    resolved_merchant_favor   = Column(Integer, default=0)
+    risk_level                = Column(String(32), default="LOW")  # LOW/MEDIUM/HIGH/CRITICAL
+    blacklisted               = Column(Boolean, default=False)
+    created_at                = Column(DateTime, default=_utc_now, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "merchant_id":             self.merchant_id,
+            "merchant_name":           self.merchant_name,
+            "merchant_category":       self.merchant_category,
+            "total_transactions":      self.total_transactions,
+            "total_disputes":          self.total_disputes,
+            "fraud_complaints":        self.fraud_complaints,
+            "resolved_customer_favor": self.resolved_customer_favor,
+            "resolved_merchant_favor": self.resolved_merchant_favor,
+            "risk_level":              self.risk_level,
+            "blacklisted":             self.blacklisted,
+            "created_at":              _iso(self.created_at),
+        }
+
+
+# ── Transactions ──────────────────────────────────────────────────────────────
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+
+    transaction_id    = Column(String(64), primary_key=True, index=True)
+    customer_id       = Column(String(64), index=True, nullable=False)
+    merchant_id       = Column(String(64), nullable=True)
+    merchant_name     = Column(String(256), nullable=False)
+    amount            = Column(Float, nullable=False)
+    currency          = Column(String(8), default="INR")
+    transaction_type  = Column(String(64), nullable=False)   # UPI/NEFT/IMPS/Debit Card/etc.
+    transaction_date  = Column(DateTime, nullable=False)
+    status            = Column(String(32), default="Success")  # Success/Failed/Pending/Reversed
+    location          = Column(String(128), nullable=True)
+    device_id         = Column(String(64), nullable=True)
+    is_disputed       = Column(Boolean, default=False)
+    created_at        = Column(DateTime, default=_utc_now, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "transaction_id":   self.transaction_id,
+            "customer_id":      self.customer_id,
+            "merchant_id":      self.merchant_id,
+            "merchant_name":    self.merchant_name,
+            "amount":           self.amount,
+            "currency":         self.currency,
+            "transaction_type": self.transaction_type,
+            "transaction_date": _iso(self.transaction_date),
+            "status":           self.status,
+            "location":         self.location,
+            "device_id":        self.device_id,
+            "is_disputed":      self.is_disputed,
+            "created_at":       _iso(self.created_at),
+        }
+
+
+# ── Dispute History ───────────────────────────────────────────────────────────
+
+class DisputeHistory(Base):
+    """Historical (resolved) dispute records — pre-populated reference data."""
+    __tablename__ = "dispute_history"
+
+    id                    = Column(Integer, primary_key=True, index=True)
+    case_id               = Column(String(64), unique=True, index=True, nullable=False)
+    customer_id           = Column(String(64), index=True, nullable=False)
+    merchant_id           = Column(String(64), nullable=True)
+    transaction_id        = Column(String(64), nullable=True)
+    dispute_category      = Column(String(128), nullable=False)
+    fraud_claim           = Column(Boolean, default=False)
+    amount                = Column(Float, nullable=False)
+    resolution            = Column(Text, nullable=True)
+    resolved_in_favor_of  = Column(String(32), nullable=True)  # customer/merchant/partial
+    resolution_days       = Column(Integer, nullable=True)
+    status                = Column(String(32), default="Resolved")  # Resolved/Rejected/Closed
+    created_at            = Column(DateTime, nullable=False)
+    resolved_at           = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id":                    self.id,
+            "case_id":               self.case_id,
+            "customer_id":           self.customer_id,
+            "merchant_id":           self.merchant_id,
+            "transaction_id":        self.transaction_id,
+            "dispute_category":      self.dispute_category,
+            "fraud_claim":           self.fraud_claim,
+            "amount":                self.amount,
+            "resolution":            self.resolution,
+            "resolved_in_favor_of":  self.resolved_in_favor_of,
+            "resolution_days":       self.resolution_days,
+            "status":                self.status,
+            "created_at":            _iso(self.created_at),
+            "resolved_at":           _iso(self.resolved_at),
         }
 
 
@@ -80,7 +194,7 @@ class DisputeCase(Base):
     dispute_reason        = Column(String(256), nullable=True)
     fraud_selected        = Column(Boolean, default=False)
 
-    # AI Analysis outputs (renamed for ops display — see status_mapping_service)
+    # AI Analysis outputs
     dispute_category      = Column(String(128), nullable=True)
     fraud_suspicion       = Column(Boolean, default=False)
     customer_intent_summary = Column(Text, nullable=True)

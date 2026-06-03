@@ -17,6 +17,7 @@ from services.sla_service import compute_sla_deadline
 from services.queue_assignment_service import assign_queue
 from services.duplicate_detection_service import find_duplicate
 from services.manual_review_service import should_flag_manual_review
+from services.data_sync_service import sync_on_submission, sync_on_resolution
 
 
 class DisputeService:
@@ -86,6 +87,9 @@ class DisputeService:
 
         # Persist the dispute case
         db_case = DisputeService._persist_case(final_case, db)
+
+        # Sync to transactions + merchant_profiles
+        sync_on_submission(db_case, db)
 
         # Duplicate detection (post-persist so we exclude this case_id)
         dup_of = find_duplicate(
@@ -266,6 +270,10 @@ class DisputeService:
             message=f"Status changed from '{old_status}' to '{new_status}'",
             payload={"note": note, "actor": actor},
         )
+
+        # Sync to dispute_history + merchant resolution stats
+        sync_on_resolution(case, db)
+
         db.commit()
         db.refresh(case)
         return case.to_dict()
