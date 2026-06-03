@@ -271,6 +271,8 @@ def _safe_case_dict(case: dict) -> dict:
         "tools_used": case.get("tools_used") or [],
         "agent_metadata": case.get("agent_metadata"),
         "metrics": case.get("metrics"),
+        "fallback_mode": case.get("fallback_mode", False),
+        "failure_reason": case.get("failure_reason"),
         "status": case.get("status", "Dispute Raised"),
         "workflow_ready": case.get("workflow_ready", False),
         # Enterprise fields

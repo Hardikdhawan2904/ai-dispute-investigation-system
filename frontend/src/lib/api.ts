@@ -276,7 +276,7 @@ export async function getCaseRiskExplanation(caseId: string): Promise<{ risk_ind
 // ── Ops — Re-analyse ──────────────────────────────────────────────────────────
 
 export async function reanalyseCase(caseId: string): Promise<DisputeCase> {
-  const res = await api.post(`/api/ops/cases/${caseId}/reanalyse`);
+  const res = await api.post(`/api/ops/cases/${caseId}/reanalyse`, {}, { timeout: 120_000 });
   return res.data;
 }
 
@@ -294,7 +294,7 @@ export async function getCaseUploads(caseId: string): Promise<CaseUploadFile[]> 
 }
 
 export async function analyseUploads(caseId: string): Promise<{ analysed: number; files: CaseUploadFile[] }> {
-  const res = await api.post<{ analysed: number; files: CaseUploadFile[] }>(`/api/ops/cases/${caseId}/uploads/analyse`);
+  const res = await api.post<{ analysed: number; files: CaseUploadFile[] }>(`/api/ops/cases/${caseId}/uploads/analyse`, {}, { timeout: 120_000 });
   return res.data;
 }
 

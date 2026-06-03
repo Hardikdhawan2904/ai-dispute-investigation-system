@@ -35,11 +35,11 @@ agent:
   # ── LLM config — read by config.py → get_llm_config() ──────────────────────
   llm:
     provider: Groq
-    model: llama-3.3-70b-versatile
+    model: llama-3.1-8b-instant
     temperature: 0
-    max_tokens: 2048
-    retry_attempts: 3
-    retry_wait: exponential (min 2s, max 10s)
+    max_tokens: 1024
+    retry_attempts: 2
+    retry_wait: exponential (min 1s, max 5s)
 
   # ── LangGraph — read by config.py → get_entry_point() / get_agent_tool_names()
   langgraph:

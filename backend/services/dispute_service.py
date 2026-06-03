@@ -75,6 +75,15 @@ class DisputeService:
         final_case["requires_manual_review"] = manual_flag
         final_case["manual_review_reason"] = manual_reason if manual_flag else None
 
+        # Fallback safety net: any fallback case MUST have manual review (Change 6)
+        if final_case.get("fallback_mode"):
+            failure_reason = final_case.get("failure_reason", "UNKNOWN_ERROR")
+            final_case["requires_manual_review"] = True
+            final_case["manual_review_reason"] = (
+                f"AI service was unavailable at submission time (failure: {failure_reason}). "
+                "Automated dispute classification could not be completed — manual investigation required."
+            )
+
         # Persist the dispute case
         db_case = DisputeService._persist_case(final_case, db)
 
@@ -93,12 +102,32 @@ class DisputeService:
                 payload={"duplicate_of": dup_of},
             )
 
-        if manual_flag:
+        if manual_flag or final_case.get("fallback_mode"):
+            reason_msg = final_case.get("manual_review_reason") or manual_reason or ""
             DisputeService._append_audit_log(
                 db=db, case_id=db_case.case_id,
                 event_type="MANUAL_REVIEW_FLAGGED", stage="post_analysis",
-                message=manual_reason,
-                payload={"reason": manual_reason},
+                message=reason_msg,
+                payload={"reason": reason_msg},
+            )
+
+        # Immutable audit record for every fallback activation (Change 7)
+        if final_case.get("fallback_mode"):
+            failure_reason = final_case.get("failure_reason", "UNKNOWN_ERROR")
+            DisputeService._append_audit_log(
+                db=db, case_id=db_case.case_id,
+                event_type="AGENT1_FALLBACK_ACTIVATED", stage="dispute_understanding",
+                message=(
+                    f"Agent 1 (ARIA) was unavailable — fallback mode activated. "
+                    f"Failure reason: {failure_reason}. "
+                    "Case persisted with safe defaults. Manual review required."
+                ),
+                payload={
+                    "fallback_mode":    True,
+                    "failure_reason":   failure_reason,
+                    "confidence_score": final_case.get("confidence_score", 0.1),
+                    "retry_count":      (final_case.get("metrics") or {}).get("retry_count", 3),
+                },
             )
 
         # Append audit log
@@ -285,6 +314,8 @@ class DisputeService:
             tools_used=final_case.get("tools_used") or [],
             agent_metadata=final_case.get("agent_metadata"),
             metrics=final_case.get("metrics"),
+            fallback_mode=final_case.get("fallback_mode", False),
+            failure_reason=final_case.get("failure_reason"),
         )
         db.add(db_case)
         db.flush()  # Get PK without committing

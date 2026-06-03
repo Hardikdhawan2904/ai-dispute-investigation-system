@@ -1,7 +1,7 @@
 agent:
   name: IIA
   full_name: Investigation Intelligence Agent
-  version: "1.1.0"
+  version: "1.2.0"
   domain: BFSI — Banking, Financial Services & Insurance
 
   role: >
@@ -34,7 +34,7 @@ agent:
   # ── LLM config ───────────────────────────────────────────────────────────────
   llm:
     provider: Groq
-    model: llama-3.3-70b-versatile
+    model: llama-3.1-8b-instant
     temperature: 0
     max_tokens: 4096
     retry_attempts: 3
@@ -60,7 +60,7 @@ agent:
   # ── Tools ────────────────────────────────────────────────────────────────────
   tools:
     - name: lookup_customer_history
-      description: Queries dispute_cases for this customer's prior disputes, fraud-flag rate, and risk level.
+      description: Queries dispute_cases for this customer's prior disputes, fraud-flag rate, and risk level. Active case is automatically excluded server-side.
       inputs: [customer_id: string]
       output: customer risk profile report
 
@@ -103,6 +103,12 @@ agent:
       recommended_steps:          "Ordered list of investigation actions for the analyst"
       investigation_reasoning:    "Ordered list of key findings from tool calls — no hallucination"
       investigation_summary:      "2-3 sentence plain-language investigation brief"
+      manual_review_reason:       "List of specific reasons why manual review is required — empty when not required"
+      tool_decisions:             "LLM-generated list of {tool, reason} pairs explaining why each tool was called"
+      investigation_gaps:         "LLM-generated list of missing or unavailable intelligence discovered during tool execution"
+      data_quality_score:         "Float [0.0, 1.0] — completeness and reliability of investigation data gathered"
+      data_quality_factors:       "List of sentences explaining what drove the data quality score"
+      investigation_coverage:     "Server-stamped dict: boolean flag per tool indicating whether it was called"
       tools_used:                 "Server-stamped list of tool names actually executed"
       agent_metadata:             "Server-stamped agent identity, model, version, timestamp, duration"
       metrics:                    "Server-stamped execution metrics — llm_calls, tool_calls, duration_ms"

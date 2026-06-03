@@ -17,6 +17,7 @@ const TAG_META: Record<string, { label: string; icon: React.ElementType; descrip
   RECURRING_DISPUTE:         { label: "Recurring", icon: RefreshCw, description: "Subscription or recurring charge" },
   MERCHANT_BLACKLISTED:      { label: "Blacklisted Merchant", icon: Ban, description: "Known problematic merchant" },
   VELOCITY_BREACH:           { label: "Velocity Breach", icon: Activity, description: "Multiple rapid transactions" },
+  AI_UNAVAILABLE:            { label: "AI Unavailable", icon: AlertTriangle, description: "AI analysis was unavailable — fallback mode active, manual review required" },
 };
 
 interface RiskTagsProps {

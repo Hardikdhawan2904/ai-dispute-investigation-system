@@ -177,6 +177,8 @@ class DisputeCaseResponse(BaseModel):
     tools_used: List[str] = []
     agent_metadata: Optional[dict] = None
     metrics: Optional[dict] = None
+    fallback_mode: bool = False
+    failure_reason: Optional[str] = None
     status: str
     workflow_ready: bool
     # Enterprise fields

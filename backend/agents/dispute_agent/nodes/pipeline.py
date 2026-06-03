@@ -34,9 +34,9 @@ _AGENT_VER  = str(_agent_yaml["version"])  # "1.0"
 _tools = [TOOL_REGISTRY[name] for name in get_agent_tool_names()]
 
 _llm = ChatGroq(
-    model_name=_cfg["model"],
+    model_name=os.environ.get("LLM_MODEL") or _cfg["model"],
     temperature=_cfg["temperature"],
-    max_tokens=_cfg["max_tokens"],
+    max_tokens=int(os.environ.get("LLM_MAX_TOKENS") or _cfg["max_tokens"]),
     api_key=os.environ.get("GROQ_API_KEY"),
 )
 _llm_with_tools = _llm.bind_tools(_tools)
@@ -118,8 +118,8 @@ def build_evidence_node(state: DisputeAgentState) -> dict:
 # ── Node 3 — agent (ReAct loop) ───────────────────────────────────────────────
 
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(min=2, max=10),
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(min=1, max=5),
     retry=retry_if_not_exception_type(GroqRateLimitError),
     reraise=True,
 )
@@ -191,6 +191,10 @@ def finalize_node(state: DisputeAgentState) -> dict:
         agent_logger.warning("ARIA JSON parse failed — using fallback", extra={"case_id": case_id})
         amount = float(d.get("amount", 0))
         fraud  = bool(d.get("fraud_selected", False))
+        # Stamp JSON_PARSE_ERROR into metrics before passing to _fallback_case
+        metrics["fallback_activated"] = True
+        metrics["failure_reason"]     = "JSON_PARSE_ERROR"
+        metrics["fallback_timestamp"] = utc_now_iso()
         fc = _fallback_case(d, case_id, amount, fraud, tools_used, agent_metadata, metrics)
         return {"final_case": fc, "tools_used": tools_used, "agent_metadata": agent_metadata, "metrics": metrics}
 
@@ -202,8 +206,13 @@ def finalize_node(state: DisputeAgentState) -> dict:
     parsed.setdefault("workflow_ready",     True)
     parsed.setdefault("created_at",         utc_now_iso())
     parsed.setdefault("confidence_factors", [])
+    # Normal execution — no fallback
+    parsed.setdefault("fallback_mode",  False)
+    parsed.setdefault("failure_reason", None)
     parsed["tools_used"]     = tools_used
     parsed["agent_metadata"] = agent_metadata
+    # Stamp fallback_activated=False into metrics for normal runs
+    metrics["fallback_activated"] = False
     parsed["metrics"]        = metrics
 
     log_workflow_event(
@@ -255,10 +264,13 @@ def _fallback_case(
         "structured_reasoning":    "AI analysis could not be completed. Manual investigation required.",
         "evidence_match":          None,
         "evidence_match_note":     "",
-        "status":                  "Dispute Raised",
-        "workflow_ready":          True,
-        "created_at":              utc_now_iso(),
-        "tools_used":              tools_used,
-        "agent_metadata":          agent_metadata,
-        "metrics":                 metrics,
+        "status":         "Dispute Raised",
+        "workflow_ready": True,
+        "created_at":     utc_now_iso(),
+        # JSON-parse-error fallback flags
+        "fallback_mode":  True,
+        "failure_reason": "JSON_PARSE_ERROR",
+        "tools_used":     tools_used,
+        "agent_metadata": agent_metadata,
+        "metrics":        metrics,
     }

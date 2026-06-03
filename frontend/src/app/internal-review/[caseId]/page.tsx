@@ -8,7 +8,7 @@ import {
   ArrowLeft, AlertTriangle, Brain, Shield, CreditCard,
   FileText, CheckCircle, Loader2, Activity, RefreshCw,
   ImageIcon, X, ZoomIn, Search, ListChecks, Lightbulb,
-  BarChart2, Cpu, ChevronDown, ChevronUp,
+  BarChart2, ChevronDown, ChevronUp, AlertCircle, Eye,
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, getPriorityColor, getStatusColor, formatConfidence } from "@/lib/utils";
 import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads } from "@/lib/api";
@@ -62,6 +62,7 @@ export default function InternalReviewCaseDetail() {
   }
   const [activeTab, setActiveTab]           = useState<"overview" | "ai" | "investigation" | "evidence" | "audit" | "workflow">("overview");
   const [liveUpdate, setLiveUpdate]         = useState(false);
+  const [whyPlanOpen, setWhyPlanOpen]       = useState(false);
 
   useEffect(() => {
     if (!caseId) return;
@@ -199,6 +200,39 @@ export default function InternalReviewCaseDetail() {
           </div>
         )}
       </div>
+
+      {/* ── Agent 1 Fallback Banner (Change 9) ───────────────────────────── */}
+      {caseData.fallback_mode && (
+        <div className="mb-6 p-4 rounded-xl border border-amber-400/40 bg-amber-400/5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-400 mb-1">AI Processing Unavailable at Submission</p>
+              <p className="text-xs text-amber-300/80 leading-relaxed">
+                AI processing was unavailable when this case was submitted. A fallback analysis was generated
+                automatically and <strong className="text-amber-300">manual review is required</strong> before
+                any resolution decision can be made.
+              </p>
+              <div className="flex flex-wrap gap-4 mt-3 text-xs text-amber-300/70">
+                <span>
+                  <span className="text-amber-400/60 uppercase tracking-wider text-[10px]">Failure Reason</span>
+                  <span className="ml-2 font-mono font-semibold text-amber-300">{caseData.failure_reason ?? "UNKNOWN"}</span>
+                </span>
+                <span>
+                  <span className="text-amber-400/60 uppercase tracking-wider text-[10px]">Confidence</span>
+                  <span className="ml-2 font-mono font-semibold text-amber-300">
+                    {Math.round((caseData.confidence_score ?? 0) * 100)}%
+                  </span>
+                </span>
+                <span>
+                  <span className="text-amber-400/60 uppercase tracking-wider text-[10px]">Fallback Mode</span>
+                  <span className="ml-2 font-mono font-semibold text-amber-300">ACTIVE</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Status control */}
       <div className="bfsi-card p-4 mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -344,7 +378,7 @@ export default function InternalReviewCaseDetail() {
         </div>
       )}
 
-      {/* ── Investigation tab ─────────────────────────────────────────────── */}
+      {/* ── Investigation Workbench tab ──────────────────────────────────── */}
       {activeTab === "investigation" && (() => {
         const plan = caseData.investigation_plan;
         if (!plan) return (
@@ -355,6 +389,7 @@ export default function InternalReviewCaseDetail() {
           </div>
         );
 
+        // Colour helpers
         const complexityColor: Record<string, string> = {
           CRITICAL: "text-red-400 bg-red-400/10 border-red-400/30",
           HIGH:     "text-orange-400 bg-orange-400/10 border-orange-400/30",
@@ -371,21 +406,29 @@ export default function InternalReviewCaseDetail() {
         };
         const queueConf      = plan.queue_confidence ?? null;
         const queueConfPct   = queueConf != null ? Math.round(queueConf * 100) : null;
+        const queueLabel     = queueConfPct == null ? "" : queueConfPct >= 90 ? "Very High" : queueConfPct >= 75 ? "High" : queueConfPct >= 60 ? "Moderate" : "Low";
         const queueConfColor = queueConfPct == null ? "" : queueConfPct >= 90 ? "text-green-400" : queueConfPct >= 75 ? "text-bfsi-gold" : queueConfPct >= 60 ? "text-yellow-400" : "text-red-400";
+        const dqPct          = plan.data_quality_score != null ? Math.round(plan.data_quality_score * 100) : null;
+        const dqColor        = dqPct == null ? "" : dqPct >= 90 ? "text-green-400" : dqPct >= 75 ? "text-bfsi-gold" : dqPct >= 60 ? "text-yellow-400" : "text-red-400";
+        const invConf        = plan.investigation_confidence;
+        const invConfPct     = invConf != null ? Math.round(invConf * 100) : null;
+        const invConfColor   = invConfPct == null ? "" : invConfPct >= 90 ? "text-green-400" : invConfPct >= 75 ? "text-bfsi-gold" : invConfPct >= 60 ? "text-yellow-400" : "text-red-400";
+        const invConfTier    = invConfPct == null ? "" : invConfPct >= 90 ? "Very High Confidence" : invConfPct >= 75 ? "High Confidence" : invConfPct >= 60 ? "Moderate Confidence" : "Requires Review";
+        const invConfTierColor = invConfPct == null ? "" : invConfPct >= 90 ? "text-green-400 bg-green-400/10 border-green-400/30" : invConfPct >= 75 ? "text-bfsi-gold bg-bfsi-gold/10 border-bfsi-gold/30" : invConfPct >= 60 ? "text-yellow-400 bg-yellow-400/10 border-yellow-400/30" : "text-red-400 bg-red-400/10 border-red-400/30";
 
         return (
           <div className="space-y-5">
-            {/* ── Summary banner ──────────────────────────────────────────── */}
+
+            {/* ── Change 8: Enhanced Summary Header ───────────────────────── */}
             <div className="bfsi-card bfsi-card-accent p-5">
               <div className="flex flex-wrap items-center gap-3 mb-3">
-                {/* Queue badge + confidence */}
                 <div className="flex items-center gap-1.5">
                   <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full border", queueColor[plan.recommended_queue] ?? "text-bfsi-text bg-bfsi-muted border-bfsi-border")}>
                     {plan.recommended_queue?.replace(/_/g, " ")}
                   </span>
                   {queueConfPct != null && (
-                    <span className={cn("text-xs font-mono font-semibold", queueConfColor)} title="Queue routing confidence">
-                      {queueConfPct}%
+                    <span className={cn("text-xs font-mono font-semibold", queueConfColor)} title={`Queue routing confidence — ${queueLabel}`}>
+                      {queueConfPct}% <span className="text-[10px] opacity-70">({queueLabel})</span>
                     </span>
                   )}
                 </div>
@@ -402,37 +445,151 @@ export default function InternalReviewCaseDetail() {
                     MANUAL REVIEW
                   </span>
                 )}
+                {invConfTier && (
+                  <span className={cn("text-[10px] font-semibold px-2.5 py-1 rounded-full border", invConfTierColor)}>
+                    {invConfTier}
+                  </span>
+                )}
               </div>
-
               <p className="text-sm text-bfsi-text-muted leading-relaxed">{plan.investigation_summary}</p>
-
-              {/* Queue confidence factors */}
-              {(plan.queue_confidence_factors ?? []).length > 0 && (
-                <ul className="mt-3 space-y-1">
-                  {(plan.queue_confidence_factors ?? []).map((f: string, i: number) => (
-                    <li key={i} className="flex items-start gap-2 text-xs text-bfsi-text-dim">
-                      <span className="mt-0.5 w-1 h-1 rounded-full bg-bfsi-text-dim flex-shrink-0" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              <div className="flex items-center gap-6 mt-3 pt-3 border-t border-bfsi-border">
+              <div className="flex flex-wrap items-center gap-6 mt-3 pt-3 border-t border-bfsi-border">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">IIA Confidence</span>
                   <span className="text-sm font-mono font-semibold text-bfsi-gold">{((plan.confidence_score ?? 0) * 100).toFixed(0)}%</span>
                 </div>
                 {queueConfPct != null && (
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">Queue Confidence</span>
+                    <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">Queue</span>
                     <span className={cn("text-sm font-mono font-semibold", queueConfColor)}>{queueConfPct}%</span>
+                  </div>
+                )}
+                {dqPct != null && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">Data Quality</span>
+                    <span className={cn("text-sm font-mono font-semibold", dqColor)}>{dqPct}%</span>
+                  </div>
+                )}
+                {invConfPct != null && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">Plan Confidence</span>
+                    <span className={cn("text-sm font-mono font-semibold", invConfColor)}>{invConfPct}%</span>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* ── Investigation Reasoning (Change 1) ──────────────────────── */}
+            {/* ── Change 3: Manual Review Reasons Card ────────────────────── */}
+            {plan.manual_review_required && (plan.manual_review_reason ?? []).length > 0 && (
+              <div className="bfsi-card p-5 border-amber-400/30 bg-amber-400/5">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertTriangle className="w-4 h-4 text-amber-400" />
+                  <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Manual Review Required — Reasons</p>
+                </div>
+                <ul className="space-y-2">
+                  {(plan.manual_review_reason ?? []).map((r: string, i: number) => (
+                    <li key={i} className="flex items-start gap-2.5 text-xs text-amber-300/90 leading-relaxed">
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                      {r}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* ── Change 6: Investigation Confidence Card ──────────────────── */}
+            {invConf != null && (
+              <div className="bfsi-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <BarChart2 className="w-4 h-4 text-bfsi-gold" />
+                    <p className="section-header mb-0">Investigation Plan Confidence</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={cn("text-2xl font-mono font-bold", invConfColor)}>{invConfPct}%</span>
+                    {invConfTier && (
+                      <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full border", invConfTierColor)}>
+                        {invConfTier}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div className="h-2 bg-bfsi-muted rounded-full overflow-hidden mb-4">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      (invConfPct ?? 0) >= 90 ? "bg-green-500" :
+                      (invConfPct ?? 0) >= 75 ? "bg-bfsi-gold" :
+                      (invConfPct ?? 0) >= 60 ? "bg-yellow-500" : "bg-red-500"
+                    )}
+                    style={{ width: `${invConfPct ?? 0}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2 font-semibold">Confidence Factors</p>
+                {(plan.investigation_confidence_factors ?? []).length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {(plan.investigation_confidence_factors ?? []).map((f: string, i: number) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-bfsi-text-muted">
+                        <CheckCircle className="w-3 h-3 text-bfsi-gold flex-shrink-0 mt-0.5" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-bfsi-text-dim">No factors available.</p>
+                )}
+                <p className="text-[10px] text-bfsi-text-dim mt-3 pt-3 border-t border-bfsi-border">
+                  Computed deterministically: 40% queue confidence + 40% data quality + 20% historical precedent. Not LLM-generated.
+                </p>
+              </div>
+            )}
+
+            {/* ── Change 4: Enhanced Investigation Coverage ────────────────── */}
+            {plan.investigation_coverage && (
+              <div className="bfsi-card p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Eye className="w-3.5 h-3.5 text-bfsi-text-dim" />
+                  <p className="text-[10px] font-semibold text-bfsi-text-dim uppercase tracking-wider">Investigation Coverage</p>
+                  <span className="ml-auto text-[10px] text-bfsi-text-dim">
+                    {[
+                      plan.investigation_coverage.customer_history_checked,
+                      plan.investigation_coverage.merchant_history_checked,
+                      plan.investigation_coverage.duplicate_check_performed,
+                      plan.investigation_coverage.related_cases_reviewed,
+                      plan.investigation_coverage.documents_recommended,
+                    ].filter(Boolean).length} / 5 areas covered
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {(
+                    [
+                      { key: "customer_history_checked",  label: "Customer History",  desc: "lookup_customer_history" },
+                      { key: "merchant_history_checked",  label: "Merchant Risk",     desc: "check_merchant_risk" },
+                      { key: "duplicate_check_performed", label: "Duplicate Check",   desc: "find_duplicate_transaction" },
+                      { key: "related_cases_reviewed",    label: "Related Cases",     desc: "lookup_related_cases" },
+                      { key: "documents_recommended",     label: "Documents",         desc: "recommend_documents" },
+                    ] as const
+                  ).map(({ key, label }) => {
+                    const checked = plan.investigation_coverage?.[key];
+                    return (
+                      <div key={key} className={cn(
+                        "flex flex-col items-center gap-1.5 p-2.5 rounded-lg border text-center",
+                        checked
+                          ? "text-green-400 bg-green-400/5 border-green-400/25"
+                          : "text-bfsi-text-dim bg-bfsi-muted border-bfsi-border opacity-50"
+                      )}>
+                        {checked
+                          ? <CheckCircle className="w-4 h-4" />
+                          : <span className="w-4 h-4 rounded-full border border-current flex-shrink-0" />}
+                        <span className="text-[10px] font-medium leading-tight">{label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Key Investigation Findings ───────────────────────────────── */}
             {(plan.investigation_reasoning ?? []).length > 0 && (
               <div className="bfsi-card p-5">
                 <div className="flex items-center gap-2 mb-4">
@@ -452,8 +609,64 @@ export default function InternalReviewCaseDetail() {
               </div>
             )}
 
+            {/* ── Change 2: Investigation Gaps with empty state ────────────── */}
+            {(plan.investigation_gaps ?? []).length > 0 ? (
+              <div className="bfsi-card p-5 border-amber-400/20">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertCircle className="w-4 h-4 text-amber-400" />
+                  <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
+                    Investigation Gaps ({(plan.investigation_gaps ?? []).length})
+                  </p>
+                </div>
+                <ul className="space-y-2">
+                  {(plan.investigation_gaps ?? []).map((gap: string, i: number) => (
+                    <li key={i} className="flex items-start gap-2.5 text-xs text-amber-300/80">
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                      {gap}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="bfsi-card p-4 border-green-400/20 bg-green-400/5 flex items-center gap-3">
+                <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
+                <p className="text-xs text-green-400 font-medium">No investigation gaps identified — all areas have been covered.</p>
+              </div>
+            )}
+
+            {/* ── Change 7: "Why This Plan?" collapsible panel ─────────────── */}
+            {(plan.queue_confidence_factors ?? []).length > 0 && (
+              <div className="bfsi-card overflow-hidden">
+                <button
+                  onClick={() => setWhyPlanOpen((v) => !v)}
+                  className="w-full flex items-center justify-between p-4 hover:bg-bfsi-muted/40 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Lightbulb className="w-4 h-4 text-bfsi-gold" />
+                    <span className="text-xs font-semibold text-bfsi-text uppercase tracking-wider">Why This Plan?</span>
+                    <span className="text-[10px] text-bfsi-text-dim ml-1">Queue routing rationale from Agent 2</span>
+                  </div>
+                  {whyPlanOpen
+                    ? <ChevronUp className="w-4 h-4 text-bfsi-text-dim" />
+                    : <ChevronDown className="w-4 h-4 text-bfsi-text-dim" />}
+                </button>
+                {whyPlanOpen && (
+                  <div className="px-4 pb-4 border-t border-bfsi-border">
+                    <ul className="space-y-2 pt-3">
+                      {(plan.queue_confidence_factors ?? []).map((f: string, i: number) => (
+                        <li key={i} className="flex items-start gap-2.5 text-xs text-bfsi-text-muted leading-relaxed">
+                          <span className="mt-1.5 w-1 h-1 rounded-full bg-bfsi-gold flex-shrink-0" />
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Risk Profiles grid ───────────────────────────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {/* Customer Risk */}
               <div className="bfsi-card p-5">
                 <p className="section-header">Customer Risk Profile</p>
                 <InfoRow label="Previous Disputes"    value={plan.customer_risk_profile?.previous_disputes ?? "—"} />
@@ -467,7 +680,6 @@ export default function InternalReviewCaseDetail() {
                 )}
               </div>
 
-              {/* Merchant Risk */}
               <div className="bfsi-card p-5">
                 <p className="section-header">Merchant Risk Profile</p>
                 <InfoRow label="Merchant Risk"       value={plan.merchant_risk_profile?.merchant_risk} />
@@ -480,7 +692,6 @@ export default function InternalReviewCaseDetail() {
                 )}
               </div>
 
-              {/* Related Cases */}
               <div className="bfsi-card p-5">
                 <p className="section-header">Historical Precedent</p>
                 <InfoRow label="Similar Cases"        value={plan.related_cases?.similar_cases ?? "—"} />
@@ -492,7 +703,6 @@ export default function InternalReviewCaseDetail() {
                 )}
               </div>
 
-              {/* Recommended Steps */}
               <div className="bfsi-card p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <ListChecks className="w-4 h-4 text-bfsi-gold" />
@@ -511,7 +721,37 @@ export default function InternalReviewCaseDetail() {
               </div>
             </div>
 
-            {/* Required Documents */}
+            {/* ── Data Quality Assessment ──────────────────────────────────── */}
+            {(plan.data_quality_score != null || (plan.data_quality_factors ?? []).length > 0) && (
+              <div className="bfsi-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <BarChart2 className="w-4 h-4 text-bfsi-gold" />
+                    <p className="section-header mb-0">Data Quality Assessment</p>
+                  </div>
+                  {dqPct != null && (
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-xl font-mono font-bold", dqColor)}>{dqPct}%</span>
+                      <span className="text-[10px] text-bfsi-text-dim">
+                        {dqPct >= 90 ? "Excellent" : dqPct >= 75 ? "Good" : dqPct >= 60 ? "Moderate" : "Limited"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {(plan.data_quality_factors ?? []).length > 0 && (
+                  <ul className="space-y-1.5">
+                    {(plan.data_quality_factors ?? []).map((f: string, i: number) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-bfsi-text-muted">
+                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-bfsi-text-dim flex-shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {/* ── Required Documents ───────────────────────────────────────── */}
             <div className="bfsi-card p-5">
               <div className="flex items-center gap-2 mb-4">
                 <FileText className="w-4 h-4 text-bfsi-gold" />
@@ -529,54 +769,7 @@ export default function InternalReviewCaseDetail() {
               ) : <p className="text-xs text-bfsi-text-dim">No document checklist available.</p>}
             </div>
 
-            {/* ── Agent Execution (Changes 5 & 6) ─────────────────────────── */}
-            {(plan.agent_metadata || plan.metrics || (plan.tools_used ?? []).length > 0) && (
-              <div className="bfsi-card p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <Cpu className="w-4 h-4 text-bfsi-text-dim" />
-                  <p className="text-xs font-semibold text-bfsi-text-dim uppercase tracking-wider mb-0">Agent Execution</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {/* Metadata */}
-                  {plan.agent_metadata && (
-                    <div>
-                      <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2">Identity</p>
-                      <div className="space-y-1.5 text-xs text-bfsi-text-muted">
-                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Agent</span><span className="font-mono">{plan.agent_metadata.agent_name ?? "IIA"}</span></div>
-                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Version</span><span className="font-mono">{plan.agent_metadata.agent_version ?? "—"}</span></div>
-                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Model</span><span className="font-mono truncate max-w-[140px]">{plan.agent_metadata.model ?? "—"}</span></div>
-                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Duration</span><span className="font-mono">{plan.agent_metadata.execution_duration_ms != null ? `${plan.agent_metadata.execution_duration_ms.toLocaleString()}ms` : "—"}</span></div>
-                      </div>
-                    </div>
-                  )}
-                  {/* Metrics */}
-                  {plan.metrics && (
-                    <div>
-                      <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2">Metrics</p>
-                      <div className="space-y-1.5 text-xs text-bfsi-text-muted">
-                        <div className="flex justify-between"><span className="text-bfsi-text-dim">LLM Calls</span><span className="font-mono">{plan.metrics.llm_calls ?? "—"}</span></div>
-                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Tool Calls</span><span className="font-mono">{plan.metrics.tool_calls ?? "—"}</span></div>
-                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Total Duration</span><span className="font-mono">{plan.metrics.total_duration_ms != null ? `${plan.metrics.total_duration_ms.toLocaleString()}ms` : "—"}</span></div>
-                        <div className="flex justify-between"><span className="text-bfsi-text-dim">Retries</span><span className="font-mono">{plan.metrics.retry_count ?? 0}</span></div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {/* Tools used */}
-                {(plan.tools_used ?? []).length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-bfsi-border">
-                    <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2">Tools Executed</p>
-                    <div className="flex flex-wrap gap-2">
-                      {(plan.tools_used ?? []).map((t: string, i: number) => (
-                        <span key={i} className="text-[10px] font-mono px-2 py-1 rounded bg-bfsi-muted border border-bfsi-border text-bfsi-text-dim">
-                          {i + 1}. {t}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+
           </div>
         );
       })()}

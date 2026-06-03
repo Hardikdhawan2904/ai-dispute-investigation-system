@@ -21,6 +21,10 @@ from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wai
 from agents.investigation_agent.config import get_llm_config, get_agent_tool_names, load_agent_config
 from agents.investigation_agent.state import InvestigationAgentState
 from agents.investigation_agent.tools import TOOL_REGISTRY
+from services.investigation_confidence_service import (
+    calculate_investigation_confidence,
+    generate_confidence_factors,
+)
 from utils.helpers import extract_json_from_text, utc_now_iso
 from utils.logger import agent_logger, log_workflow_event
 
@@ -28,11 +32,11 @@ from utils.logger import agent_logger, log_workflow_event
 _cfg        = get_llm_config()
 _agent_yaml = load_agent_config()["agent"]
 _AGENT_NAME = _agent_yaml["full_name"]       # "Investigation Intelligence Agent"
-_AGENT_VER  = str(_agent_yaml["version"])    # "1.1.0"
+_AGENT_VER  = str(_agent_yaml["version"])    # "1.2.0"
 _tools = [TOOL_REGISTRY[name] for name in get_agent_tool_names()]
 
 _llm = ChatGroq(
-    model_name=_cfg["model"],
+    model_name=os.environ.get("LLM_MODEL") or _cfg["model"],
     temperature=_cfg["temperature"],
     max_tokens=_cfg["max_tokens"],
     api_key=os.environ.get("GROQ_API_KEY"),
@@ -138,10 +142,28 @@ def finalize_node(state: InvestigationAgentState) -> dict:
     parsed["agent_metadata"] = agent_metadata
     parsed["metrics"]        = metrics
 
-    # Ensure LLM-generated new fields default gracefully if LLM omits them
+    # Ensure LLM-generated fields default gracefully if LLM omits them
     parsed.setdefault("investigation_reasoning",  [])
     parsed.setdefault("queue_confidence",         0.7)
     parsed.setdefault("queue_confidence_factors", [])
+    parsed.setdefault("tool_decisions",           [])
+    parsed.setdefault("investigation_gaps",        [])
+    parsed.setdefault("data_quality_score",        0.7)
+    parsed.setdefault("data_quality_factors",      [])
+    parsed.setdefault("manual_review_reason",      [])
+
+    # Server-stamp investigation_coverage — derived from actual tool execution records
+    parsed["investigation_coverage"] = {
+        "customer_history_checked":  "lookup_customer_history" in tools_used,
+        "merchant_history_checked":  "check_merchant_risk" in tools_used,
+        "duplicate_check_performed": "find_duplicate_transaction" in tools_used,
+        "related_cases_reviewed":    "lookup_related_cases" in tools_used,
+        "documents_recommended":     "recommend_documents" in tools_used,
+    }
+
+    # Server-stamp investigation confidence (deterministic, not LLM-generated)
+    parsed["investigation_confidence"]         = calculate_investigation_confidence(parsed)
+    parsed["investigation_confidence_factors"] = generate_confidence_factors(parsed)
 
     log_workflow_event(
         agent_logger,
@@ -206,6 +228,14 @@ def _fallback_output(
         complexity = "MEDIUM"
         q_conf     = 0.50
 
+    investigation_coverage = {
+        "customer_history_checked":  "lookup_customer_history" in tools_used,
+        "merchant_history_checked":  "check_merchant_risk" in tools_used,
+        "duplicate_check_performed": "find_duplicate_transaction" in tools_used,
+        "related_cases_reviewed":    "lookup_related_cases" in tools_used,
+        "documents_recommended":     "recommend_documents" in tools_used,
+    }
+
     return {
         "case_id":                  case_id,
         "recommended_queue":        queue,
@@ -216,6 +246,10 @@ def _fallback_output(
         ],
         "investigation_complexity": complexity,
         "manual_review_required":   True,
+        "manual_review_reason": [
+            "Automated investigation failed — LLM output could not be parsed.",
+            f"Fallback routing applied for category '{cat}' — human analyst must verify.",
+        ],
         "customer_risk_profile":    {"risk_level": "UNKNOWN", "assessment": "Tool execution failed — manual assessment required."},
         "merchant_risk_profile":    {"merchant_risk": "UNKNOWN", "assessment": "Tool execution failed — manual assessment required."},
         "duplicate_found":          False,
@@ -235,9 +269,21 @@ def _fallback_output(
             "Automated investigation could not be completed. "
             "Manual review has been flagged. Senior analyst should conduct full investigation."
         ),
+        "tool_decisions":       [],
+        "investigation_gaps":   [
+            "Automated investigation failed — all tool-based intelligence is unavailable.",
+        ],
+        "data_quality_score":   0.1,
+        "data_quality_factors": [
+            "LLM output parsing failed — investigation data quality cannot be assessed.",
+            f"Fallback routing applied — no tool intelligence was synthesised.",
+        ],
+        "investigation_coverage": investigation_coverage,
         "tools_used":     tools_used,
         "agent_metadata": agent_metadata,
         "metrics":        metrics,
-        "confidence_score": 0.1,
+        "confidence_score":                0.1,
+        "investigation_confidence":        0.10,
+        "investigation_confidence_factors": ["Automated investigation failed — confidence cannot be computed."],
         "created_at":     utc_now_iso(),
     }

@@ -18,6 +18,7 @@ from agents.dispute_agent import run_dispute_agent
 from agents.investigation_agent import run_investigation_agent
 from utils.logger import workflow_logger, log_workflow_event
 from utils.helpers import generate_case_id, utc_now_iso, sanitize_amount
+from services.dispute_understanding_fallback_service import classify_failure, generate_agent1_fallback
 
 
 # ── Workflow State ─────────────────────────────────────────────────────────────
@@ -162,31 +163,79 @@ def dispute_understanding_node(state: DisputeWorkflowState) -> dict:
     """
     Invokes the Dispute Understanding Agent (Groq LLM).
     Produces the AI analysis dict with all classification fields.
+
+    Fault-tolerant: any LLM/API failure triggers the fallback service so
+    customer disputes are NEVER lost and the workflow always continues.
     """
     start = time.time()
-    node = "dispute_understanding"
+    node  = "dispute_understanding"
 
-    analysis = run_dispute_agent(state["dispute_input"], document_texts=state.get("document_texts") or [])
+    try:
+        analysis = run_dispute_agent(
+            state["dispute_input"],
+            document_texts=state.get("document_texts") or [],
+        )
+        log_workflow_event(
+            workflow_logger,
+            event="NODE_AI_ANALYSIS_COMPLETE",
+            stage=node,
+            case_id=state.get("case_id"),
+            extra={
+                "category":   analysis.get("dispute_category"),
+                "confidence": analysis.get("confidence_score"),
+            },
+        )
+        return {
+            "ai_analysis":     analysis,
+            "current_stage":   node,
+            "execution_trace": _trace(
+                node, start, True,
+                f"category={analysis.get('dispute_category')} conf={analysis.get('confidence_score')}",
+            ),
+        }
 
-    log_workflow_event(
-        workflow_logger,
-        event="NODE_AI_ANALYSIS_COMPLETE",
-        stage=node,
-        case_id=state.get("case_id"),
-        extra={
-            "category": analysis.get("dispute_category"),
-            "confidence": analysis.get("confidence_score"),
-        },
-    )
+    except Exception as exc:
+        # ── Agent 1 hard failure — generate safe fallback, never crash ────────
+        duration_ms    = round((time.time() - start) * 1000, 1)
+        failure_reason = classify_failure(exc)
 
-    return {
-        "ai_analysis": analysis,
-        "current_stage": node,
-        "execution_trace": _trace(
-            node, start, True,
-            f"category={analysis.get('dispute_category')} conf={analysis.get('confidence_score')}"
-        ),
-    }
+        workflow_logger.error(
+            f"Agent 1 (ARIA) failed — activating fallback. reason={failure_reason}",
+            extra={
+                "case_id":        state.get("case_id"),
+                "failure_reason": failure_reason,
+                "exc_type":       type(exc).__name__,
+            },
+            exc_info=True,
+        )
+
+        analysis = generate_agent1_fallback(
+            state["dispute_input"],
+            failure_reason=failure_reason,
+            retry_count=3,
+            duration_ms=duration_ms,
+        )
+
+        log_workflow_event(
+            workflow_logger,
+            event="AGENT1_FALLBACK_ACTIVATED",
+            stage=node,
+            case_id=state.get("case_id"),
+            extra={
+                "failure_reason": failure_reason,
+                "exc_type":       type(exc).__name__,
+                "duration_ms":    duration_ms,
+            },
+        )
+
+        return {
+            "ai_analysis":     analysis,
+            "current_stage":   node,
+            "execution_trace": _trace(
+                node, start, False,
+                f"FALLBACK activated — {failure_reason}: {type(exc).__name__}",
+            ),
+        }
 
 
 def reasoning_node(state: DisputeWorkflowState) -> dict:
@@ -313,9 +362,12 @@ def structured_output_node(state: DisputeWorkflowState) -> dict:
         "evidence_match": a.get("evidence_match"),
         "evidence_match_note": a.get("evidence_match_note", ""),
         # Agent 1 audit trail
-        "tools_used": a.get("tools_used", []),
+        "tools_used":     a.get("tools_used", []),
         "agent_metadata": a.get("agent_metadata", {}),
-        "metrics": a.get("metrics", {}),
+        "metrics":        a.get("metrics", {}),
+        # Agent 1 fallback resilience flags (Changes 3 & 4)
+        "fallback_mode":  a.get("fallback_mode", False),
+        "failure_reason": a.get("failure_reason"),
         # Supporting evidence (preserved for re-analysis)
         "transaction_metadata": d.get("transaction_metadata") or {},
         # Investigation plan (Agent 2)
@@ -442,5 +494,50 @@ def run_dispute_workflow(dispute_input: dict, document_texts: Optional[List[str]
         extra={"customer_id": dispute_input.get("customer_id")},
     )
 
-    result = dispute_workflow.invoke(initial_state)
-    return result
+    try:
+        result = dispute_workflow.invoke(initial_state)
+        return result
+    except Exception as exc:
+        # Last-resort catch — should never reach here after node-level fallbacks,
+        # but prevents a 500 from propagating to the API under any circumstance.
+        case_id        = dispute_input.get("_preset_case_id") or dispute_input.get("case_id") or ""
+        failure_reason = classify_failure(exc)
+        workflow_logger.error(
+            f"Dispute workflow crashed unexpectedly — activating service-level fallback. reason={failure_reason}",
+            extra={"case_id": case_id, "failure_reason": failure_reason, "exc_type": type(exc).__name__},
+            exc_info=True,
+        )
+        fallback_analysis = generate_agent1_fallback(
+            dispute_input, failure_reason=failure_reason, retry_count=3,
+        )
+        # Build a minimal final_case so the case always gets persisted
+        d = dispute_input
+        final_case = {
+            **fallback_analysis,
+            "customer_name":      d.get("customer_name", ""),
+            "email":              d.get("email", ""),
+            "phone":              d.get("phone", ""),
+            "transaction_date":   d.get("transaction_date", ""),
+            "transaction_time":   d.get("transaction_time", ""),
+            "customer_comment":   d.get("customer_comment", ""),
+            "dispute_reason":     d.get("dispute_reason", ""),
+            "fraud_selected":     d.get("fraud_selected", False),
+            "transaction_metadata": d.get("transaction_metadata") or {},
+            "investigation_plan": None,
+            "status":             "Dispute Raised",
+            "workflow_ready":     True,
+        }
+        return {
+            "dispute_input":       dispute_input,
+            "document_texts":      document_texts or [],
+            "validation_passed":   True,
+            "validation_errors":   [],
+            "validation_warnings": [],
+            "ai_analysis":         fallback_analysis,
+            "investigation_output": None,
+            "final_case":          final_case,
+            "execution_trace":     [],
+            "current_stage":       "fallback",
+            "error_message":       f"Workflow crashed: {failure_reason}",
+            "case_id":             case_id,
+        }

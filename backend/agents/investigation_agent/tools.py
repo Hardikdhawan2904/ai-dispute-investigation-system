@@ -12,12 +12,16 @@ To add a new tool:
   That's it — graph.py and pipeline.py pick it up automatically.
 """
 from collections import Counter
+from contextvars import ContextVar
 from datetime import datetime, timezone, timedelta
 from typing import List
 
 from langchain_core.tools import tool
 
 from utils.logger import agent_logger
+
+# Injected server-side before graph invocation — never passed by the LLM
+_active_case_id: ContextVar[str] = ContextVar("active_case_id", default="")
 
 
 # ── Tool 1 — Customer history ─────────────────────────────────────────────────
@@ -33,7 +37,12 @@ def lookup_customer_history(customer_id: str) -> str:
 
     db = SessionLocal()
     try:
-        cases = db.query(DisputeCase).filter(DisputeCase.customer_id == customer_id).all()
+        query = db.query(DisputeCase).filter(DisputeCase.customer_id == customer_id)
+        # Exclude the active case (set server-side — not LLM-controlled)
+        exclude_id = _active_case_id.get()
+        if exclude_id:
+            query = query.filter(DisputeCase.case_id != exclude_id)
+        cases = query.all()
 
         if not cases:
             return (

@@ -4,6 +4,7 @@ Ops-facing case management endpoints.
 Covers: notes, document requests, locks, analyst actions, investigation timeline,
 risk explanations, and advanced search.
 """
+import asyncio
 import pathlib
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -148,31 +149,38 @@ def get_risk_explanation(case_id: str, db: Session = Depends(get_db)):
 # ── Re-analyse ───────────────────────────────────────────────────────────────
 
 @router.post("/{case_id}/reanalyse")
-def reanalyse_case(case_id: str, db: Session = Depends(get_db)):
-    case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
+async def reanalyse_case(case_id: str):
+    """Re-run full Agent 1 + Agent 2 pipeline on an existing case.
+    Runs the LLM call in a thread-pool executor so the async event loop
+    stays free to serve other requests (e.g. listCases) during inference."""
+    import re
+    from database.database import SessionLocal
 
-    dispute_input = {
-        "case_id":          case.case_id,
-        "customer_name":    case.customer_name,
-        "customer_id":      case.customer_id,
-        "email":            case.email or "",
-        "phone":            case.phone or "",
-        "transaction_id":   case.transaction_id,
-        "transaction_type": case.transaction_type,
-        "merchant":         case.merchant,
-        "amount":           case.amount,
-        "currency":         case.currency,
-        "transaction_date": case.transaction_date or "",
-        "transaction_time": case.transaction_time or "",
-        "dispute_reason":   case.dispute_reason or "",
-        "fraud_selected":   case.fraud_suspicion,
-        "customer_comment": case.customer_comment or "",
-        "transaction_metadata": case.transaction_metadata or {},
-    }
+    # Read case data synchronously before entering the executor
+    with SessionLocal() as db_read:
+        case_row = db_read.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case_row:
+            raise HTTPException(status_code=404, detail="Case not found")
+        dispute_input = {
+            "case_id":              case_row.case_id,
+            "customer_name":        case_row.customer_name,
+            "customer_id":          case_row.customer_id,
+            "email":                case_row.email or "",
+            "phone":                case_row.phone or "",
+            "transaction_id":       case_row.transaction_id,
+            "transaction_type":     case_row.transaction_type,
+            "merchant":             case_row.merchant,
+            "amount":               case_row.amount,
+            "currency":             case_row.currency,
+            "transaction_date":     case_row.transaction_date or "",
+            "transaction_time":     case_row.transaction_time or "",
+            "dispute_reason":       case_row.dispute_reason or "",
+            "fraud_selected":       case_row.fraud_suspicion,
+            "customer_comment":     case_row.customer_comment or "",
+            "transaction_metadata": case_row.transaction_metadata or {},
+        }
 
-    # Extract text from any previously uploaded evidence files
+    # Extract evidence text (CPU-bound but fast — keep on event loop)
     from utils.extractor import extract_text
     upload_dir = _UPLOADS_ROOT / case_id
     document_texts = []
@@ -183,63 +191,63 @@ def reanalyse_case(case_id: str, db: Session = Depends(get_db)):
                 if text.strip():
                     document_texts.append(f"[{f.name}]\n{text}")
 
+    def _run_analysis():
+        return run_dispute_agent(dispute_input, document_texts=document_texts)
+
     try:
-        result = run_dispute_agent(dispute_input, document_texts=document_texts)
+        result = await asyncio.get_event_loop().run_in_executor(None, _run_analysis)
     except GroqRateLimitError as exc:
-        import re
         m = re.search(r"try again in (\S+)", str(exc), re.IGNORECASE)
         wait = f" Please try again in {m.group(1)}." if m else ""
-        raise HTTPException(
-            status_code=503,
-            detail=f"Groq API token limit exceeded.{wait}",
-        ) from exc
+        raise HTTPException(status_code=503, detail=f"Groq API token limit exceeded.{wait}") from exc
     except RetryError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="AI analysis service is temporarily unavailable. Please try again in a moment.",
-        ) from exc
+        raise HTTPException(status_code=503, detail="AI analysis service is temporarily unavailable.") from exc
     except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Analysis failed: {type(exc).__name__}",
-        ) from exc
+        raise HTTPException(status_code=502, detail=f"Analysis failed: {type(exc).__name__}") from exc
 
-    case.dispute_category        = result.get("dispute_category", case.dispute_category)
-    case.fraud_suspicion         = result.get("fraud_suspicion", case.fraud_suspicion)
-    case.customer_intent_summary = result.get("customer_intent_summary", case.customer_intent_summary)
-    case.confidence_score        = result.get("confidence_score", case.confidence_score)
-    case.risk_tags               = result.get("risk_tags", case.risk_tags)
-    case.structured_reasoning    = result.get("structured_reasoning", case.structured_reasoning)
-    case.evidence_match          = result.get("evidence_match")
-    case.evidence_match_note     = result.get("evidence_match_note", "")
+    def _save_result():
+        from database.database import SessionLocal as _SL
+        db = _SL()
+        try:
+            case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+            if not case:
+                return None
+            case.dispute_category        = result.get("dispute_category", case.dispute_category)
+            case.fraud_suspicion         = result.get("fraud_suspicion", case.fraud_suspicion)
+            case.customer_intent_summary = result.get("customer_intent_summary", case.customer_intent_summary)
+            case.confidence_score        = result.get("confidence_score", case.confidence_score)
+            case.risk_tags               = result.get("risk_tags", case.risk_tags)
+            case.structured_reasoning    = result.get("structured_reasoning", case.structured_reasoning)
+            case.evidence_match          = result.get("evidence_match")
+            case.evidence_match_note     = result.get("evidence_match_note", "")
+            try:
+                case.investigation_plan = run_investigation_agent(result)
+            except Exception:
+                pass
+            priority_score, priority_label = priority_engine.compute_priority(case.to_dict())
+            case.priority_score = priority_score
+            case.priority       = priority_label
+            flag, reason = manual_review_service.should_flag_manual_review(case.to_dict())
+            case.requires_manual_review = flag
+            case.manual_review_reason   = reason if flag else None
+            db.add(AuditLog(
+                case_id=case_id,
+                event_type="REANALYSED",
+                stage="structured_output",
+                actor="system",
+                message=f"Case re-analysed. New confidence: {case.confidence_score:.0%}, Priority: {case.priority}",
+                payload={"confidence_score": case.confidence_score, "priority": case.priority},
+            ))
+            db.commit()
+            db.refresh(case)
+            return case.to_dict()
+        finally:
+            db.close()
 
-    # Agent 2 — investigation plan
-    try:
-        investigation_plan = run_investigation_agent(result)
-        case.investigation_plan = investigation_plan
-    except Exception:
-        pass  # Agent 1 result is still valid; leave existing plan intact
-
-    priority_score, priority_label = priority_engine.compute_priority(case.to_dict())
-    case.priority_score = priority_score
-    case.priority       = priority_label
-
-    flag, reason = manual_review_service.should_flag_manual_review(case.to_dict())
-    case.requires_manual_review = flag
-    case.manual_review_reason   = reason if flag else None
-
-    log = AuditLog(
-        case_id=case_id,
-        event_type="REANALYSED",
-        stage="structured_output",
-        actor="system",
-        message=f"Case re-analysed. New confidence: {case.confidence_score:.0%}, Priority: {case.priority}",
-        payload={"confidence_score": case.confidence_score, "priority": case.priority},
-    )
-    db.add(log)
-    db.commit()
-    db.refresh(case)
-    return case.to_dict()
+    final = await asyncio.get_event_loop().run_in_executor(None, _save_result)
+    if final is None:
+        raise HTTPException(status_code=404, detail="Case not found after analysis")
+    return final
 
 
 # ── Uploaded evidence files ───────────────────────────────────────────────────
@@ -271,20 +279,42 @@ def list_uploads(case_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{case_id}/uploads/analyse")
-def analyse_uploads(case_id: str, db: Session = Depends(get_db)):
-    """Re-run unified analysis on all uploaded files for a case."""
+async def analyse_uploads(case_id: str):
+    """Re-run unified analysis on all uploaded files for a case.
+    Runs the LLM call in a thread-pool executor so the async event loop
+    stays free to serve other requests during inference."""
     from agents.dispute_agent import run_dispute_agent
     from utils.extractor import extract_text
+    from database.database import SessionLocal
 
-    case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
+    # Read case data before entering the executor
+    with SessionLocal() as db_read:
+        case_row = db_read.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case_row:
+            raise HTTPException(status_code=404, detail="Case not found")
+        dispute_input = {
+            "case_id":              case_id,
+            "customer_id":          case_row.customer_id,
+            "customer_name":        case_row.customer_name,
+            "email":                case_row.email or "",
+            "phone":                case_row.phone or "",
+            "transaction_id":       case_row.transaction_id or "",
+            "transaction_type":     case_row.transaction_type or "",
+            "merchant":             case_row.merchant or "",
+            "amount":               case_row.amount or 0,
+            "currency":             case_row.currency or "INR",
+            "transaction_date":     case_row.transaction_date or "",
+            "transaction_time":     case_row.transaction_time or "",
+            "dispute_reason":       case_row.dispute_reason or "",
+            "fraud_selected":       case_row.fraud_suspicion or False,
+            "customer_comment":     case_row.customer_comment or "",
+            "transaction_metadata": case_row.transaction_metadata or {},
+        }
 
     case_dir = _UPLOADS_ROOT / case_id
     if not case_dir.exists():
         return {"case_id": case_id, "analysed": 0, "files": []}
 
-    # ── Extract text from every file in the case directory ────────────────
     _ANALYSABLE = _IMAGE_EXTS | {".pdf", ".xlsx", ".csv"}
     document_texts = []
     analysed = 0
@@ -303,57 +333,55 @@ def analyse_uploads(case_id: str, db: Session = Depends(get_db)):
         ]
         return {"case_id": case_id, "analysed": 0, "files": files}
 
-    # ── Unified analysis: form data + all extracted texts ─────────────────
-    dispute_input = {
-        "case_id":             case_id,
-        "customer_id":         case.customer_id,
-        "customer_name":       case.customer_name,
-        "email":               case.email or "",
-        "phone":               case.phone or "",
-        "transaction_id":      case.transaction_id or "",
-        "transaction_type":    case.transaction_type or "",
-        "merchant":            case.merchant or "",
-        "amount":              case.amount or 0,
-        "currency":            case.currency or "INR",
-        "transaction_date":    case.transaction_date or "",
-        "transaction_time":    case.transaction_time or "",
-        "dispute_reason":      case.dispute_reason or "",
-        "fraud_selected":      case.fraud_suspicion or False,
-        "customer_comment":    case.customer_comment or "",
-        "transaction_metadata": case.transaction_metadata or {},
-    }
+    def _run_analysis():
+        return run_dispute_agent(dispute_input, document_texts=document_texts)
 
-    result = run_dispute_agent(dispute_input, document_texts=document_texts)
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(None, _run_analysis)
+    except GroqRateLimitError as exc:
+        raise HTTPException(status_code=503, detail="Groq API token limit exceeded.") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Analysis failed: {type(exc).__name__}") from exc
 
-    case.dispute_category        = result.get("dispute_category", case.dispute_category)
-    case.fraud_suspicion         = result.get("fraud_suspicion", case.fraud_suspicion)
-    case.customer_intent_summary = result.get("customer_intent_summary", case.customer_intent_summary)
-    case.confidence_score        = result.get("confidence_score", case.confidence_score)
-    case.risk_tags               = result.get("risk_tags", case.risk_tags)
-    case.structured_reasoning    = result.get("structured_reasoning", case.structured_reasoning)
-    case.evidence_match          = result.get("evidence_match")
-    case.evidence_match_note     = result.get("evidence_match_note", "")
+    def _save_result():
+        from database.database import SessionLocal as _SL
+        db = _SL()
+        try:
+            case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+            if not case:
+                return None
+            case.dispute_category        = result.get("dispute_category", case.dispute_category)
+            case.fraud_suspicion         = result.get("fraud_suspicion", case.fraud_suspicion)
+            case.customer_intent_summary = result.get("customer_intent_summary", case.customer_intent_summary)
+            case.confidence_score        = result.get("confidence_score", case.confidence_score)
+            case.risk_tags               = result.get("risk_tags", case.risk_tags)
+            case.structured_reasoning    = result.get("structured_reasoning", case.structured_reasoning)
+            case.evidence_match          = result.get("evidence_match")
+            case.evidence_match_note     = result.get("evidence_match_note", "")
+            db.add(AuditLog(
+                case_id=case_id,
+                event_type="REANALYSED",
+                actor="system",
+                message=f"Unified re-analysis with {len(document_texts)} document(s). Confidence: {case.confidence_score:.0%}",
+                payload={"documents_extracted": len(document_texts), "confidence_score": case.confidence_score},
+            ))
+            db.commit()
+            db.refresh(case)
+            return {
+                "case_id":  case_id,
+                "analysed": analysed,
+                "files": [
+                    {"name": f.name, "url": f"/uploads/{case_id}/{f.name}", "is_image": f.suffix.lower() in _IMAGE_EXTS}
+                    for f in sorted(case_dir.iterdir()) if f.is_file()
+                ],
+            }
+        finally:
+            db.close()
 
-    db.add(AuditLog(
-        case_id=case_id,
-        event_type="REANALYSED",
-        actor="system",
-        message=f"Unified re-analysis with {len(document_texts)} document(s). Confidence: {case.confidence_score:.0%}",
-        payload={"documents_extracted": len(document_texts), "confidence_score": case.confidence_score},
-    ))
-    db.commit()
-    db.refresh(case)
-
-    files = []
-    for f in sorted(case_dir.iterdir()):
-        if f.is_file():
-            files.append({
-                "name": f.name,
-                "url": f"/uploads/{case_id}/{f.name}",
-                "is_image": f.suffix.lower() in _IMAGE_EXTS,
-            })
-
-    return {"case_id": case_id, "analysed": analysed, "files": files}
+    response = await asyncio.get_event_loop().run_in_executor(None, _save_result)
+    if response is None:
+        raise HTTPException(status_code=404, detail="Case not found after analysis")
+    return response
 
 
 # ── Advanced search ───────────────────────────────────────────────────────────

@@ -40,5 +40,5 @@ def run_dispute_agent(dispute_input: dict, document_texts: Optional[List[str]] =
         "metrics":             {},
         "agent_start_time":    0.0,
     }
-    result = dispute_graph.invoke(initial)
+    result = dispute_graph.invoke(initial, config={"recursion_limit": 12})
     return result["final_case"]

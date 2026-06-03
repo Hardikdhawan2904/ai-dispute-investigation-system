@@ -46,7 +46,8 @@ export type RiskTag =
   | "CARD_NOT_PRESENT"
   | "RECURRING_DISPUTE"
   | "MERCHANT_BLACKLISTED"
-  | "VELOCITY_BREACH";
+  | "VELOCITY_BREACH"
+  | "AI_UNAVAILABLE";
 
 // ── Request/Response Types ─────────────────────────────────────────────────────
 
@@ -108,7 +109,27 @@ export interface InvestigationPlan {
   investigation_reasoning?: string[];
   investigation_summary: string;
   confidence_score: number;
-  // Agent 2 audit trail (Changes 2, 5, 6)
+  // Change 4 — manual review explanation
+  manual_review_reason?: string[];
+  // Change 1 — tool decision trace
+  tool_decisions?: Array<{ tool: string; reason: string }>;
+  // Change 2 — investigation gaps
+  investigation_gaps?: string[];
+  // Change 3 — data quality
+  data_quality_score?: number;
+  data_quality_factors?: string[];
+  // Investigation confidence (server-stamped deterministic score)
+  investigation_confidence?: number;
+  investigation_confidence_factors?: string[];
+  // Change 6 — investigation coverage (server-stamped)
+  investigation_coverage?: {
+    customer_history_checked: boolean;
+    merchant_history_checked: boolean;
+    duplicate_check_performed: boolean;
+    related_cases_reviewed: boolean;
+    documents_recommended: boolean;
+  };
+  // Agent 2 audit trail
   tools_used?: string[];
   agent_metadata?: {
     agent_name: string;
@@ -164,6 +185,9 @@ export interface DisputeCase {
   locked_by?: string;
   locked_at?: string;
   investigation_plan?: InvestigationPlan | null;
+  // Agent 1 fallback resilience
+  fallback_mode?: boolean;
+  failure_reason?: string | null;
   created_at: string;
   updated_at?: string;
 }

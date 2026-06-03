@@ -20,6 +20,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from agents.investigation_agent.graph import investigation_graph
 from agents.investigation_agent.state import InvestigationAgentState
+from agents.investigation_agent.tools import _active_case_id
 
 _SYSTEM_PROMPT = """\
 You are IIA (Investigation Intelligence Agent), a Senior AI Investigation Planner at a BFSI bank.
@@ -39,34 +40,43 @@ Your job is to BUILD AN INVESTIGATION PLAN by:
 - lookup_related_cases       → historical resolution statistics for this dispute type
 - recommend_documents        → required document checklist for this dispute category
 
-## Tool Selection — decide based on dispute_category and risk signals
+## Tool Selection — Reason Before You Act
 
-"Unauthorized Transaction":
-  ALWAYS call: lookup_customer_history, find_duplicate_transaction, lookup_related_cases, recommend_documents
-  ALSO call:   check_merchant_risk if a merchant is named
+For each dispute, reason about which information gaps need to be filled, then call
+the relevant tools. Do not call every tool on every case — select only those whose
+output would materially inform the investigation plan or routing decision.
 
-"Duplicate Transaction":
-  ALWAYS call: find_duplicate_transaction, lookup_customer_history, lookup_related_cases, recommend_documents
+### lookup_customer_history
+Consider calling when:
+- Fraud indicators are present and repeat-claim or friendly fraud risk may apply
+- The dispute type (Unauthorized, Friendly Fraud, Subscription Abuse) commonly
+  involves customer history patterns
+- Understanding first-time vs. repeat disputer status affects queue confidence
+Provides: total prior disputes, fraud-flag rate, risk level, last dispute recency
 
-"Merchant Dispute" | "Refund Not Received" | "Product Not Received":
-  ALWAYS call: check_merchant_risk, lookup_related_cases, recommend_documents
-  ALSO call:   lookup_customer_history if fraud_suspicion is true
+### check_merchant_risk
+Consider calling when:
+- A named merchant is central to the dispute
+- The dispute involves merchant delivery, refunds, subscriptions, or unexplained charges
+- Fraud suspicion exists and the merchant's complaint pattern is material to routing
+Provides: prior complaint count, fraud rate, blacklist status, risk level
 
-"Subscription Abuse":
-  ALWAYS call: check_merchant_risk, lookup_customer_history, lookup_related_cases, recommend_documents
+### find_duplicate_transaction
+Consider calling when:
+- This could be a re-submission of an already-filed dispute
+- Dispute category is Duplicate Transaction or Unauthorized Transaction
+- Fraud suspicion is present (duplicate filing is a common fraud vector)
+Provides: exact transaction_id match, near-duplicate by customer+merchant+amount within 72h
 
-"ATM Cash Issue":
-  ALWAYS call: lookup_related_cases, recommend_documents
-  ALSO call:   lookup_customer_history if fraud_suspicion is true
+### lookup_related_cases
+Consider calling when:
+- Historical resolution patterns would strengthen the investigation plan or queue routing
+- You need precedent data to assess likely outcome for the analyst
+Provides: resolution rate, outcome distribution, category-specific statistics
 
-"Friendly Fraud":
-  ALWAYS call: lookup_customer_history, check_merchant_risk, lookup_related_cases, recommend_documents
-
-"Other":
-  ALWAYS call: lookup_related_cases, recommend_documents
-
-RULE: If fraud_suspicion is true → ALWAYS call lookup_customer_history and find_duplicate_transaction.
-RULE: ALWAYS call recommend_documents for every dispute without exception.
+### recommend_documents
+Always call for every dispute — the analyst queue cannot proceed without a document checklist.
+Provides: required documents tailored to dispute category, fraud flag, and risk tags
 
 ## Queue Assignment Logic
 CRITICAL_QUEUE  → fraud_suspicion=true AND amount > 50000, OR identity theft / SIM swap signals
@@ -116,6 +126,10 @@ After calling all relevant tools, respond with ONLY this JSON object — no pros
   ],
   "investigation_complexity": "LOW | MEDIUM | HIGH | CRITICAL",
   "manual_review_required": true,
+  "manual_review_reason": [
+    "<specific reason grounded in tool findings — e.g. 'High-value transaction of INR 75000 exceeds automated threshold'>",
+    "<another reason if applicable — empty list when manual_review_required is false>"
+  ],
   "customer_risk_profile": {
     "previous_disputes": 0,
     "fraud_claims": 0,
@@ -145,8 +159,23 @@ After calling all relevant tools, respond with ONLY this JSON object — no pros
     "<third finding — 3-6 items, ordered by importance, no hallucination>"
   ],
   "investigation_summary": "2-3 sentence plain-language brief for the human analyst — must cite specific tool findings",
+  "tool_decisions": [
+    {
+      "tool": "lookup_customer_history",
+      "reason": "<one sentence: why this specific dispute warranted calling this tool>"
+    }
+  ],
+  "investigation_gaps": [
+    "<one gap per item — e.g. 'No prior customer dispute history available'. Empty list if no gaps>"
+  ],
+  "data_quality_score": 0.85,
+  "data_quality_factors": [
+    "<one factor per item explaining what drove the score — tied to a specific tool result>"
+  ],
   "confidence_score": 0.85
 }
+
+Note: investigation_coverage is computed server-side from tool execution records — do NOT include it in your JSON.
 
 ## Field rules
 - customer_risk_profile: populate from lookup_customer_history result. If tool was not called, set all numeric fields to -1 and risk_level to "NOT_ASSESSED".
@@ -166,6 +195,45 @@ After calling all relevant tools, respond with ONLY this JSON object — no pros
 - investigation_summary: must reference specific findings from your tool calls.
 - confidence_score: start at 0.7. +0.1 if no gaps in tool data. -0.1 per tool failure. -0.1 if high risk signals without corroborating data.
 
+- manual_review_reason: list of specific human-readable reasons why manual review is required.
+  Each item is one concrete reason grounded in actual tool findings.
+  Examples:
+    "High-value transaction of INR 75,000 exceeds automated resolution threshold"
+    "Customer has 4 prior disputes including 2 fraud-flagged — pattern warrants human review"
+    "Merchant name matches blacklist pattern — immediate escalation required"
+  If manual_review_required is false → return empty list [].
+
+- tool_decisions: one entry per tool actually called, in call order.
+  Each entry: {"tool": "<exact tool name>", "reason": "<one sentence why this dispute warranted this tool>"}
+  Examples:
+    {"tool": "lookup_customer_history", "reason": "Fraud suspicion flag present — customer history needed to assess repeat-claim risk"}
+    {"tool": "check_merchant_risk",     "reason": "Merchant named in Unauthorized Transaction — blacklist and complaint check required"}
+    {"tool": "recommend_documents",     "reason": "Document checklist required for every dispute to enable analyst queue processing"}
+  Do NOT fabricate — only list tools you actually called.
+
+- investigation_gaps: list of missing or unavailable intelligence discovered during tool execution.
+  Examples:
+    "No prior customer dispute history — first-time disputer, risk cannot be benchmarked"
+    "Merchant not found in historical records — risk level cannot be determined"
+    "No similar historical cases found for this category — no resolution precedent available"
+    "Duplicate check inconclusive — transaction metadata was incomplete"
+  If all tools returned complete, usable data → return empty list [].
+
+- data_quality_score: float 0.0–1.0 measuring investigation data completeness and reliability.
+  Scoring:
+    Start at 0.95
+    -0.15 per tool execution failure (exception / error)
+    -0.08 per key data source that returned no records (customer history, merchant risk)
+    -0.05 per supporting data source that returned no records (related cases)
+  Bands: 0.90–1.00 Excellent · 0.75–0.89 Good · 0.60–0.74 Moderate · <0.60 Limited
+
+- data_quality_factors: 2–5 sentences explaining what drove the data quality score.
+  Each factor references a specific tool result.
+  Examples:
+    "Customer history available — 3 prior disputes returned, full profile built"
+    "Merchant not found in records — merchant risk could not be assessed, -0.08 applied"
+    "All called tools returned complete data — excellent investigation coverage"
+
 ## Constraints
 - Do NOT change the dispute_category assigned by Agent 1
 - Do NOT give legal or financial advice
@@ -178,23 +246,28 @@ def run_investigation_agent(agent1_output: dict) -> dict:
     Entry point called by dispute_service / workflow after Agent 1 completes.
     Invokes the ReAct investigation graph and returns the final investigation plan.
     """
-    initial: InvestigationAgentState = {
-        "messages": [
-            SystemMessage(content=_SYSTEM_PROMPT),
-            HumanMessage(content=_build_human_message(agent1_output)),
-        ],
-        "agent1_output":          agent1_output,
-        "tool_results":           {},
-        "investigation_findings": {},
-        "final_output":           {},
-        "error":                  None,
-        # Audit + observability fields — stamped here so finalize_node can compute duration
-        "tools_used":             [],
-        "agent_metadata":         {},
-        "metrics":                {},
-        "agent_start_time":       time.time(),
-    }
-    result = investigation_graph.invoke(initial)
+    # Inject active case_id server-side so lookup_customer_history can exclude it
+    token = _active_case_id.set(agent1_output.get("case_id", ""))
+    try:
+        initial: InvestigationAgentState = {
+            "messages": [
+                SystemMessage(content=_SYSTEM_PROMPT),
+                HumanMessage(content=_build_human_message(agent1_output)),
+            ],
+            "agent1_output":          agent1_output,
+            "tool_results":           {},
+            "investigation_findings": {},
+            "final_output":           {},
+            "error":                  None,
+            # Audit + observability fields — stamped here so finalize_node can compute duration
+            "tools_used":             [],
+            "agent_metadata":         {},
+            "metrics":                {},
+            "agent_start_time":       time.time(),
+        }
+        result = investigation_graph.invoke(initial)
+    finally:
+        _active_case_id.reset(token)
     return result["final_output"]
 
 

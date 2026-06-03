@@ -224,62 +224,61 @@ def verify_evidence_match(
             "  Note                 : No documents were submitted with this dispute."
         )
 
-    # Amount matching
+    # Amount matching — normalize both sides (strip commas/currency from document too)
     amount_clean = (
         str(claimed_amount)
         .replace(",", "").replace("INR", "").replace("₹", "")
-        .replace("Rs", "").strip()
+        .replace("Rs", "").replace(" ", "").strip()
     )
-    amount_match = bool(amount_clean) and amount_clean in document_text
+    doc_normalized = document_text.replace(",", "").replace(" ", "")
+    amount_match = bool(amount_clean) and amount_clean in doc_normalized
 
-    # Merchant matching (any word > 3 chars)
+    # Merchant matching — any significant word (>3 chars) from merchant name
     merchant_words = [w.lower() for w in claimed_merchant.split() if len(w) > 3]
     merchant_match = any(w in doc_lower for w in merchant_words) if merchant_words else False
 
-    # Dispute type keyword matching
-    category_keywords = {
-        "unauthorized": ["transaction", "charged", "debit", "not mine", "account"],
-        "duplicate":    ["charged twice", "double", "duplicate", "same amount"],
-        "refund":       ["refund", "cancelled", "cancellation", "return"],
-        "product":      ["order", "delivery", "not received", "not delivered", "tracking"],
-        "atm":          ["cash", "atm", "dispensed", "withdrawal"],
-        "merchant":     ["invoice", "receipt", "overcharg", "wrong amount"],
-    }
-    desc_lower = dispute_description.lower()
-    keyword_match = any(
-        any(keyword_part in desc_lower for keyword_part in [cat_key])
-        and any(k in doc_lower for k in kws)
-        for cat_key, kws in category_keywords.items()
-    )
+    # Financial document content check — does the document look like a financial record?
+    financial_keywords = [
+        "receipt", "invoice", "transaction", "amount", "total", "payment",
+        "charged", "debit", "credit", "bill", "order", "statement", "balance",
+        "date", "ref", "cash", "atm", "withdrawal", "refund", "cancelled",
+    ]
+    doc_has_financial_content = any(k in doc_lower for k in financial_keywords)
 
     # Contradiction checks
+    desc_lower = dispute_description.lower()
     contradictions = []
     if "approved" in doc_lower and "unauthorized" in desc_lower:
         contradictions.append("document shows customer approval for claimed unauthorized transaction")
     if "delivered" in doc_lower and "not received" in desc_lower:
         contradictions.append("document shows delivery confirmation while customer claims non-delivery")
 
+    # Verdict: contradictions → MISMATCH; otherwise score signals
     if contradictions:
-        verdict      = "MISMATCH"
-        match_value  = "false"
+        verdict     = "MISMATCH"
+        match_value = "false"
         note = f"Document contradicts the claim: {'; '.join(contradictions)}."
-    elif sum([amount_match, merchant_match, keyword_match]) >= 2:
+    elif sum([amount_match, merchant_match, doc_has_financial_content]) >= 2:
         verdict     = "MATCH"
         match_value = "true"
         parts = (
             (["amount corroborated"] if amount_match else []) +
             (["merchant name found"] if merchant_match else []) +
-            (["content consistent with dispute type"] if keyword_match else [])
+            (["financial document content consistent with dispute"] if doc_has_financial_content else [])
         )
         note = f"Document supports the claim: {', '.join(parts)}."
-    elif amount_match or merchant_match or keyword_match:
+    elif amount_match or merchant_match:
         verdict     = "PARTIAL_MATCH"
         match_value = "true"
-        note = "Document partially supports the claim — single matching element, inconclusive but not contradictory."
+        note = "Document partially supports the claim — transaction details found but incomplete corroboration."
+    elif doc_has_financial_content:
+        verdict     = "PARTIAL_MATCH"
+        match_value = "true"
+        note = "Document appears to be a financial record relevant to this dispute, though specific transaction details were not confirmed."
     else:
         verdict     = "MISMATCH"
         match_value = "false"
-        note = "Document does not clearly support the claim — content does not match transaction details or dispute type."
+        note = "Document does not appear to be a financial record — content does not relate to the claimed transaction."
 
     return (
         "EVIDENCE VERIFICATION\n"
@@ -287,7 +286,7 @@ def verify_evidence_match(
         f"  Evidence Match       : {match_value}\n"
         f"  Amount Match         : {'Yes' if amount_match else 'No'}\n"
         f"  Merchant Match       : {'Yes' if merchant_match else 'No'}\n"
-        f"  Keyword Match        : {'Yes' if keyword_match else 'No'}\n"
+        f"  Financial Content    : {'Yes' if doc_has_financial_content else 'No'}\n"
         f"  Note                 : {note}"
     )
 

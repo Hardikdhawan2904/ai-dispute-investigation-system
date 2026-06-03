@@ -72,6 +72,9 @@ def _apply_migrations() -> None:
         ("dispute_cases", "tools_used",              "TEXT"),
         ("dispute_cases", "agent_metadata",          "TEXT"),
         ("dispute_cases", "metrics",                 "TEXT"),
+        # Agent 1 fallback resilience
+        ("dispute_cases", "fallback_mode",           "BOOLEAN DEFAULT 0"),
+        ("dispute_cases", "failure_reason",          "VARCHAR(64)"),
     ]
     with engine.connect() as conn:
         for table, col, col_type in _new_cols:

@@ -132,6 +132,10 @@ class DisputeCase(Base):
     agent_metadata        = Column(JSON, nullable=True)
     metrics               = Column(JSON, nullable=True)
 
+    # Agent 1 fallback resilience — set when LLM was unavailable at submission time
+    fallback_mode         = Column(Boolean, default=False)
+    failure_reason        = Column(String(64), nullable=True)
+
     # Supporting evidence (raw form fields for re-analysis)
     transaction_metadata  = Column(JSON, default=dict)
 
@@ -191,6 +195,8 @@ class DisputeCase(Base):
             "tools_used": self.tools_used or [],
             "agent_metadata": self.agent_metadata,
             "metrics": self.metrics,
+            "fallback_mode": self.fallback_mode or False,
+            "failure_reason": self.failure_reason,
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
         }
