@@ -44,12 +44,15 @@ export default function InternalReviewCaseDetail() {
   const [loading, setLoading]               = useState(true);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [reanalysing, setReanalysing]       = useState(false);
+  const [elapsed, setElapsed]               = useState(0);
   const [uploads, setUploads]               = useState<CaseUploadFile[]>([]);
   const [lightbox, setLightbox]             = useState<string | null>(null);
 
   async function handleReanalyse() {
     if (!caseData || reanalysing) return;
     setReanalysing(true);
+    setElapsed(0);
+    const timer = setInterval(() => setElapsed(s => s + 1), 1000);
     try {
       const updated = await reanalyseCase(caseData.case_id);
       setCaseData(updated);
@@ -57,6 +60,7 @@ export default function InternalReviewCaseDetail() {
     } catch (err: unknown) {
       toast.error((err instanceof Error ? err.message : null) || "Re-analysis failed");
     } finally {
+      clearInterval(timer);
       setReanalysing(false);
     }
   }
@@ -126,6 +130,37 @@ export default function InternalReviewCaseDetail() {
 
   return (
     <>
+      {/* Re-analysis loading overlay */}
+      {reanalysing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bfsi-card p-8 max-w-sm w-full mx-4 text-center space-y-5">
+            <div className="flex justify-center">
+              <div className="relative">
+                <Loader2 className="w-12 h-12 text-bfsi-gold animate-spin" />
+                <Brain className="w-5 h-5 text-bfsi-gold absolute inset-0 m-auto" />
+              </div>
+            </div>
+            <div>
+              <p className="text-base font-semibold text-bfsi-text mb-1">Re-analysing Case</p>
+              <p className="text-xs text-bfsi-text-dim">Running Agent 1 → Agent 2 pipeline</p>
+            </div>
+            <div className="space-y-2 text-left">
+              <div className={cn("flex items-center gap-2 text-xs px-3 py-2 rounded border",
+                elapsed < 20 ? "border-bfsi-gold/40 text-bfsi-gold bg-bfsi-gold/5" : "border-bfsi-border text-bfsi-text-dim")}>
+                <Loader2 className={cn("w-3 h-3 flex-shrink-0", elapsed < 20 ? "animate-spin" : "")} />
+                {elapsed < 20 ? "Agent 1: Classifying dispute…" : "Agent 1: Complete"}
+              </div>
+              <div className={cn("flex items-center gap-2 text-xs px-3 py-2 rounded border",
+                elapsed >= 20 ? "border-bfsi-gold/40 text-bfsi-gold bg-bfsi-gold/5" : "border-bfsi-border text-bfsi-text-dim")}>
+                <Loader2 className={cn("w-3 h-3 flex-shrink-0", elapsed >= 20 ? "animate-spin" : "")} />
+                {elapsed >= 20 ? "Agent 2: Building investigation plan…" : "Agent 2: Waiting…"}
+              </div>
+            </div>
+            <p className="text-xs text-bfsi-text-dim font-mono">{elapsed}s elapsed · typically 45–90s</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-2 mb-6 text-sm">
         <Link href="/internal-review" className="text-bfsi-text-dim hover:text-bfsi-text transition-colors flex items-center gap-1">
           <ArrowLeft className="w-4 h-4" /> Internal Review

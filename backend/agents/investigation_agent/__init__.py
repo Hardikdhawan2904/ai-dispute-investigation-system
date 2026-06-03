@@ -265,7 +265,7 @@ def run_investigation_agent(agent1_output: dict) -> dict:
             "metrics":                {},
             "agent_start_time":       time.time(),
         }
-        result = investigation_graph.invoke(initial)
+        result = investigation_graph.invoke(initial, config={"recursion_limit": 12})
     finally:
         _active_case_id.reset(token)
     return result["final_output"]

@@ -195,7 +195,7 @@ async def reanalyse_case(case_id: str):
         return run_dispute_agent(dispute_input, document_texts=document_texts)
 
     try:
-        result = await asyncio.get_event_loop().run_in_executor(None, _run_analysis)
+        result = await asyncio.get_running_loop().run_in_executor(None, _run_analysis)
     except GroqRateLimitError as exc:
         m = re.search(r"try again in (\S+)", str(exc), re.IGNORECASE)
         wait = f" Please try again in {m.group(1)}." if m else ""
@@ -203,7 +203,9 @@ async def reanalyse_case(case_id: str):
     except RetryError as exc:
         raise HTTPException(status_code=503, detail="AI analysis service is temporarily unavailable.") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Analysis failed: {type(exc).__name__}") from exc
+        from utils.logger import api_logger
+        api_logger.error(f"reanalyse _run_analysis failed: {type(exc).__name__}: {exc}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Analysis failed: {type(exc).__name__}: {str(exc)[:300]}") from exc
 
     def _save_result():
         from database.database import SessionLocal as _SL
@@ -241,10 +243,21 @@ async def reanalyse_case(case_id: str):
             db.commit()
             db.refresh(case)
             return case.to_dict()
+        except Exception as exc:
+            from utils.logger import api_logger
+            api_logger.error(f"reanalyse _save_result failed: {type(exc).__name__}: {exc}", exc_info=True)
+            db.rollback()
+            raise
         finally:
             db.close()
 
-    final = await asyncio.get_event_loop().run_in_executor(None, _save_result)
+    try:
+        final = await asyncio.get_running_loop().run_in_executor(None, _save_result)
+    except Exception as exc:
+        from utils.logger import api_logger
+        api_logger.error(f"reanalyse _save_result executor failed: {type(exc).__name__}: {exc}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Save failed: {type(exc).__name__}: {str(exc)[:300]}") from exc
+
     if final is None:
         raise HTTPException(status_code=404, detail="Case not found after analysis")
     return final
@@ -337,7 +350,7 @@ async def analyse_uploads(case_id: str):
         return run_dispute_agent(dispute_input, document_texts=document_texts)
 
     try:
-        result = await asyncio.get_event_loop().run_in_executor(None, _run_analysis)
+        result = await asyncio.get_running_loop().run_in_executor(None, _run_analysis)
     except GroqRateLimitError as exc:
         raise HTTPException(status_code=503, detail="Groq API token limit exceeded.") from exc
     except Exception as exc:
@@ -378,7 +391,7 @@ async def analyse_uploads(case_id: str):
         finally:
             db.close()
 
-    response = await asyncio.get_event_loop().run_in_executor(None, _save_result)
+    response = await asyncio.get_running_loop().run_in_executor(None, _save_result)
     if response is None:
         raise HTTPException(status_code=404, detail="Case not found after analysis")
     return response

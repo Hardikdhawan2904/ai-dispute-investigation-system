@@ -120,16 +120,16 @@ _FRAUD_KEYWORDS = {
 @tool
 def score_fraud_indicators(
     customer_comment: str,
-    otp_received: str,
-    otp_shared: str,
-    bank_impersonation: str,
-    remote_access: str,
-    phishing_link: str,
-    sim_swap_suspected: str,
-    card_lost: str,
-    device_lost: str,
-    bank_contacted: str,
-    card_blocked: str,
+    otp_received: str = "Not provided",
+    otp_shared: str = "Not provided",
+    bank_impersonation: str = "Not provided",
+    remote_access: str = "Not provided",
+    phishing_link: str = "Not provided",
+    sim_swap_suspected: str = "Not provided",
+    card_lost: str = "Not provided",
+    device_lost: str = "Not provided",
+    bank_contacted: str = "Not provided",
+    card_blocked: str = "Not provided",
 ) -> str:
     """Score fraud indicators from the customer's statement and metadata checklist.
     Analyses keyword patterns in the comment and active metadata flags.
