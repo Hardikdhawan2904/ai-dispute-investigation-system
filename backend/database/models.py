@@ -46,7 +46,6 @@ class BankCustomer(Base):
     email         = Column(String(256), nullable=False)
     phone         = Column(String(32), nullable=False)
     joining_date  = Column(Date, nullable=True)
-    created_at    = Column(DateTime, default=_utc_now, nullable=False)
 
     def to_dict(self) -> dict:
         return {
