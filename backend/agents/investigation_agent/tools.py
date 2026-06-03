@@ -144,14 +144,15 @@ def check_merchant_risk(merchant_name: str) -> str:
 
         if not cases:
             note = " WARNING: matches known scam name patterns." if blacklisted else ""
+            risk_label = "HIGH (blacklist)" if blacklisted else "LOW"
             return (
                 "MERCHANT RISK\n"
                 f"  Merchant             : {merchant_name}\n"
                 f"  Prior Complaints     : 0{note}\n"
                 f"  Fraud Rate           : 0%\n"
                 f"  Blacklist Match      : {'YES' if blacklisted else 'No'}\n"
-                f"  Merchant Risk        : {'HIGH (blacklist)' if blacklisted else 'UNKNOWN'}\n"
-                "  Assessment           : No complaints on record."
+                f"  Merchant Risk        : {risk_label}\n"
+                "  Assessment           : No complaints on record — clean merchant history."
             )
 
         total       = len(cases)
@@ -209,25 +210,33 @@ def find_duplicate_transaction(
         found: List[str] = []
         related_ids: List[str] = []
 
-        # Check 1 — exact transaction_id match
+        exclude_id = _active_case_id.get()
+
+        # Check 1 — exact transaction_id match (excluding the active case itself)
         if transaction_id:
-            for c in db.query(DisputeCase).filter(
+            q = db.query(DisputeCase).filter(
                 DisputeCase.transaction_id == transaction_id
-            ).all():
+            )
+            if exclude_id:
+                q = q.filter(DisputeCase.case_id != exclude_id)
+            for c in q.all():
                 found.append(
                     f"Case {c.case_id} — same transaction_id, "
                     f"status: {c.status}, filed: {str(c.created_at)[:10]}"
                 )
                 related_ids.append(c.case_id)
 
-        # Check 2 — same customer + merchant + amount within 72 h
+        # Check 2 — same customer + merchant + amount within 72 h (excluding active case)
         cutoff = datetime.now(timezone.utc) - timedelta(hours=72)
-        for c in db.query(DisputeCase).filter(
+        q2 = db.query(DisputeCase).filter(
             DisputeCase.customer_id == customer_id,
             DisputeCase.merchant.ilike(f"%{merchant[:20]}%"),
             DisputeCase.amount == amount,
             DisputeCase.created_at >= cutoff,
-        ).all():
+        )
+        if exclude_id:
+            q2 = q2.filter(DisputeCase.case_id != exclude_id)
+        for c in q2.all():
             entry = (
                 f"Case {c.case_id} — same customer+merchant+amount "
                 f"within 72h, status: {c.status}"
