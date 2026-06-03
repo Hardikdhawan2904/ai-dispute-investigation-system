@@ -224,6 +224,19 @@ def verify_evidence_match(
             "  Note                 : No documents were submitted with this dispute."
         )
 
+    # Detect OCR-unavailable stub — cannot parse content, do not penalise as MISMATCH
+    if "ocr text reading is unavailable" in doc_lower or "automatic ocr" in doc_lower:
+        return (
+            "EVIDENCE VERIFICATION\n"
+            "  Verdict              : CANNOT_VERIFY\n"
+            "  Evidence Match       : null\n"
+            "  Amount Match         : Unknown\n"
+            "  Merchant Match       : Unknown\n"
+            "  Financial Content    : Unknown\n"
+            "  Note                 : A document was submitted but automated OCR text extraction was unavailable. "
+            "Manual analyst review of the attached document is required."
+        )
+
     # Amount matching — normalize both sides (strip commas/currency from document too)
     amount_clean = (
         str(claimed_amount)

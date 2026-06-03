@@ -26,7 +26,9 @@ def build_investigation_graph():
     _tools = [TOOL_REGISTRY[name] for name in get_agent_tool_names()]
 
     g.add_node("agent",    call_model)
-    g.add_node("tools",    ToolNode(_tools))
+    # parallel_tool_calls=True on bind_tools lets the LLM batch all calls;
+    # ToolNode with max_concurrency runs them concurrently in a thread pool.
+    g.add_node("tools",    ToolNode(_tools, handle_tool_errors=True))
     g.add_node("finalize", finalize_node)
 
     g.set_entry_point(get_entry_point())   # "agent" from agent.yaml

@@ -368,7 +368,11 @@ export default function InternalReviewCaseDetail() {
             </div>
             {(caseData as any).evidence_match === null || (caseData as any).evidence_match === undefined ? (
               <div className="flex items-center gap-3 p-3 rounded-lg bg-bfsi-muted border border-bfsi-border">
-                <span className="text-xs text-bfsi-text-dim">No documents were submitted with this dispute.</span>
+                <span className="text-xs text-bfsi-text-dim">
+                  {uploads.length > 0
+                    ? "Document submitted — automatic verification unavailable. Please review the attached file manually."
+                    : "No documents were submitted with this dispute."}
+                </span>
               </div>
             ) : (caseData as any).evidence_match === true ? (
               <div className="flex items-start gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/30">

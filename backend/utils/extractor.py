@@ -49,7 +49,7 @@ def _ocr_image(file_path: str) -> str:
 
     try:
         import pytesseract
-        from PIL import Image
+        from PIL import Image, ImageEnhance, ImageFilter
     except ImportError:
         return stub
 
@@ -59,7 +59,24 @@ def _ocr_image(file_path: str) -> str:
 
     try:
         img = Image.open(file_path)
-        text = pytesseract.image_to_string(img).strip()[:_MAX_CHARS]
+
+        # Normalise to RGB (handles RGBA, palette, etc.)
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        # Scale up small images — Tesseract accuracy drops below ~300 DPI
+        w, h = img.size
+        if max(w, h) < 1800:
+            scale = max(2, 1800 // max(w, h))
+            img = img.resize((w * scale, h * scale), Image.LANCZOS)
+
+        # Greyscale → sharpen → boost contrast
+        img = img.convert("L")
+        img = img.filter(ImageFilter.SHARPEN)
+        img = ImageEnhance.Contrast(img).enhance(2.0)
+
+        config = "--psm 6 --oem 3"  # assume uniform block of text; LSTM engine
+        text = pytesseract.image_to_string(img, config=config).strip()[:_MAX_CHARS]
         return text if text else stub
     except Exception:
         return stub

@@ -14,6 +14,7 @@ Wiring (identical pattern to Agent 1):
   here            → investigation_graph.invoke({messages: [...], ...})
 """
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -21,6 +22,72 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from agents.investigation_agent.graph import investigation_graph
 from agents.investigation_agent.state import InvestigationAgentState
 from agents.investigation_agent.tools import _active_case_id
+
+_MERCHANT_CATS = {"Merchant Dispute", "Refund Not Received", "Product Not Received", "Subscription Abuse"}
+
+
+def _run_tools_parallel(a1: dict, active_case_id: str) -> tuple:
+    """Run all 5 IIA tools in parallel threads. Returns (results: dict, tools_used: list)."""
+    from agents.investigation_agent.tools import (
+        lookup_customer_history, check_merchant_risk, find_duplicate_transaction,
+        lookup_related_cases, recommend_documents,
+    )
+    cat        = a1.get("dispute_category", "Other")
+    fraud      = a1.get("fraud_suspicion", False)
+    risk_tags  = a1.get("risk_tags") or []
+    merchant   = (a1.get("merchant") or "")[:50]
+
+    task_defs = {
+        "lookup_customer_history": (
+            lookup_customer_history, {"customer_id": a1.get("customer_id", "")}
+        ),
+        "check_merchant_risk": (
+            check_merchant_risk, {"merchant_name": merchant}
+        ),
+        "find_duplicate_transaction": (
+            find_duplicate_transaction, {
+                "transaction_id": a1.get("transaction_id", ""),
+                "customer_id":    a1.get("customer_id", ""),
+                "amount":         float(a1.get("amount", 0)),
+                "merchant":       merchant[:30],
+            }
+        ),
+        "lookup_related_cases": (
+            lookup_related_cases, {
+                "dispute_category": cat,
+                "merchant": merchant if cat in _MERCHANT_CATS else "",
+            }
+        ),
+        "recommend_documents": (
+            recommend_documents, {
+                "dispute_category": cat,
+                "fraud_suspicion":  fraud,
+                "risk_tags":        ", ".join(risk_tags) if risk_tags else "None",
+            }
+        ),
+    }
+
+    def _run_one(name: str, tool_fn, args: dict) -> tuple:
+        tok = _active_case_id.set(active_case_id)
+        try:
+            return name, tool_fn.invoke(args)
+        except Exception as exc:
+            return name, f"{name.upper()}\n  Error: Tool execution failed — {exc}"
+        finally:
+            _active_case_id.reset(tok)
+
+    results: dict = {}
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futures = {
+            ex.submit(_run_one, name, fn, args): name
+            for name, (fn, args) in task_defs.items()
+        }
+        for fut in as_completed(futures):
+            name, result = fut.result()
+            results[name] = result
+
+    tools_used = list(results.keys())
+    return results, tools_used
 
 _SYSTEM_PROMPT = """\
 You are IIA (Investigation Intelligence Agent), a Senior AI Investigation Planner at a BFSI bank.
@@ -40,43 +107,10 @@ Your job is to BUILD AN INVESTIGATION PLAN by:
 - lookup_related_cases       → historical resolution statistics for this dispute type
 - recommend_documents        → required document checklist for this dispute category
 
-## Tool Selection — Reason Before You Act
-
-For each dispute, reason about which information gaps need to be filled, then call
-the relevant tools. Do not call every tool on every case — select only those whose
-output would materially inform the investigation plan or routing decision.
-
-### lookup_customer_history
-Consider calling when:
-- Fraud indicators are present and repeat-claim or friendly fraud risk may apply
-- The dispute type (Unauthorized, Friendly Fraud, Subscription Abuse) commonly
-  involves customer history patterns
-- Understanding first-time vs. repeat disputer status affects queue confidence
-Provides: total prior disputes, fraud-flag rate, risk level, last dispute recency
-
-### check_merchant_risk
-Consider calling when:
-- A named merchant is central to the dispute
-- The dispute involves merchant delivery, refunds, subscriptions, or unexplained charges
-- Fraud suspicion exists and the merchant's complaint pattern is material to routing
-Provides: prior complaint count, fraud rate, blacklist status, risk level
-
-### find_duplicate_transaction
-Consider calling when:
-- This could be a re-submission of an already-filed dispute
-- Dispute category is Duplicate Transaction or Unauthorized Transaction
-- Fraud suspicion is present (duplicate filing is a common fraud vector)
-Provides: exact transaction_id match, near-duplicate by customer+merchant+amount within 72h
-
-### lookup_related_cases
-Consider calling when:
-- Historical resolution patterns would strengthen the investigation plan or queue routing
-- You need precedent data to assess likely outcome for the analyst
-Provides: resolution rate, outcome distribution, category-specific statistics
-
-### recommend_documents
-Always call for every dispute — the analyst queue cannot proceed without a document checklist.
-Provides: required documents tailored to dispute category, fraud flag, and risk tags
+## Pre-Computed Tool Results
+All 5 investigation tools have already been executed server-side. Their results appear at
+the end of this message under "PRE-COMPUTED TOOL RESULTS".
+DO NOT call any tools — synthesise the provided results and produce your final JSON directly.
 
 ## Queue Assignment Logic
 CRITICAL_QUEUE  → fraud_suspicion=true AND amount > 50000, OR identity theft / SIM swap signals
@@ -246,34 +280,49 @@ def run_investigation_agent(agent1_output: dict) -> dict:
     Entry point called by dispute_service / workflow after Agent 1 completes.
     Invokes the ReAct investigation graph and returns the final investigation plan.
     """
-    # Inject active case_id server-side so lookup_customer_history can exclude it
-    token = _active_case_id.set(agent1_output.get("case_id", ""))
+    active_case_id = agent1_output.get("case_id", "")
+    # Pre-compute all 5 tools in parallel (eliminates ReAct sequential LLM round-trips)
+    token = _active_case_id.set(active_case_id)
+    try:
+        pre_tool_results, pre_tools_used = _run_tools_parallel(agent1_output, active_case_id)
+    finally:
+        _active_case_id.reset(token)
+
+    token = _active_case_id.set(active_case_id)
     try:
         initial: InvestigationAgentState = {
             "messages": [
                 SystemMessage(content=_SYSTEM_PROMPT),
-                HumanMessage(content=_build_human_message(agent1_output)),
+                HumanMessage(content=_build_human_message(agent1_output, pre_tool_results)),
             ],
             "agent1_output":          agent1_output,
-            "tool_results":           {},
+            "tool_results":           pre_tool_results,   # pre-stamped for finalize_node
             "investigation_findings": {},
             "final_output":           {},
             "error":                  None,
-            # Audit + observability fields — stamped here so finalize_node can compute duration
-            "tools_used":             [],
+            "tools_used":             pre_tools_used,     # pre-stamped for finalize_node
             "agent_metadata":         {},
             "metrics":                {},
             "agent_start_time":       time.time(),
         }
-        result = investigation_graph.invoke(initial, config={"recursion_limit": 12})
+        result = investigation_graph.invoke(initial, config={"recursion_limit": 4})
     finally:
         _active_case_id.reset(token)
     return result["final_output"]
 
 
-def _build_human_message(a1: dict) -> str:
+def _build_human_message(a1: dict, tool_results: dict) -> str:
     risk_tags = a1.get("risk_tags") or []
     tags_str  = ", ".join(risk_tags) if risk_tags else "None"
+
+    _TOOL_ORDER = [
+        "lookup_customer_history", "check_merchant_risk", "find_duplicate_transaction",
+        "lookup_related_cases", "recommend_documents",
+    ]
+    tool_section = "\n\n## PRE-COMPUTED TOOL RESULTS\n(All tools executed — synthesise and produce JSON now)\n"
+    for name in _TOOL_ORDER:
+        if name in tool_results:
+            tool_section += f"\n### {name}\n{tool_results[name]}\n"
 
     return (
         "## Agent 1 Classification Output\n"
@@ -287,8 +336,5 @@ def _build_human_message(a1: dict) -> str:
         f"Confidence Score     : {a1.get('confidence_score', 0.0)}\n"
         f"Risk Tags            : {tags_str}\n"
         f"Customer Intent      : {a1.get('customer_intent_summary', 'N/A')}\n"
-        "\n"
-        "## Your Task\n"
-        "Using the classification above, select the relevant tools, gather investigation "
-        "intelligence, and produce a complete investigation plan as a JSON object."
+        + tool_section
     )

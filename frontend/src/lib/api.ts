@@ -276,7 +276,7 @@ export async function getCaseRiskExplanation(caseId: string): Promise<{ risk_ind
 // ── Ops — Re-analyse ──────────────────────────────────────────────────────────
 
 export async function reanalyseCase(caseId: string): Promise<DisputeCase> {
-  const res = await api.post(`/api/ops/cases/${caseId}/reanalyse`, {}, { timeout: 120_000 });
+  const res = await api.post(`/api/ops/cases/${caseId}/reanalyse`, {}, { timeout: 300_000 });
   return res.data;
 }
 

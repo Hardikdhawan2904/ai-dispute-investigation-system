@@ -39,7 +39,7 @@ _llm = ChatGroq(
     max_tokens=int(os.environ.get("LLM_MAX_TOKENS") or _cfg["max_tokens"]),
     api_key=os.environ.get("GROQ_API_KEY"),
 )
-_llm_with_tools = _llm.bind_tools(_tools)
+_llm_with_tools = _llm.bind_tools(_tools)  # kept for graph wiring; call_model uses plain _llm
 
 
 # ── Node 1 — validate ─────────────────────────────────────────────────────────
@@ -86,7 +86,48 @@ def build_evidence_node(state: DisputeAgentState) -> dict:
     else:
         document_section = "No documents attached."
 
-    # Build initial messages for the ReAct loop
+    # ── Pre-compute all tools server-side (eliminates ReAct LLM round-trips) ─
+    from agents.dispute_agent.tools import (
+        assess_transaction_context, score_fraud_indicators, verify_evidence_match,
+    )
+    txn_risk = assess_transaction_context.invoke({
+        "amount":            float(d.get("amount", 0)),
+        "transaction_type":  d.get("transaction_type", ""),
+        "merchant":          d.get("merchant", ""),
+        "transaction_date":  d.get("transaction_date", ""),
+        "transaction_time":  d.get("transaction_time", ""),
+    })
+    fraud_score = score_fraud_indicators.invoke({
+        "customer_comment":   d.get("customer_comment", ""),
+        "otp_received":       yn(meta.get("otp_received")),
+        "otp_shared":         yn(meta.get("otp_shared")),
+        "bank_impersonation": yn(meta.get("bank_impersonation")),
+        "remote_access":      yn(meta.get("remote_access")),
+        "phishing_link":      yn(meta.get("phishing_link")),
+        "sim_swap_suspected": yn(meta.get("sim_swap_suspected")),
+        "card_lost":          yn(meta.get("card_lost")),
+        "device_lost":        yn(meta.get("device_lost")),
+        "bank_contacted":     yn(meta.get("bank_contacted")),
+        "card_blocked":       yn(meta.get("card_blocked")),
+    })
+    if document_section != "No documents attached.":
+        evidence_result = verify_evidence_match.invoke({
+            "document_text":      document_section[:3000],
+            "claimed_amount":     str(d.get("amount", "")),
+            "claimed_merchant":   d.get("merchant", ""),
+            "dispute_description": (d.get("customer_comment", "") or "")[:500],
+        })
+    else:
+        evidence_result = "EVIDENCE VERIFICATION\n  Verdict              : NO_DOCUMENTS\n  Evidence Match       : null\n  Note                 : No documents were submitted with this dispute."
+
+    tool_results_section = (
+        "\n\n## PRE-COMPUTED TOOL RESULTS\n\n"
+        f"### assess_transaction_context\n{txn_risk}\n\n"
+        f"### score_fraud_indicators\n{fraud_score}\n\n"
+        f"### verify_evidence_match\n{evidence_result}\n"
+    )
+
+    # Build initial messages — LLM receives all tool outputs, produces JSON in one call
     human_content = DISPUTE_DATA_TEMPLATE.format(
         customer_name    = d.get("customer_name", "N/A"),
         customer_id      = d.get("customer_id", "N/A"),
@@ -103,7 +144,7 @@ def build_evidence_node(state: DisputeAgentState) -> dict:
         document_section = document_section,
         case_id          = state["case_id"],
         created_at       = utc_now_iso(),
-    )
+    ) + tool_results_section
 
     return {
         "supporting_evidence": supporting_evidence,
@@ -124,12 +165,9 @@ def build_evidence_node(state: DisputeAgentState) -> dict:
     reraise=True,
 )
 def call_model(state: DisputeAgentState) -> dict:
-    """Agent node — invoke LLM with all 4 understanding tools bound."""
-    response = _llm_with_tools.invoke(state["messages"])
-    agent_logger.debug(
-        "ARIA LLM response received",
-        extra={"tool_calls": len(getattr(response, "tool_calls", None) or [])},
-    )
+    """Agent node — tools are pre-computed; single LLM call produces final JSON."""
+    response = _llm.invoke(state["messages"])
+    agent_logger.debug("ARIA LLM response received", extra={"tool_calls": 0})
     return {"messages": [response]}
 
 

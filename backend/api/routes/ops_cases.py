@@ -222,6 +222,9 @@ async def reanalyse_case(case_id: str):
             case.structured_reasoning    = result.get("structured_reasoning", case.structured_reasoning)
             case.evidence_match          = result.get("evidence_match")
             case.evidence_match_note     = result.get("evidence_match_note", "")
+            # Clear fallback flags when re-analysis succeeds
+            case.fallback_mode           = result.get("fallback_mode", False)
+            case.failure_reason          = result.get("failure_reason")
             try:
                 case.investigation_plan = run_investigation_agent(result)
             except Exception:

@@ -41,7 +41,7 @@ _llm = ChatGroq(
     max_tokens=_cfg["max_tokens"],
     api_key=os.environ.get("GROQ_API_KEY"),
 )
-_llm_with_tools = _llm.bind_tools(_tools)
+_llm_with_tools = _llm.bind_tools(_tools, parallel_tool_calls=True)
 
 
 # ── Nodes ──────────────────────────────────────────────────────────────────────
@@ -53,12 +53,9 @@ _llm_with_tools = _llm.bind_tools(_tools)
     reraise=True,
 )
 def call_model(state: InvestigationAgentState) -> dict:
-    """Agent node — invoke LLM with all 5 investigative tools bound."""
-    response = _llm_with_tools.invoke(state["messages"])
-    agent_logger.debug(
-        "IIA LLM response received",
-        extra={"tool_calls": len(getattr(response, "tool_calls", None) or [])},
-    )
+    """Agent node — tools are pre-computed; single LLM call synthesises and produces JSON."""
+    response = _llm.invoke(state["messages"])
+    agent_logger.debug("IIA LLM response received", extra={"tool_calls": 0})
     return {"messages": [response]}
 
 
@@ -84,12 +81,13 @@ def finalize_node(state: InvestigationAgentState) -> dict:
     start_time  = state.get("agent_start_time") or 0.0
     duration_ms = round((time.time() - start_time) * 1000, 1) if start_time else 0.0
 
-    # ── Audit trail from message history ──────────────────────────────────────
+    # ── Audit trail — merge pre-computed tools from state + any ReAct messages ──
     messages       = state.get("messages") or []
-    tool_results:  dict = {}
-    tools_used:    list = []
+    # Pre-computed tools passed in via state (populated before graph invocation)
+    tool_results:  dict = dict(state.get("tool_results") or {})
+    tools_used:    list = list(state.get("tools_used") or [])
     llm_call_count = 0
-    tool_msg_count = 0
+    tool_msg_count = len(tool_results)
 
     for msg in messages:
         if isinstance(msg, AIMessage):
