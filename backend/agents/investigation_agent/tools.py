@@ -202,18 +202,12 @@ def check_merchant_risk(merchant_name: str) -> str:
         ).first()
 
         # ── historical complaints ─────────────────────────────────────────────
-        hist_q = db.query(DisputeHistory).filter(
-            DisputeHistory.merchant_id == profile.merchant_id if profile
-            else DisputeHistory.merchant_id == None  # noqa fallback
-        )
-        # if no profile, search by name via join
-        if not profile:
-            from sqlalchemy import or_
-            hist_q = db.query(DisputeHistory)  # will get 0 rows; name not in hist
         if profile:
             hist_q = db.query(DisputeHistory).filter(
                 DisputeHistory.merchant_id == profile.merchant_id
             )
+        else:
+            hist_q = db.query(DisputeHistory).filter(DisputeHistory.merchant_id == None)  # noqa
         if cutoff_dt:
             hist_q = hist_q.filter(DisputeHistory.created_at < cutoff_dt)
         hist_cases = hist_q.all()
@@ -274,7 +268,8 @@ def check_merchant_risk(merchant_name: str) -> str:
             risk = "LOW"
 
         if profile:
-            profile.risk_level = risk  # keep profile in sync
+            profile.risk_level = risk
+            db.commit()
 
         if risk == "CRITICAL":
             assessment = "Escalate immediately — pattern of fraud complaints."
