@@ -193,9 +193,17 @@ def _write_dispute_history(case: DisputeCase, db: Session) -> None:
 
     resolution_text = _build_resolution_text(case)
 
-    # Find the linked merchant_id from our merchant table
-    profile    = _find_merchant(case.merchant or "", db) if case.merchant else None
-    merchant_id = profile.merchant_id if profile else None
+    # Prefer merchant_id from the transaction record (exact match, avoids fuzzy-name errors)
+    merchant_id = None
+    if case.transaction_id:
+        txn = db.query(Transaction).filter(
+            Transaction.transaction_id == case.transaction_id
+        ).first()
+        if txn:
+            merchant_id = txn.merchant_id
+    if merchant_id is None and case.merchant:
+        profile = _find_merchant(case.merchant, db)
+        merchant_id = profile.merchant_id if profile else None
 
     if existing:
         existing.status               = case.status
