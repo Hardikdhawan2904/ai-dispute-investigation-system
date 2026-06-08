@@ -5,7 +5,7 @@ export default function InternalReviewLayout({ children }: { children: ReactNode
   return (
     <div className="min-h-screen bg-bfsi-black">
       <InternalNav />
-      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 pt-24 pb-16">
+      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 pt-20 pb-12">
         {children}
       </main>
     </div>

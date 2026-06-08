@@ -55,11 +55,14 @@ def should_flag_manual_review(case: dict) -> Tuple[bool, str]:
             "mandatory analyst verification before chargeback credit"
         )
 
-    # ── 2. AI fraud suspicion on high-value transaction ───────────────────────
-    if fraud_ai and amount > 10_000:
+    # ── 2. AI fraud suspicion — ANY amount requires review (RBI zero-liability) ──
+    # RBI circular 2017: bank bears liability for fraud regardless of amount if
+    # reported promptly. Analyst must verify before any credit.
+    if fraud_ai:
         return True, (
             f"AI-detected fraud on ₹{amount:,.0f} transaction — "
-            "requires analyst verification per bank fraud policy"
+            "RBI zero-liability rule requires mandatory analyst verification "
+            "before any chargeback credit regardless of amount"
         )
 
     # ── 3. Compliance / AML triggers ─────────────────────────────────────────

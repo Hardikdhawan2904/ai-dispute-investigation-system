@@ -1,24 +1,28 @@
 "use client";
-import { AlertTriangle, Globe, DollarSign, Copy, ShieldAlert, Zap, Smartphone, Eye, CreditCard, RefreshCw, Ban, Activity } from "lucide-react";
-import { cn, getRiskTagColor } from "@/lib/utils";
-import type { RiskTag } from "@/types";
+import { getRiskTagSeverity } from "@/lib/utils";
 
-const TAG_META: Record<string, { label: string; icon: React.ElementType; description: string }> = {
-  HIGH_VALUE_TRANSACTION:    { label: "High Value", icon: DollarSign, description: "Transaction amount exceeds ₹50,000" },
-  INTERNATIONAL_TRANSACTION: { label: "International", icon: Globe, description: "Cross-border transaction" },
-  POSSIBLE_FRAUD:            { label: "Possible Fraud", icon: ShieldAlert, description: "Strong fraud indicators present" },
-  DUPLICATE_PAYMENT:         { label: "Duplicate", icon: Copy, description: "Potential duplicate charge" },
-  FRIENDLY_FRAUD_RISK:       { label: "Friendly Fraud Risk", icon: Eye, description: "Customer may be filing false dispute" },
-  HIGH_PRIORITY_CASE:        { label: "High Priority", icon: Zap, description: "Requires immediate attention" },
-  OTP_VERIFIED:              { label: "OTP Shared", icon: Smartphone, description: "Customer shared OTP with third party" },
-  DEVICE_MISMATCH:           { label: "Device Mismatch", icon: Smartphone, description: "Transaction from unrecognized device" },
-  SUSPICIOUS_BEHAVIOR:       { label: "Suspicious", icon: AlertTriangle, description: "Unusual behavioral pattern detected" },
-  CARD_NOT_PRESENT:          { label: "Card Not Present", icon: CreditCard, description: "Online transaction, no physical card" },
-  RECURRING_DISPUTE:         { label: "Recurring", icon: RefreshCw, description: "Subscription or recurring charge" },
-  MERCHANT_BLACKLISTED:      { label: "Blacklisted Merchant", icon: Ban, description: "Known problematic merchant" },
-  VELOCITY_BREACH:           { label: "Velocity Breach", icon: Activity, description: "Multiple rapid transactions" },
-  AI_UNAVAILABLE:            { label: "AI Unavailable", icon: AlertTriangle, description: "AI analysis was unavailable — fallback mode active, manual review required" },
+const TAG_LABELS: Record<string, string> = {
+  HIGH_VALUE_TRANSACTION:    "High Value Transaction",
+  INTERNATIONAL_TRANSACTION: "International Transaction",
+  POSSIBLE_FRAUD:            "Possible Fraud",
+  DUPLICATE_PAYMENT:         "Duplicate Payment",
+  FRIENDLY_FRAUD_RISK:       "Friendly Fraud Pattern",
+  HIGH_PRIORITY_CASE:        "High Priority",
+  OTP_VERIFIED:              "OTP Shared",
+  DEVICE_MISMATCH:           "Device Mismatch",
+  SUSPICIOUS_BEHAVIOR:       "Suspicious Behaviour",
+  CARD_NOT_PRESENT:          "Card Not Present",
+  RECURRING_DISPUTE:         "Recurring Charge",
+  MERCHANT_BLACKLISTED:      "Blacklisted Merchant",
+  VELOCITY_BREACH:           "Velocity Breach",
+  AI_UNAVAILABLE:            "Manual Review Required",
 };
+
+const SEVERITY_CONFIG = {
+  critical: { label: "Critical",      bg: "#FEF2F2", text: "#991B1B", border: "#FECACA", dot: "#B91C1C" },
+  warning:  { label: "Moderate",      bg: "#FFFBEB", text: "#92400E", border: "#FDE68A", dot: "#B45309" },
+  info:     { label: "Informational", bg: "#EFF6FF", text: "#1D4ED8", border: "#BFDBFE", dot: "#2563EB" },
+} as const;
 
 interface RiskTagsProps {
   tags: string[];
@@ -27,30 +31,49 @@ interface RiskTagsProps {
 
 export default function RiskTags({ tags, compact = false }: RiskTagsProps) {
   if (!tags || tags.length === 0) {
+    return <span style={{ fontSize: "0.75rem", color: "#64748B" }}>No risk indicators identified</span>;
+  }
+
+  const grouped: Record<"critical" | "warning" | "info", string[]> = { critical: [], warning: [], info: [] };
+  tags.forEach((tag) => { grouped[getRiskTagSeverity(tag)].push(tag); });
+
+  if (compact) {
     return (
-      <span className="text-xs text-bfsi-text-dim italic">No risk tags identified</span>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
+        {tags.map((tag) => {
+          const sev = getRiskTagSeverity(tag);
+          const cfg = SEVERITY_CONFIG[sev];
+          return (
+            <span key={tag} style={{ background: cfg.bg, color: cfg.text, border: `1px solid ${cfg.border}`, borderRadius: 3, padding: "0.15rem 0.5rem", fontSize: "0.65rem", fontWeight: 600 }}>
+              {TAG_LABELS[tag] ?? tag.replace(/_/g, " ")}
+            </span>
+          );
+        })}
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-wrap gap-2">
-      {tags.map((tag) => {
-        const meta = TAG_META[tag] ?? { label: tag, icon: AlertTriangle, description: tag };
-        const Icon = meta.icon;
-        const colorClass = getRiskTagColor(tag);
-
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+      {(["critical", "warning", "info"] as const).map((sev) => {
+        const items = grouped[sev];
+        if (items.length === 0) return null;
+        const cfg = SEVERITY_CONFIG[sev];
         return (
-          <div
-            key={tag}
-            title={meta.description}
-            className={cn(
-              "flex items-center gap-1.5 border rounded-full cursor-default transition-all duration-200",
-              compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-xs",
-              colorClass
-            )}
-          >
-            <Icon className={cn("flex-shrink-0", compact ? "w-3 h-3" : "w-3.5 h-3.5")} />
-            <span className="font-medium whitespace-nowrap">{meta.label}</span>
+          <div key={sev}>
+            <div style={{ fontSize: "0.6rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "#64748B", marginBottom: "0.375rem" }}>
+              {cfg.label}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              {items.map((tag) => (
+                <div key={tag} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0.625rem", background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: 3 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: cfg.dot, flexShrink: 0 }} />
+                  <span style={{ fontSize: "0.72rem", fontWeight: 500, color: cfg.text }}>
+                    {TAG_LABELS[tag] ?? tag.replace(/_/g, " ")}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         );
       })}

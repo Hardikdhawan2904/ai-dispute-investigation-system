@@ -2,50 +2,80 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Shield, Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function InternalNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-bfsi-border bg-bfsi-navy/95 backdrop-blur-sm">
-      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-6">
+    <nav
+      style={{ backgroundColor: "#0B1120", borderBottom: "1px solid #334155" }}
+      className="fixed top-0 left-0 right-0 z-50"
+    >
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-8">
+
+        {/* Brand */}
         <Link href="/internal-review" className="flex items-center gap-2.5 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-bfsi-gold/10 border border-bfsi-gold/30 flex items-center justify-center">
-            <Shield className="w-4 h-4 text-bfsi-gold" />
+          <div
+            style={{ width: 28, height: 28, backgroundColor: "#1E293B", border: "1px solid #334155", borderRadius: 3 }}
+            className="flex items-center justify-center"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <rect x="1" y="1" width="5" height="5" rx="1" fill="#2563EB" />
+              <rect x="8" y="1" width="5" height="5" rx="1" fill="#2563EB" opacity="0.6" />
+              <rect x="1" y="8" width="5" height="5" rx="1" fill="#2563EB" opacity="0.6" />
+              <rect x="8" y="8" width="5" height="5" rx="1" fill="#2563EB" opacity="0.3" />
+            </svg>
           </div>
           <div className="hidden sm:block">
-            <div className="text-sm font-semibold text-bfsi-text leading-none">DisputeHQ</div>
-            <div className="text-[10px] text-bfsi-text-dim mt-0.5">Internal Review</div>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#F8FAFC", letterSpacing: "-0.01em" }}>
+              Dispute Management
+            </div>
+            <div style={{ fontSize: "0.6rem", color: "#64748B", fontWeight: 500, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              Operations Console
+            </div>
           </div>
         </Link>
 
-        <div className="flex items-center gap-1">
+        {/* Nav links */}
+        <div className="flex items-center h-full">
           <Link
             href="/internal-review"
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all",
-              pathname.startsWith("/internal-review")
-                ? "bg-bfsi-gold/10 text-bfsi-gold border border-bfsi-gold/20"
-                : "text-bfsi-text-muted hover:text-bfsi-text hover:bg-bfsi-muted"
-            )}
+            style={{
+              fontSize: "0.75rem",
+              fontWeight: 500,
+              padding: "0 0.75rem",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              borderBottom: pathname.startsWith("/internal-review") ? "2px solid #2563EB" : "2px solid transparent",
+              color: pathname.startsWith("/internal-review") ? "#F8FAFC" : "#64748B",
+              transition: "color 0.15s",
+            }}
           >
-            <Monitor className="w-3.5 h-3.5" />
-            <span>Review Dashboard</span>
+            Case Queue
           </Link>
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <div className="hidden sm:flex items-center gap-1.5 text-xs text-bfsi-text-dim">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-            System Online
+        {/* Right side */}
+        <div className="ml-auto flex items-center gap-4">
+          <div className="hidden sm:flex items-center gap-1.5" style={{ fontSize: "0.7rem", color: "#64748B" }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#15803D" }} />
+            Systems Operational
           </div>
           <Link
             href="/submit-dispute"
-            className="text-xs text-bfsi-text-dim hover:text-bfsi-gold transition-colors border border-bfsi-border hover:border-bfsi-gold/40 px-3 py-1.5 rounded-md"
+            style={{
+              fontSize: "0.7rem",
+              color: "#94A3B8",
+              border: "1px solid #334155",
+              borderRadius: 3,
+              padding: "0.3rem 0.75rem",
+              transition: "all 0.15s",
+            }}
+            className="hover:text-white hover:border-slate-400"
           >
-            Customer Form →
+            Customer Portal
           </Link>
         </div>
       </div>

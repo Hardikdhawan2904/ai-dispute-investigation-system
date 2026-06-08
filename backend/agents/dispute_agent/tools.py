@@ -192,44 +192,45 @@ def score_fraud_indicators(
         score += kw_score
         indicators.append(f"Fraud language pattern: {', '.join(matched[:6])} (+{kw_score:.0f})")
 
-    # ── I4C Tier-1 indicators (high certainty, +5 each) ──────────────────────
-    # These map directly to RBI-defined high-risk fraud vectors
+    # ── I4C Tier-1 indicators — each alone is sufficient to reach HIGH signal ──
+    # Weights are calibrated so a single Tier-1 indicator ≥ HIGH threshold (7.0).
+    # Based on RBI/I4C published data on confirmed high-risk fraud vectors.
 
     if is_yes(otp_shared):
-        score += 5.0
+        score += 8.0   # #1 India fraud vector — alone = HIGH
         indicators.append(
-            "OTP shared with third party (+5.0) — #1 India fraud vector (I4C); "
-            "confirms social engineering attack"
+            "OTP shared with third party (+8.0) — confirmed social engineering; "
+            "bank bears zero-liability per RBI Circular 2017"
         )
 
     if is_yes(bank_impersonation):
-        score += 5.0
+        score += 8.0   # vishing — alone = HIGH
         indicators.append(
-            "Bank impersonation call (+5.0) — vishing attack; "
-            "victim manipulated to share credentials"
+            "Bank impersonation call (+8.0) — vishing attack confirmed; "
+            "victim manipulated to share credentials or approve transfer"
         )
 
     if is_yes(sim_swap_suspected):
-        score += 5.0
+        score += 8.0   # telecom account takeover — alone = HIGH
         indicators.append(
-            "SIM swap suspected (+5.0) — telecom account takeover; "
+            "SIM swap suspected (+8.0) — telecom account takeover; "
             "OTP bypass mechanism; RBI mandates bank liability"
         )
 
-    # ── I4C Tier-2 indicators (medium certainty, +3.5 each) ──────────────────
+    # ── I4C Tier-2 indicators (medium certainty, +4.0 each) ──────────────────
 
     if is_yes(remote_access):
-        score += 3.5
+        score += 4.0
         indicators.append(
-            "Remote access app installed (+3.5) — device compromise; "
+            "Remote access app installed (+4.0) — device compromise; "
             "attacker had full account control"
         )
 
     if is_yes(phishing_link):
-        score += 3.5
+        score += 4.0
         indicators.append(
-            "Phishing link clicked (+3.5) — credential theft; "
-            "check for fake bank portal or UPI app"
+            "Phishing link clicked (+4.0) — credential theft; "
+            "check for fake bank portal or UPI phishing app"
         )
 
     # ── I4C Tier-3 indicators (physical threat, +2.5 each) ───────────────────
@@ -238,7 +239,7 @@ def score_fraud_indicators(
         score += 2.5
         indicators.append(
             "Card lost or stolen (+2.5) — physical theft vector; "
-            "check for PIN shoulder-surfing"
+            "check for PIN shoulder-surfing at ATM or POS"
         )
 
     if is_yes(device_lost):
@@ -247,14 +248,14 @@ def score_fraud_indicators(
             "Device lost or stolen (+2.5) — physical access to authenticated apps"
         )
 
-    # ── Combination: OTP received but customer denies ─────────────────────────
+    # ── Combination: OTP received but customer denies initiating ─────────────
     if is_yes(otp_received) and any(
         k in comment_lower for k in ("didn't do", "not me", "unauthorized", "did not", "i never")
     ):
-        score += 3.0
+        score += 3.5
         indicators.append(
-            "OTP received but customer denies initiating (+3.0) — "
-            "classic social engineering pattern; bank bears liability per RBI 2017"
+            "OTP received but customer denies initiating (+3.5) — "
+            "classic social engineering; bank bears liability per RBI 2017"
         )
 
     # ── Protective actions taken (signals legitimacy, no score impact) ────────
@@ -264,10 +265,11 @@ def score_fraud_indicators(
     if is_yes(card_blocked):
         protective.append("card / account blocked")
 
-    # ── Signal level classification (calibrated to I4C fraud severity tiers) ──
+    # ── Signal level classification (I4C fraud severity tiers) ───────────────
+    # Tier-1 alone (8.0) → HIGH; two Tier-1s (16.0) → CRITICAL
     level = (
-        "CRITICAL" if score >= 12 else   # multiple Tier-1 indicators = organised fraud
-        "HIGH"     if score >= 7  else   # at least one strong indicator
+        "CRITICAL" if score >= 14 else   # 2+ Tier-1 indicators = organised fraud
+        "HIGH"     if score >= 7  else   # 1 Tier-1 or multiple Tier-2 = serious
         "MEDIUM"   if score >= 3  else   # keyword hits or minor indicators
         "LOW"      if score >= 1  else
         "NONE"
@@ -364,24 +366,41 @@ def verify_evidence_match(
     doc_is_financial = has_strong_doc or (has_weak_doc and (amount_match or merchant_match))
 
     # ── Contradiction detection (friendly fraud signals) ──────────────────────
+    # Only flag when the contradiction is unambiguous — false positives destroy trust.
+    # Rule: a phrase must be semantically incompatible with the claim, not just lexically overlapping.
+    # Refund receipts, cancellation confirmations, and merchant communications are SUPPORTING
+    # evidence for most dispute types — never treat them as contradictions.
     contradictions: list[str] = []
     desc_lower = dispute_description.lower()
 
+    # 1. Bank explicitly approved a transaction the customer says they didn't do
     if "approved" in doc_lower and ("unauthorized" in desc_lower or "not me" in desc_lower):
         contradictions.append(
             "Document shows bank-approved transaction while customer claims unauthorised"
         )
-    if "delivered" in doc_lower and "not received" in desc_lower:
+
+    # 2. Carrier/merchant delivery receipt vs "not received" claim
+    # Must be an explicit delivery-completion phrase, not just the word "delivered"
+    _delivery_complete = [
+        "delivered successfully", "order delivered", "delivery confirmed",
+        "shipment delivered", "package delivered", "delivery complete",
+        "successfully delivered",
+    ]
+    if any(p in doc_lower for p in _delivery_complete) and "not received" in desc_lower:
         contradictions.append(
             "Delivery confirmation in document conflicts with 'not received' claim"
         )
-    if "confirmed" in doc_lower and "cancelled" in desc_lower:
+
+    # 3. Bank/merchant confirms refund was CREDITED vs "refund not received"
+    # "refund initiated" / "refund confirmation" / "refund receipt" are NOT credits —
+    # they mean the process started but the money hasn't arrived yet, which SUPPORTS the claim.
+    _refund_credited = [
+        "refund successful", "refund completed", "refund credited to your account",
+        "amount credited to", "credit processed successfully",
+    ]
+    if any(p in doc_lower for p in _refund_credited) and "refund not received" in desc_lower:
         contradictions.append(
-            "Order confirmation in document conflicts with 'cancelled' claim"
-        )
-    if "refunded" in doc_lower and "refund not received" in desc_lower:
-        contradictions.append(
-            "Refund completion in document conflicts with 'refund not received' claim"
+            "Refund completion confirmation in document conflicts with 'refund not received' claim"
         )
 
     # ── Verdict logic ─────────────────────────────────────────────────────────

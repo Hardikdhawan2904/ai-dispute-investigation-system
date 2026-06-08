@@ -10,67 +10,79 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // BFSI Enterprise Dark Theme
-        bfsi: {
-          black: "#080810",
-          navy: "#0d0d1a",
-          dark: "#111120",
-          card: "#14141f",
-          border: "#1e1e32",
-          muted: "#252538",
-          // Gold/amber accent
-          gold: "#f59e0b",
-          "gold-light": "#fbbf24",
-          "gold-dark": "#d97706",
-          "gold-glow": "rgba(245,158,11,0.15)",
-          // Status colors
-          success: "#10b981",
-          danger: "#ef4444",
-          warning: "#f59e0b",
-          info: "#3b82f6",
+        ops: {
+          // Primary backgrounds
+          bg:          "#0F172A",
+          surface:     "#1E293B",
+          panel:       "#111827",
+          overlay:     "#0B1120",
+          // Borders
+          border:      "#334155",
+          "border-subtle": "#1E293B",
           // Text
-          text: "#e2e8f0",
-          "text-muted": "#94a3b8",
-          "text-dim": "#64748b",
+          text:        "#F8FAFC",
+          secondary:   "#94A3B8",
+          muted:       "#64748B",
+          // Semantic
+          success:     "#15803D",
+          "success-bg":"#F0FDF4",
+          "success-text": "#166534",
+          warning:     "#B45309",
+          "warning-bg":"#FFFBEB",
+          "warning-text":"#92400E",
+          critical:    "#B91C1C",
+          "critical-bg":"#FEF2F2",
+          "critical-text":"#991B1B",
+          info:        "#2563EB",
+          "info-bg":   "#EFF6FF",
+          "info-text": "#1D4ED8",
+          // Accent (subdued blue, not orange)
+          accent:      "#2563EB",
+          "accent-light": "#3B82F6",
+        },
+        // Legacy aliases — keep existing code working
+        bfsi: {
+          black:      "#0F172A",
+          navy:       "#0B1120",
+          dark:       "#111827",
+          card:       "#1E293B",
+          border:     "#334155",
+          muted:      "#1E293B",
+          gold:       "#2563EB",   // Remap gold → professional blue
+          "gold-light":"#3B82F6",
+          "gold-dark": "#1D4ED8",
+          "gold-glow": "rgba(37,99,235,0.10)",
+          success:    "#15803D",
+          danger:     "#B91C1C",
+          warning:    "#B45309",
+          info:       "#2563EB",
+          text:       "#F8FAFC",
+          "text-muted":"#94A3B8",
+          "text-dim": "#64748B",
+          accent:     "#2563EB",
         },
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "Fira Code", "monospace"],
-      },
-      backgroundImage: {
-        "bfsi-gradient": "linear-gradient(135deg, #080810 0%, #0d0d1a 50%, #111120 100%)",
-        "card-gradient": "linear-gradient(145deg, #14141f 0%, #111120 100%)",
-        "gold-gradient": "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
-        "danger-gradient": "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
       },
       boxShadow: {
-        "bfsi-card": "0 4px 24px rgba(0,0,0,0.4), 0 1px 4px rgba(0,0,0,0.3)",
-        "bfsi-glow": "0 0 20px rgba(245,158,11,0.15)",
-        "bfsi-danger": "0 0 20px rgba(239,68,68,0.15)",
-        "bfsi-success": "0 0 20px rgba(16,185,129,0.15)",
-      },
-      borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        "ops-card": "0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3)",
+        "ops-elevated": "0 4px 12px rgba(0,0,0,0.5)",
+        "bfsi-card": "0 1px 3px rgba(0,0,0,0.4)",
+        "bfsi-glow":  "none",
       },
       animation: {
-        "pulse-gold": "pulse-gold 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-        "fade-in": "fade-in 0.3s ease-out",
-        "slide-up": "slide-up 0.3s ease-out",
+        "fade-in":  "fade-in 0.2s ease-out",
+        "slide-up": "slide-up 0.2s ease-out",
       },
       keyframes: {
-        "pulse-gold": {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.6" },
-        },
         "fade-in": {
           "0%": { opacity: "0" },
           "100%": { opacity: "1" },
         },
         "slide-up": {
-          "0%": { transform: "translateY(8px)", opacity: "0" },
+          "0%": { transform: "translateY(6px)", opacity: "0" },
           "100%": { transform: "translateY(0)", opacity: "1" },
         },
       },

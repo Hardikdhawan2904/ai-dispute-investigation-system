@@ -5,17 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import {
-  ArrowLeft, AlertTriangle, Brain, Shield, CreditCard,
-  FileText, CheckCircle, Loader2, Activity, RefreshCw,
-  ImageIcon, X, ZoomIn, Search, ListChecks, Lightbulb,
-  BarChart2, ChevronDown, ChevronUp, AlertCircle, Eye,
+  ArrowLeft, AlertTriangle, FileText, CheckCircle, Loader2,
+  RefreshCw, X, ZoomIn, ChevronDown, ChevronUp,
 } from "lucide-react";
-import { cn, formatCurrency, formatDate, getPriorityColor, getStatusColor, formatConfidence } from "@/lib/utils";
+import { formatCurrency, formatDate, getPriorityColor, getConfidenceLabel } from "@/lib/utils";
 import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads } from "@/lib/api";
 import type { CaseUploadFile } from "@/lib/api";
 import type { DisputeCase, AuditLog, WorkflowState, CaseStatus } from "@/types";
 import RiskTags from "@/components/dispute/RiskTags";
-import ConfidenceScore from "@/components/dispute/ConfidenceScore";
 import WorkflowStatus from "@/components/dispute/WorkflowStatus";
 import { useDisputeSocket, type DisputeSocketEvent } from "@/hooks/useDisputeSocket";
 
@@ -24,17 +21,100 @@ const CASE_STATUSES: CaseStatus[] = [
   "Escalated", "Resolved", "Rejected", "Closed",
 ];
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function getReliabilityLabel(score: number): string {
+  if (score >= 0.85) return "High Reliability";
+  if (score >= 0.70) return "Good Reliability";
+  if (score >= 0.55) return "Moderate Reliability";
+  if (score >= 0.40) return "Limited Reliability";
+  return "Low Reliability";
+}
+
+function parseFindings(text: string): { bullets: string[]; conclusion: string } {
+  if (!text) return { bullets: [], conclusion: "" };
+  const lines = text.split(/\n+/).map(l => l.trim().replace(/^[-•*\d.]\s*/, "")).filter(l => l.length > 10);
+  if (lines.length > 1) {
+    const last = lines[lines.length - 1];
+    const isConcl = /therefore|conclude|evidence support|recommend|overall|based on|in (summary|conclusion)/i.test(last);
+    if (isConcl) return { bullets: lines.slice(0, -1), conclusion: last };
+    return { bullets: lines, conclusion: "" };
+  }
+  const sentences = (text.match(/[^.!?]+[.!?]+/g) ?? [text]).map(s => s.trim()).filter(s => s.length > 15);
+  if (sentences.length <= 1) return { bullets: [], conclusion: text };
+  const last = sentences[sentences.length - 1];
+  const isConcl = /therefore|conclude|evidence support|recommend|overall|based on|in (summary|conclusion)/i.test(last);
+  if (isConcl) return { bullets: sentences.slice(0, -1), conclusion: last };
+  return { bullets: sentences.slice(0, -1), conclusion: sentences[sentences.length - 1] };
+}
+
+// ── Primitives ────────────────────────────────────────────────────────────────
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: "0.6rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "#64748B", marginBottom: 4 }}>{children}</div>;
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#475569", paddingBottom: "0.5rem", borderBottom: "1px solid #334155", marginBottom: "0.75rem" }}>{children}</div>;
+}
+
 function InfoRow({ label, value, mono = false }: { label: string; value?: string | number | boolean | null; mono?: boolean }) {
-  const display = value === true ? "Yes" : value === false ? "No" : value ?? "—";
+  const display = value === true ? "Yes" : value === false ? "No" : (value ?? "—");
   return (
-    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-bfsi-border last:border-0">
-      <span className="text-xs text-bfsi-text-dim flex-shrink-0 w-40">{label}</span>
-      <span className={cn("text-xs text-bfsi-text text-right break-all", mono && "font-mono")}>{String(display)}</span>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
+      <span style={{ fontSize: "0.68rem", color: "#64748B" }}>{label}</span>
+      <span style={{ fontSize: "0.72rem", color: "#F8FAFC", wordBreak: "break-all", fontFamily: mono ? "ui-monospace, monospace" : undefined }}>{String(display)}</span>
     </div>
   );
 }
 
-export default function InternalReviewCaseDetail() {
+function Field({ label, value, mono = false }: { label: string; value?: string | number | boolean | null; mono?: boolean }) {
+  const display = value === true ? "Yes" : value === false ? "No" : (value ?? "—");
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", padding: "0.45rem 0", borderBottom: "1px solid #1E293B" }}>
+      <span style={{ fontSize: "0.7rem", color: "#64748B", flexShrink: 0, width: 130 }}>{label}</span>
+      <span style={{ fontSize: "0.72rem", color: "#F8FAFC", textAlign: "right", wordBreak: "break-all", fontFamily: mono ? "ui-monospace, monospace" : undefined }}>{String(display)}</span>
+    </div>
+  );
+}
+
+function Panel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div style={{ backgroundColor: "#1E293B", border: "1px solid #334155", borderRadius: 4, padding: "1rem", ...style }}>
+      {children}
+    </div>
+  );
+}
+
+function CollapsibleSection({ title, open, onToggle, children }: {
+  title: string; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <Panel style={{ padding: "0.75rem 1rem" }}>
+      <button
+        onClick={onToggle}
+        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+      >
+        <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: open ? "#94A3B8" : "#64748B" }}>
+          {title}
+        </span>
+        {open
+          ? <ChevronUp style={{ width: 12, height: 12, color: "#64748B" }} />
+          : <ChevronDown style={{ width: 12, height: 12, color: "#64748B" }} />
+        }
+      </button>
+      {open && (
+        <div style={{ marginTop: "0.625rem", paddingTop: "0.625rem", borderTop: "1px solid #1E293B" }}>
+          {children}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────────────────
+
+export default function CaseWorkspace() {
   const { caseId } = useParams<{ caseId: string }>();
   const router = useRouter();
 
@@ -47,6 +127,29 @@ export default function InternalReviewCaseDetail() {
   const [elapsed, setElapsed]               = useState(0);
   const [uploads, setUploads]               = useState<CaseUploadFile[]>([]);
   const [lightbox, setLightbox]             = useState<string | null>(null);
+  const [activeTab, setActiveTab]           = useState<"analysis" | "investigation" | "evidence" | "audit" | "workflow">("analysis");
+  const [whyPlanOpen, setWhyPlanOpen]       = useState(false);
+  const [liveUpdate, setLiveUpdate]         = useState(false);
+  const [sidebarOpen, setSidebarOpen]       = useState<Record<string, boolean>>({
+    summary: true, customer: false, transaction: false, dispute: false,
+  });
+
+  useEffect(() => {
+    if (!caseId) return;
+    setLoading(true);
+    Promise.all([getCase(caseId), getAuditLogs(caseId), getWorkflowStates(caseId), getCaseUploads(caseId)])
+      .then(([c, a, w, up]) => { setCaseData(c); setAuditLogs(a.audit_logs); setWorkflowStates(w.workflow_states); setUploads(up); })
+      .catch(() => { toast.error("Case not found"); router.push("/internal-review"); })
+      .finally(() => setLoading(false));
+  }, [caseId, router]);
+
+  useDisputeSocket((event: DisputeSocketEvent) => {
+    if (event.type === "ANALYSIS_COMPLETE" && event.case_id === caseId) {
+      setCaseData(event.case as unknown as DisputeCase);
+      setLiveUpdate(true);
+      setTimeout(() => setLiveUpdate(false), 3000);
+    }
+  });
 
   async function handleReanalyse() {
     if (!caseData || reanalysing) return;
@@ -56,43 +159,11 @@ export default function InternalReviewCaseDetail() {
     try {
       const updated = await reanalyseCase(caseData.case_id);
       setCaseData(updated);
-      toast.success(`Re-analysis complete — confidence: ${(updated.confidence_score * 100).toFixed(0)}%`);
+      toast.success("Re-analysis complete");
     } catch (err: unknown) {
       toast.error((err instanceof Error ? err.message : null) || "Re-analysis failed");
-    } finally {
-      clearInterval(timer);
-      setReanalysing(false);
-    }
+    } finally { clearInterval(timer); setReanalysing(false); }
   }
-  const [activeTab, setActiveTab]           = useState<"overview" | "ai" | "investigation" | "evidence" | "audit" | "workflow">("overview");
-  const [liveUpdate, setLiveUpdate]         = useState(false);
-  const [whyPlanOpen, setWhyPlanOpen]       = useState(false);
-
-  useEffect(() => {
-    if (!caseId) return;
-    setLoading(true);
-    Promise.all([getCase(caseId), getAuditLogs(caseId), getWorkflowStates(caseId), getCaseUploads(caseId)])
-      .then(([c, a, w, up]) => {
-        setCaseData(c);
-        setAuditLogs(a.audit_logs);
-        setWorkflowStates(w.workflow_states);
-        setUploads(up);
-      })
-      .catch(() => {
-        toast.error("Case not found");
-        router.push("/internal-review");
-      })
-      .finally(() => setLoading(false));
-  }, [caseId, router]);
-
-  // Live update: if ANALYSIS_COMPLETE arrives for this case, refresh data
-  useDisputeSocket((event: DisputeSocketEvent) => {
-    if (event.type === "ANALYSIS_COMPLETE" && event.case_id === caseId) {
-      setCaseData(event.case as unknown as DisputeCase);
-      setLiveUpdate(true);
-      setTimeout(() => setLiveUpdate(false), 3_000);
-    }
-  });
 
   async function handleStatusUpdate(newStatus: string) {
     if (!caseData || updatingStatus) return;
@@ -100,837 +171,780 @@ export default function InternalReviewCaseDetail() {
     try {
       const updated = await updateCaseStatus(caseData.case_id, newStatus);
       setCaseData(updated);
-      toast.success(`Status updated to "${newStatus}"`);
+      toast.success(`Status → ${newStatus}`);
     } catch (err: unknown) {
-      toast.error((err as Error).message || "Status update failed");
-    } finally {
-      setUpdatingStatus(false);
-    }
+      toast.error((err as Error).message || "Update failed");
+    } finally { setUpdatingStatus(false); }
   }
 
   if (loading) return (
-    <div className="flex items-center justify-center py-24">
-      <div className="flex items-center gap-3 text-bfsi-text-muted">
-        <Loader2 className="w-5 h-5 animate-spin text-bfsi-gold" />
-        Loading case intelligence…
-      </div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "4rem", gap: "0.75rem", color: "#64748B" }}>
+      <Loader2 className="w-4 h-4 animate-spin" style={{ color: "#2563EB" }} />
+      <span style={{ fontSize: "0.8rem" }}>Loading case…</span>
     </div>
   );
-
   if (!caseData) return null;
 
+  const plan          = caseData.investigation_plan;
+  const confidencePct = Math.round((caseData.confidence_score ?? 0) * 100);
+  const confColor     = caseData.confidence_score >= 0.75 ? "#4ADE80" : caseData.confidence_score >= 0.55 ? "#FCD34D" : "#FCA5A5";
+  const reliabilityLabel = getReliabilityLabel(caseData.confidence_score ?? 0);
+
+  const { bullets: findingBullets, conclusion: findingConclusion } = parseFindings(caseData.structured_reasoning ?? "");
+
+  const totalExecMs    = workflowStates.reduce((sum, ws) => sum + (ws.execution_time_ms ?? 0), 0);
+  const execTimeSec    = totalExecMs > 0 ? (totalExecMs / 1000).toFixed(1) : null;
+  const toolsUsed      = (caseData as any).tools_used ?? 0;
+  const ariaVersion    = (caseData as any).agent_metadata?.agent_version ?? "ARIA v1.x";
+  const iiaVersion     = (plan as any)?.agent_version ?? "IIA v1.x";
+
   const tabs = [
-    { key: "overview",      label: "Transaction",              icon: CreditCard },
-    { key: "ai",            label: "Analysis",                 icon: Brain },
-    { key: "investigation", label: "Investigation",            icon: Search },
-    { key: "evidence",      label: `Evidence (${uploads.length})`, icon: ImageIcon },
-    { key: "audit",         label: "Audit Trail",              icon: FileText },
-    { key: "workflow",      label: "Workflow",                 icon: Activity },
+    { key: "analysis",      label: "Case Analysis" },
+    { key: "investigation", label: "Investigation" },
+    { key: "evidence",      label: `Evidence (${uploads.length})` },
+    { key: "audit",         label: "Audit Trail" },
+    { key: "workflow",      label: "Workflow" },
   ] as const;
 
   return (
     <>
-      {/* Re-analysis loading overlay */}
+      {/* Re-analysis overlay */}
       {reanalysing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bfsi-card p-8 max-w-sm w-full mx-4 text-center space-y-5">
-            <div className="flex justify-center">
-              <div className="relative">
-                <Loader2 className="w-12 h-12 text-bfsi-gold animate-spin" />
-                <Brain className="w-5 h-5 text-bfsi-gold absolute inset-0 m-auto" />
-              </div>
-            </div>
-            <div>
-              <p className="text-base font-semibold text-bfsi-text mb-1">Re-analysing Case</p>
-              <p className="text-xs text-bfsi-text-dim">Running Agent 1 → Agent 2 pipeline</p>
-            </div>
-            <div className="space-y-2 text-left">
-              <div className={cn("flex items-center gap-2 text-xs px-3 py-2 rounded border",
-                elapsed < 20 ? "border-bfsi-gold/40 text-bfsi-gold bg-bfsi-gold/5" : "border-bfsi-border text-bfsi-text-dim")}>
-                <Loader2 className={cn("w-3 h-3 flex-shrink-0", elapsed < 20 ? "animate-spin" : "")} />
-                {elapsed < 20 ? "Agent 1: Classifying dispute…" : "Agent 1: Complete"}
-              </div>
-              <div className={cn("flex items-center gap-2 text-xs px-3 py-2 rounded border",
-                elapsed >= 20 ? "border-bfsi-gold/40 text-bfsi-gold bg-bfsi-gold/5" : "border-bfsi-border text-bfsi-text-dim")}>
-                <Loader2 className={cn("w-3 h-3 flex-shrink-0", elapsed >= 20 ? "animate-spin" : "")} />
-                {elapsed >= 20 ? "Agent 2: Building investigation plan…" : "Agent 2: Waiting…"}
-              </div>
-            </div>
-            <p className="text-xs text-bfsi-text-dim font-mono">{elapsed}s elapsed · typically 45–90s</p>
-          </div>
+        <div style={{ position: "fixed", inset: 0, zIndex: 50, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Panel style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
+            <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#2563EB", margin: "0 auto 1rem" }} />
+            <p style={{ fontSize: "0.85rem", fontWeight: 600, color: "#F8FAFC", marginBottom: 4 }}>Re-analysing Case</p>
+            <p style={{ fontSize: "0.72rem", color: "#64748B" }}>Running classification and investigation pipeline</p>
+            <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: "0.75rem", fontFamily: "ui-monospace, monospace" }}>{elapsed}s elapsed</p>
+          </Panel>
         </div>
       )}
 
-      <div className="flex items-center gap-2 mb-6 text-sm">
-        <Link href="/internal-review" className="text-bfsi-text-dim hover:text-bfsi-text transition-colors flex items-center gap-1">
-          <ArrowLeft className="w-4 h-4" /> Internal Review
+      {/* Breadcrumb */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem", fontSize: "0.72rem", color: "#64748B" }}>
+        <Link href="/internal-review" style={{ color: "#94A3B8", textDecoration: "none", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+          <ArrowLeft style={{ width: 13, height: 13 }} /> Case Queue
         </Link>
-        <span className="text-bfsi-border">/</span>
-        <span className="text-bfsi-text font-mono text-xs">{caseData.case_id}</span>
-        {liveUpdate && (
-          <span className="ml-2 text-xs text-green-400 bg-green-400/10 border border-green-400/30 px-2 py-0.5 rounded-full animate-pulse">
-            Live updated
-          </span>
-        )}
+        <span>/</span>
+        <span style={{ fontFamily: "ui-monospace, monospace", color: "#94A3B8" }}>{caseData.case_id}</span>
+        {liveUpdate && <span style={{ marginLeft: 4, fontSize: "0.65rem", color: "#4ADE80", backgroundColor: "#052e16", border: "1px solid #166534", borderRadius: 3, padding: "0.1rem 0.5rem" }}>Updated</span>}
       </div>
 
-      {/* Case header */}
-      <div className="bfsi-card bfsi-card-accent p-6 mb-6">
-        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
-          <div className="flex-1">
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-              <span className="text-xs font-mono text-bfsi-text-dim">{caseData.case_id}</span>
-              <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full border", getPriorityColor(caseData.priority as any))}>
-                {caseData.priority}
-              </span>
-              <span className={cn("text-xs px-2 py-0.5 rounded-full border", getStatusColor(caseData.status as any))}>
-                {caseData.status}
-              </span>
-              {caseData.fraud_suspicion && (
-                <span className="flex items-center gap-1 text-xs text-red-400 bg-red-400/10 border border-red-400/30 px-2 py-0.5 rounded-full">
-                  <AlertTriangle className="w-3 h-3" /> Fraud Suspected
-                </span>
-              )}
-              {caseData.requires_manual_review && (
-                <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2 py-0.5 rounded-full">
-                  <CheckCircle className="w-3 h-3" /> Human Review Required
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-1">Customer</p>
-                <p className="text-sm font-semibold text-bfsi-text">{caseData.customer_name || "—"}</p>
-                <p className="text-xs text-bfsi-text-dim font-mono">{caseData.customer_id}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-1">Amount</p>
-                <p className="text-lg font-bold text-bfsi-text font-mono">{formatCurrency(caseData.amount, caseData.currency)}</p>
-                <p className="text-xs text-bfsi-text-dim">{caseData.transaction_type}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-1">Category</p>
-                <p className="text-sm font-medium text-bfsi-text">{caseData.dispute_category || "—"}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-1">Filed On</p>
-                <p className="text-xs text-bfsi-text">{formatDate(caseData.created_at)}</p>
-              </div>
-            </div>
-          </div>
-          <div className="lg:w-64 bfsi-card p-4">
-            <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-3">Confidence Score</p>
-            <ConfidenceScore score={caseData.confidence_score} size="lg" />
-            {caseData.requires_manual_review && caseData.manual_review_reason && (
-              <p className="mt-3 text-[11px] text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded px-2 py-1.5 leading-relaxed">
-                {caseData.manual_review_reason}
-              </p>
-            )}
-          </div>
-        </div>
-        {caseData.risk_tags?.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-bfsi-border">
-            <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2">Risk Signals</p>
-            <RiskTags tags={caseData.risk_tags} />
-          </div>
-        )}
-      </div>
-
-      {/* ── Agent 1 Fallback Banner (Change 9) ───────────────────────────── */}
+      {/* Fallback warning */}
       {caseData.fallback_mode && (
-        <div className="mb-6 p-4 rounded-xl border border-amber-400/40 bg-amber-400/5">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-amber-400 mb-1">AI Processing Unavailable at Submission</p>
-              <p className="text-xs text-amber-300/80 leading-relaxed">
-                AI processing was unavailable when this case was submitted. A fallback analysis was generated
-                automatically and <strong className="text-amber-300">manual review is required</strong> before
-                any resolution decision can be made.
-              </p>
-              <div className="flex flex-wrap gap-4 mt-3 text-xs text-amber-300/70">
-                <span>
-                  <span className="text-amber-400/60 uppercase tracking-wider text-[10px]">Failure Reason</span>
-                  <span className="ml-2 font-mono font-semibold text-amber-300">{caseData.failure_reason ?? "UNKNOWN"}</span>
-                </span>
-                <span>
-                  <span className="text-amber-400/60 uppercase tracking-wider text-[10px]">Confidence</span>
-                  <span className="ml-2 font-mono font-semibold text-amber-300">
-                    {Math.round((caseData.confidence_score ?? 0) * 100)}%
-                  </span>
-                </span>
-                <span>
-                  <span className="text-amber-400/60 uppercase tracking-wider text-[10px]">Fallback Mode</span>
-                  <span className="ml-2 font-mono font-semibold text-amber-300">ACTIVE</span>
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Status control */}
-      <div className="bfsi-card p-4 mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Shield className="w-4 h-4 text-bfsi-gold" />
-          <span className="text-xs text-bfsi-text-dim uppercase tracking-wider font-semibold">Case Status</span>
-        </div>
-        <div className="flex items-center gap-3 ml-auto">
-          <button onClick={handleReanalyse} disabled={reanalysing}
-            className="btn-ghost flex items-center gap-1.5 text-xs text-bfsi-gold border border-bfsi-gold/30 disabled:opacity-50">
-            {reanalysing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            Re-analyse
-          </button>
-          <select
-            className="bfsi-select text-sm py-1.5 pr-8 w-auto"
-            value={caseData.status}
-            onChange={(e) => handleStatusUpdate(e.target.value)}
-            disabled={updatingStatus}
-          >
-            {CASE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          {updatingStatus && <Loader2 className="w-4 h-4 animate-spin text-bfsi-gold" />}
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex border-b border-bfsi-border mb-6 overflow-x-auto">
-        {tabs.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setActiveTab(key)}
-            className={cn(
-              "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap",
-              activeTab === key
-                ? "border-bfsi-gold text-bfsi-gold"
-                : "border-transparent text-bfsi-text-dim hover:text-bfsi-text"
-            )}
-          >
-            <Icon className="w-4 h-4" />{label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === "overview" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bfsi-card p-5">
-            <p className="section-header">Customer Information</p>
-            <InfoRow label="Customer Name" value={caseData.customer_name} />
-            <InfoRow label="Customer ID"   value={caseData.customer_id} mono />
-            <InfoRow label="Email"         value={caseData.email ?? "—"} />
-            <InfoRow label="Phone"         value={caseData.phone ?? "—"} />
-          </div>
-          <div className="bfsi-card p-5">
-            <p className="section-header">Transaction Details</p>
-            <InfoRow label="Transaction ID"   value={caseData.transaction_id} mono />
-            <InfoRow label="Transaction Type" value={caseData.transaction_type} />
-            <InfoRow label="Merchant"         value={caseData.merchant} />
-            <InfoRow label="Amount"           value={formatCurrency(caseData.amount, caseData.currency)} />
-            <InfoRow label="Date"             value={caseData.transaction_date} />
-            <InfoRow label="Time"             value={caseData.transaction_time || "—"} />
-          </div>
-          <div className="bfsi-card p-5 lg:col-span-2">
-            <p className="section-header">Dispute Submission</p>
-            <InfoRow label="Dispute Reason"            value={caseData.dispute_reason} />
-            <InfoRow label="Fraud Flagged by Customer" value={caseData.fraud_selected} />
-            <div className="pt-3">
-              <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2">Customer Statement</p>
-              <div className="bg-bfsi-muted rounded-lg p-4 text-sm text-bfsi-text-muted leading-relaxed">
-                {caseData.customer_comment}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeTab === "ai" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bfsi-card p-5">
-            <p className="section-header">Classification</p>
-            <InfoRow label="Dispute Category" value={caseData.dispute_category} />
-            <InfoRow label="Priority"         value={caseData.priority} />
-            <InfoRow label="Fraud Suspicion"  value={caseData.fraud_suspicion} />
-            <InfoRow label="Confidence Score" value={formatConfidence(caseData.confidence_score)} />
-            <InfoRow label="Workflow Ready"   value={caseData.workflow_ready} />
-          </div>
-          <div className="bfsi-card p-5">
-            <p className="section-header">Customer Intent Summary</p>
-            <div className="text-sm text-bfsi-text-muted leading-relaxed">
-              {caseData.customer_intent_summary || "No summary available"}
-            </div>
-          </div>
-
-          {/* Evidence verification verdict */}
-          <div className="bfsi-card p-5 lg:col-span-2">
-            <div className="flex items-center gap-2 mb-4">
-              <Shield className="w-4 h-4 text-bfsi-gold" />
-              <p className="section-header mb-0">Evidence Verification</p>
-            </div>
-            {(caseData as any).evidence_match === null || (caseData as any).evidence_match === undefined ? (
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-bfsi-muted border border-bfsi-border">
-                <span className="text-xs text-bfsi-text-dim">
-                  {uploads.length > 0
-                    ? "Document submitted — automatic verification unavailable. Please review the attached file manually."
-                    : "No documents were submitted with this dispute."}
-                </span>
-              </div>
-            ) : (caseData as any).evidence_match === true ? (
-              <div className="flex items-start gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
-                <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-green-400 mb-1">Evidence Matches Claim</p>
-                  <p className="text-sm text-bfsi-text-muted leading-relaxed">
-                    {(caseData as any).evidence_match_note || "The submitted documents corroborate the customer's dispute."}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-start gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
-                <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-red-400 mb-1">Evidence Does Not Match Claim</p>
-                  <p className="text-sm text-bfsi-text-muted leading-relaxed">
-                    {(caseData as any).evidence_match_note || "The submitted documents do not support the customer's dispute."}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="bfsi-card p-5 lg:col-span-2">
-            <div className="flex items-center gap-2 mb-4">
-              <Brain className="w-4 h-4 text-bfsi-gold" />
-              <p className="section-header mb-0">Structured Reasoning</p>
-            </div>
-            <div className="ai-reasoning">{caseData.structured_reasoning || "No reasoning available"}</div>
-            <p className="text-[10px] text-bfsi-text-dim mt-3">
-              Generated by LangGraph dispute workflow. For investigation guidance only — not a legal conclusion.
+        <div style={{ marginBottom: "1rem", padding: "0.75rem 1rem", backgroundColor: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 4, display: "flex", alignItems: "flex-start", gap: "0.625rem" }}>
+          <AlertTriangle style={{ width: 14, height: 14, color: "#B45309", flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "#92400E", marginBottom: 2 }}>Automated Processing Unavailable at Submission</p>
+            <p style={{ fontSize: "0.7rem", color: "#92400E" }}>
+              Classification service was unavailable when this case was submitted. Manual review is required before any resolution decision.
+              <span style={{ marginLeft: 8, fontFamily: "ui-monospace, monospace", fontWeight: 600 }}>Reason: {caseData.failure_reason ?? "UNKNOWN"}</span>
             </p>
           </div>
-          <div className="bfsi-card p-5 lg:col-span-2">
-            <p className="section-header">Risk Signal Analysis</p>
-            {caseData.risk_tags?.length > 0
-              ? <RiskTags tags={caseData.risk_tags} />
-              : <p className="text-sm text-bfsi-text-dim">No risk signals detected.</p>
-            }
-          </div>
-
-          {/* Required Documents — shown here so analysts see what evidence is needed alongside the AI analysis */}
-          {(() => {
-            const docs: string[] = caseData.investigation_plan?.required_documents ?? [];
-            return docs.length > 0 ? (
-              <div className="bfsi-card p-5 lg:col-span-2">
-                <div className="flex items-center gap-2 mb-4">
-                  <FileText className="w-4 h-4 text-bfsi-gold" />
-                  <p className="section-header mb-0">Required Documents Checklist</p>
-                  <span className="ml-auto text-[10px] text-bfsi-text-dim bg-bfsi-muted px-2 py-0.5 rounded-full border border-bfsi-border">
-                    {docs.length} document{docs.length > 1 ? "s" : ""}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {docs.map((doc: string, i: number) => (
-                    <div key={i} className="flex items-center gap-2 p-2.5 bg-bfsi-muted rounded-lg border border-bfsi-border">
-                      <CheckCircle className="w-3.5 h-3.5 text-bfsi-gold flex-shrink-0" />
-                      <span className="text-xs text-bfsi-text-muted">{doc}</span>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-[10px] text-bfsi-text-dim mt-3 pt-3 border-t border-bfsi-border">
-                  Computed deterministically from dispute category, fraud signals, and transaction amount. Not LLM-generated.
-                </p>
-              </div>
-            ) : null;
-          })()}
-
         </div>
       )}
 
-      {/* ── Investigation Workbench tab ──────────────────────────────────── */}
-      {activeTab === "investigation" && (() => {
-        const plan = caseData.investigation_plan;
-        if (!plan) return (
-          <div className="bfsi-card p-10 text-center">
-            <Search className="w-10 h-10 text-bfsi-text-dim mx-auto mb-3" />
-            <p className="text-sm text-bfsi-text-dim">Investigation plan not yet generated for this case.</p>
-            <p className="text-xs text-bfsi-text-dim mt-1">Re-submit or re-analyse to trigger Agent 2.</p>
-          </div>
-        );
+      {/* ── 3-Column workspace ─────────────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr 220px", gap: "1rem", alignItems: "start" }}>
 
-        // Colour helpers
-        const complexityColor: Record<string, string> = {
-          CRITICAL: "text-red-400 bg-red-400/10 border-red-400/30",
-          HIGH:     "text-orange-400 bg-orange-400/10 border-orange-400/30",
-          MEDIUM:   "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
-          LOW:      "text-green-400 bg-green-400/10 border-green-400/30",
-        };
-        const queueColor: Record<string, string> = {
-          FRAUD_OPS:         "text-red-400 bg-red-400/10 border-red-400/30",
-          UPI_FRAUD:         "text-orange-400 bg-orange-400/10 border-orange-400/30",
-          CHARGEBACK_TEAM:   "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
-          ATM_INVESTIGATION: "text-purple-400 bg-purple-400/10 border-purple-400/30",
-          COMPLIANCE_REVIEW: "text-pink-400 bg-pink-400/10 border-pink-400/30",
-          SENIOR_ANALYST:    "text-amber-400 bg-amber-400/10 border-amber-400/30",
-          MERCHANT_DISPUTES: "text-blue-400 bg-blue-400/10 border-blue-400/30",
-          GENERAL:           "text-bfsi-text-dim bg-bfsi-muted border-bfsi-border",
-        };
-        const queueConf      = plan.queue_confidence ?? null;
-        const queueConfPct   = queueConf != null ? Math.round(queueConf * 100) : null;
-        const queueLabel     = queueConfPct == null ? "" : queueConfPct >= 90 ? "Very High" : queueConfPct >= 75 ? "High" : queueConfPct >= 60 ? "Moderate" : "Low";
-        const queueConfColor = queueConfPct == null ? "" : queueConfPct >= 90 ? "text-green-400" : queueConfPct >= 75 ? "text-bfsi-gold" : queueConfPct >= 60 ? "text-yellow-400" : "text-red-400";
-        const dqPct          = plan.data_quality_score != null ? Math.round(plan.data_quality_score * 100) : null;
-        const dqColor        = dqPct == null ? "" : dqPct >= 90 ? "text-green-400" : dqPct >= 75 ? "text-bfsi-gold" : dqPct >= 60 ? "text-yellow-400" : "text-red-400";
-        const invConf        = plan.investigation_confidence;
-        const invConfPct     = invConf != null ? Math.round(invConf * 100) : null;
-        const invConfColor   = invConfPct == null ? "" : invConfPct >= 90 ? "text-green-400" : invConfPct >= 75 ? "text-bfsi-gold" : invConfPct >= 60 ? "text-yellow-400" : "text-red-400";
-        const invConfTier    = invConfPct == null ? "" : invConfPct >= 90 ? "Very High Confidence" : invConfPct >= 75 ? "High Confidence" : invConfPct >= 60 ? "Moderate Confidence" : "Requires Review";
-        const invConfTierColor = invConfPct == null ? "" : invConfPct >= 90 ? "text-green-400 bg-green-400/10 border-green-400/30" : invConfPct >= 75 ? "text-bfsi-gold bg-bfsi-gold/10 border-bfsi-gold/30" : invConfPct >= 60 ? "text-yellow-400 bg-yellow-400/10 border-yellow-400/30" : "text-red-400 bg-red-400/10 border-red-400/30";
+        {/* ── LEFT PANEL — Collapsible metadata ──────────────────────────── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
 
-        return (
-          <div className="space-y-5">
+          <CollapsibleSection
+            title="Case Summary"
+            open={sidebarOpen.summary}
+            onToggle={() => setSidebarOpen(p => ({ ...p, summary: !p.summary }))}
+          >
+            <InfoRow label="Case Reference"  value={caseData.case_id} mono />
+            <InfoRow label="Status"          value={caseData.status} />
+            <InfoRow label="Priority"        value={caseData.priority} />
+            <InfoRow label="Category"        value={caseData.dispute_category || "—"} />
+            <InfoRow label="Filed On"        value={formatDate(caseData.created_at)} />
+            <InfoRow label="Last Updated"    value={caseData.updated_at ? formatDate(caseData.updated_at) : "—"} />
+            {caseData.assigned_queue && <InfoRow label="Assigned Queue" value={caseData.assigned_queue.replace(/_/g, " ")} />}
+          </CollapsibleSection>
 
-            {/* ── Change 8: Enhanced Summary Header ───────────────────────── */}
-            <div className="bfsi-card bfsi-card-accent p-5">
-              <div className="flex flex-wrap items-center gap-3 mb-3">
-                <div className="flex items-center gap-1.5">
-                  <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full border", queueColor[plan.recommended_queue] ?? "text-bfsi-text bg-bfsi-muted border-bfsi-border")}>
-                    {plan.recommended_queue?.replace(/_/g, " ")}
-                  </span>
-                  {queueConfPct != null && (
-                    <span className={cn("text-xs font-mono font-semibold", queueConfColor)} title={`Queue routing confidence — ${queueLabel}`}>
-                      {queueConfPct}% <span className="text-[10px] opacity-70">({queueLabel})</span>
-                    </span>
-                  )}
-                </div>
-                <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full border", complexityColor[plan.investigation_complexity] ?? "")}>
-                  {plan.investigation_complexity} COMPLEXITY
-                </span>
-                {plan.duplicate_found && (
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full border text-red-400 bg-red-400/10 border-red-400/30">
-                    DUPLICATE DETECTED
-                  </span>
-                )}
-                {plan.manual_review_required && (
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full border text-amber-400 bg-amber-400/10 border-amber-400/30">
-                    MANUAL REVIEW
-                  </span>
-                )}
-                {invConfTier && (
-                  <span className={cn("text-[10px] font-semibold px-2.5 py-1 rounded-full border", invConfTierColor)}>
-                    {invConfTier}
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-bfsi-text-muted leading-relaxed">{plan.investigation_summary}</p>
-              <div className="flex flex-wrap items-center gap-6 mt-3 pt-3 border-t border-bfsi-border">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">IIA Confidence</span>
-                  <span className="text-sm font-mono font-semibold text-bfsi-gold">{((plan.confidence_score ?? 0) * 100).toFixed(0)}%</span>
-                </div>
-                {queueConfPct != null && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">Queue</span>
-                    <span className={cn("text-sm font-mono font-semibold", queueConfColor)}>{queueConfPct}%</span>
-                  </div>
-                )}
-                {dqPct != null && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">Data Quality</span>
-                    <span className={cn("text-sm font-mono font-semibold", dqColor)}>{dqPct}%</span>
-                  </div>
-                )}
-                {invConfPct != null && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-bfsi-text-dim uppercase tracking-wider">Plan Confidence</span>
-                    <span className={cn("text-sm font-mono font-semibold", invConfColor)}>{invConfPct}%</span>
-                  </div>
-                )}
+          <CollapsibleSection
+            title="Customer Information"
+            open={sidebarOpen.customer}
+            onToggle={() => setSidebarOpen(p => ({ ...p, customer: !p.customer }))}
+          >
+            <InfoRow label="Full Name"    value={caseData.customer_name || "—"} />
+            <InfoRow label="Customer ID"  value={caseData.customer_id} mono />
+            <InfoRow label="Email"        value={caseData.email || "—"} />
+            <InfoRow label="Phone"        value={caseData.phone || "—"} />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Transaction Information"
+            open={sidebarOpen.transaction}
+            onToggle={() => setSidebarOpen(p => ({ ...p, transaction: !p.transaction }))}
+          >
+            <InfoRow label="Transaction ID" value={caseData.transaction_id} mono />
+            <InfoRow label="Type"           value={caseData.transaction_type} />
+            <InfoRow label="Merchant"       value={caseData.merchant} />
+            <InfoRow label="Amount"         value={formatCurrency(caseData.amount, caseData.currency)} />
+            <InfoRow label="Date"           value={caseData.transaction_date || "—"} />
+            <InfoRow label="Time"           value={caseData.transaction_time || "—"} />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Dispute Information"
+            open={sidebarOpen.dispute}
+            onToggle={() => setSidebarOpen(p => ({ ...p, dispute: !p.dispute }))}
+          >
+            <InfoRow label="Reason"        value={caseData.dispute_reason || "—"} />
+            <InfoRow label="Fraud Claimed" value={caseData.fraud_selected} />
+            <div style={{ paddingTop: "0.5rem" }}>
+              <Label>Customer Statement</Label>
+              <div style={{ fontSize: "0.72rem", color: "#94A3B8", lineHeight: 1.6, backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3, padding: "0.625rem 0.75rem" }}>
+                {caseData.customer_comment || "—"}
               </div>
             </div>
+          </CollapsibleSection>
+        </div>
 
-            {/* ── Change 3: Manual Review Reasons Card ────────────────────── */}
-            {plan.manual_review_required && (plan.manual_review_reason ?? []).length > 0 && (
-              <div className="bfsi-card p-5 border-amber-400/30 bg-amber-400/5">
-                <div className="flex items-center gap-2 mb-3">
-                  <AlertTriangle className="w-4 h-4 text-amber-400" />
-                  <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Manual Review Required — Reasons</p>
-                </div>
-                <ul className="space-y-2">
-                  {(plan.manual_review_reason ?? []).map((r: string, i: number) => (
-                    <li key={i} className="flex items-start gap-2.5 text-xs text-amber-300/90 leading-relaxed">
-                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                      {r}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+        {/* ── CENTER PANEL — Tabbed workspace ─────────────────────────────── */}
+        <div>
+          {/* Tab navigation */}
+          <div style={{ display: "flex", borderBottom: "1px solid #334155", marginBottom: "1rem", overflowX: "auto" }}>
+            {tabs.map(({ key, label }) => (
+              <button key={key} onClick={() => setActiveTab(key)}
+                style={{ fontSize: "0.75rem", fontWeight: activeTab === key ? 600 : 400, padding: "0.5rem 1rem", borderTop: "none", borderLeft: "none", borderRight: "none", borderBottom: activeTab === key ? "2px solid #2563EB" : "2px solid transparent", marginBottom: -1, color: activeTab === key ? "#F8FAFC" : "#64748B", background: "none", cursor: "pointer", whiteSpace: "nowrap", transition: "color 0.15s" }}>
+                {label}
+              </button>
+            ))}
+          </div>
 
-            {/* ── Change 6: Investigation Confidence Card ──────────────────── */}
-            {invConf != null && (
-              <div className="bfsi-card p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <BarChart2 className="w-4 h-4 text-bfsi-gold" />
-                    <p className="section-header mb-0">Investigation Plan Confidence</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={cn("text-2xl font-mono font-bold", invConfColor)}>{invConfPct}%</span>
-                    {invConfTier && (
-                      <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full border", invConfTierColor)}>
-                        {invConfTier}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {/* Progress bar */}
-                <div className="h-2 bg-bfsi-muted rounded-full overflow-hidden mb-4">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-all",
-                      (invConfPct ?? 0) >= 90 ? "bg-green-500" :
-                      (invConfPct ?? 0) >= 75 ? "bg-bfsi-gold" :
-                      (invConfPct ?? 0) >= 60 ? "bg-yellow-500" : "bg-red-500"
-                    )}
-                    style={{ width: `${invConfPct ?? 0}%` }}
-                  />
-                </div>
-                <p className="text-[10px] text-bfsi-text-dim uppercase tracking-wider mb-2 font-semibold">Confidence Factors</p>
-                {(plan.investigation_confidence_factors ?? []).length > 0 ? (
-                  <ul className="space-y-1.5">
-                    {(plan.investigation_confidence_factors ?? []).map((f: string, i: number) => (
-                      <li key={i} className="flex items-start gap-2 text-xs text-bfsi-text-muted">
-                        <CheckCircle className="w-3 h-3 text-bfsi-gold flex-shrink-0 mt-0.5" />
-                        {f}
+          {/* ── Case Analysis tab ─────────────────────────────────────────── */}
+          {activeTab === "analysis" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+
+              {/* Classification */}
+              <Panel>
+                <SectionTitle>Classification</SectionTitle>
+                <InfoRow label="Dispute Category"   value={caseData.dispute_category || "—"} />
+                <InfoRow label="Fraud Indicator"    value={caseData.fraud_suspicion ? "Present" : "Not detected"} />
+                <InfoRow label="Priority"           value={caseData.priority} />
+                <InfoRow label="Evidence Verdict"   value={
+                  (caseData as any).evidence_match === null ? "No documents submitted" :
+                  (caseData as any).evidence_match === true ? "Documents support claim" : "Documents do not support claim"
+                } />
+              </Panel>
+
+              {/* Evidence assessment */}
+              {(caseData as any).evidence_match !== undefined && (
+                <Panel>
+                  <SectionTitle>Evidence Assessment</SectionTitle>
+                  {(caseData as any).evidence_match === null ? (
+                    <p style={{ fontSize: "0.75rem", color: "#64748B" }}>
+                      {uploads.length > 0 ? "Document submitted — manual verification required." : "No documents were submitted with this dispute."}
+                    </p>
+                  ) : (caseData as any).evidence_match === true ? (
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "0.625rem", padding: "0.75rem", backgroundColor: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 3 }}>
+                      <CheckCircle style={{ width: 14, height: 14, color: "#15803D", flexShrink: 0, marginTop: 1 }} />
+                      <div>
+                        <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "#166534", marginBottom: 2 }}>Documents Support Claim</p>
+                        <p style={{ fontSize: "0.72rem", color: "#166534" }}>{(caseData as any).evidence_match_note || "Submitted documents corroborate the customer's dispute."}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "0.625rem", padding: "0.75rem", backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 3 }}>
+                      <AlertTriangle style={{ width: 14, height: 14, color: "#B91C1C", flexShrink: 0, marginTop: 1 }} />
+                      <div>
+                        <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "#991B1B", marginBottom: 2 }}>Documents Do Not Support Claim</p>
+                        <p style={{ fontSize: "0.72rem", color: "#991B1B" }}>{(caseData as any).evidence_match_note || "Submitted documents do not corroborate the dispute."}</p>
+                      </div>
+                    </div>
+                  )}
+                </Panel>
+              )}
+
+              {/* Key Findings — structured bullets + conclusion */}
+              <Panel>
+                <SectionTitle>Key Findings</SectionTitle>
+                {findingBullets.length > 0 ? (
+                  <ul style={{ display: "flex", flexDirection: "column", gap: "0.4rem", margin: 0, padding: 0, listStyle: "none", marginBottom: findingConclusion ? "0.75rem" : 0 }}>
+                    {findingBullets.map((bullet, i) => (
+                      <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "0.625rem", fontSize: "0.75rem", color: "#94A3B8", lineHeight: 1.55 }}>
+                        <span style={{ flexShrink: 0, width: 5, height: 5, borderRadius: "50%", backgroundColor: "#2563EB", marginTop: 7 }} />
+                        {bullet}
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-xs text-bfsi-text-dim">No factors available.</p>
-                )}
-                <p className="text-[10px] text-bfsi-text-dim mt-3 pt-3 border-t border-bfsi-border">
-                  Computed deterministically: 35% queue confidence + 30% data quality + 20% historical precedent + 10% fraud signal alignment + 5% coverage. Not LLM-generated.
-                </p>
-              </div>
-            )}
-
-            {/* ── Change 4: Enhanced Investigation Coverage ────────────────── */}
-            {plan.investigation_coverage && (
-              <div className="bfsi-card p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Eye className="w-3.5 h-3.5 text-bfsi-text-dim" />
-                  <p className="text-[10px] font-semibold text-bfsi-text-dim uppercase tracking-wider">Investigation Coverage</p>
-                  <span className="ml-auto text-[10px] text-bfsi-text-dim">
-                    {[
-                      plan.investigation_coverage.customer_history_checked,
-                      plan.investigation_coverage.merchant_history_checked,
-                      plan.investigation_coverage.duplicate_check_performed,
-                      plan.investigation_coverage.related_cases_reviewed,
-                    ].filter(Boolean).length} / 4 areas covered
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {(
-                    [
-                      { key: "customer_history_checked",  label: "Customer History" },
-                      { key: "merchant_history_checked",  label: "Merchant Risk"    },
-                      { key: "duplicate_check_performed", label: "Duplicate Check"  },
-                      { key: "related_cases_reviewed",    label: "Related Cases"    },
-                    ] as const
-                  ).map(({ key, label }) => {
-                    const checked = plan.investigation_coverage?.[key];
-                    return (
-                      <div key={key} className={cn(
-                        "flex flex-col items-center gap-1.5 p-2.5 rounded-lg border text-center",
-                        checked
-                          ? "text-green-400 bg-green-400/5 border-green-400/25"
-                          : "text-bfsi-text-dim bg-bfsi-muted border-bfsi-border opacity-50"
-                      )}>
-                        {checked
-                          ? <CheckCircle className="w-4 h-4" />
-                          : <span className="w-4 h-4 rounded-full border border-current flex-shrink-0" />}
-                        <span className="text-[10px] font-medium leading-tight">{label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ── Key Investigation Findings ───────────────────────────────── */}
-            {(plan.investigation_reasoning ?? []).length > 0 && (
-              <div className="bfsi-card p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <Lightbulb className="w-4 h-4 text-bfsi-gold" />
-                  <p className="section-header mb-0">Key Investigation Findings</p>
-                </div>
-                <ol className="space-y-2">
-                  {(plan.investigation_reasoning ?? []).map((finding: string, i: number) => (
-                    <li key={i} className="flex gap-3 text-xs text-bfsi-text-muted">
-                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-bfsi-accent/20 text-bfsi-accent text-[10px] font-bold flex items-center justify-center border border-bfsi-accent/30">
-                        {i + 1}
-                      </span>
-                      <span className="leading-relaxed pt-0.5">{finding}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-
-            {/* ── Change 2: Investigation Gaps with empty state ────────────── */}
-            {(plan.investigation_gaps ?? []).length > 0 ? (
-              <div className="bfsi-card p-5 border-amber-400/20">
-                <div className="flex items-center gap-2 mb-3">
-                  <AlertCircle className="w-4 h-4 text-amber-400" />
-                  <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
-                    Investigation Gaps ({(plan.investigation_gaps ?? []).length})
+                  <p style={{ fontSize: "0.75rem", color: "#94A3B8", lineHeight: 1.6, marginBottom: findingConclusion ? "0.75rem" : 0 }}>
+                    {caseData.structured_reasoning || "No findings available."}
                   </p>
-                </div>
-                <ul className="space-y-2">
-                  {(plan.investigation_gaps ?? []).map((gap: string, i: number) => (
-                    <li key={i} className="flex items-start gap-2.5 text-xs text-amber-300/80">
-                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                      {gap}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : (
-              <div className="bfsi-card p-4 border-green-400/20 bg-green-400/5 flex items-center gap-3">
-                <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
-                <p className="text-xs text-green-400 font-medium">No investigation gaps identified — all areas have been covered.</p>
-              </div>
-            )}
-
-            {/* ── Change 7: "Why This Plan?" collapsible panel ─────────────── */}
-            {(plan.queue_confidence_factors ?? []).length > 0 && (
-              <div className="bfsi-card overflow-hidden">
-                <button
-                  onClick={() => setWhyPlanOpen((v) => !v)}
-                  className="w-full flex items-center justify-between p-4 hover:bg-bfsi-muted/40 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <Lightbulb className="w-4 h-4 text-bfsi-gold" />
-                    <span className="text-xs font-semibold text-bfsi-text uppercase tracking-wider">Why This Plan?</span>
-                    <span className="text-[10px] text-bfsi-text-dim ml-1">Queue routing rationale from Agent 2</span>
+                )}
+                {findingConclusion && (
+                  <div style={{ borderTop: "1px solid #334155", paddingTop: "0.625rem" }}>
+                    <div style={{ fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "#475569", marginBottom: "0.375rem" }}>Conclusion</div>
+                    <p style={{ fontSize: "0.75rem", color: "#CBD5E1", lineHeight: 1.55, fontWeight: 500 }}>{findingConclusion}</p>
                   </div>
-                  {whyPlanOpen
-                    ? <ChevronUp className="w-4 h-4 text-bfsi-text-dim" />
-                    : <ChevronDown className="w-4 h-4 text-bfsi-text-dim" />}
-                </button>
-                {whyPlanOpen && (
-                  <div className="px-4 pb-4 border-t border-bfsi-border">
-                    <ul className="space-y-2 pt-3">
-                      {(plan.queue_confidence_factors ?? []).map((f: string, i: number) => (
-                        <li key={i} className="flex items-start gap-2.5 text-xs text-bfsi-text-muted leading-relaxed">
-                          <span className="mt-1.5 w-1 h-1 rounded-full bg-bfsi-gold flex-shrink-0" />
-                          {f}
+                )}
+                <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: 10, borderTop: "1px solid #1E293B", paddingTop: 8 }}>For investigation reference only — not a legal or financial conclusion.</p>
+              </Panel>
+
+              {/* Case intent summary */}
+              {caseData.customer_intent_summary && (
+                <Panel>
+                  <SectionTitle>Case Summary</SectionTitle>
+                  <p style={{ fontSize: "0.75rem", color: "#94A3B8", lineHeight: 1.6 }}>{caseData.customer_intent_summary}</p>
+                </Panel>
+              )}
+
+              {/* Investigation Intelligence — Agent 2 snapshot surfaced in analysis tab */}
+              {plan && (
+                <Panel>
+                  <SectionTitle>Investigation Intelligence</SectionTitle>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.625rem", marginBottom: "0.75rem" }}>
+
+                    {/* Customer Profile */}
+                    <div style={{ padding: "0.625rem 0.75rem", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3 }}>
+                      <div style={{ fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", color: "#475569", letterSpacing: "0.06em", marginBottom: "0.5rem" }}>Customer Profile</div>
+                      {[
+                        { label: "Prior Disputes", value: plan.customer_risk_profile?.previous_disputes ?? "—" },
+                        { label: "Fraud Claims",   value: plan.customer_risk_profile?.fraud_claims ?? "—" },
+                        { label: "Risk Level",     value: plan.customer_risk_profile?.risk_level ?? "—" },
+                      ].map(({ label, value }) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", borderBottom: "1px solid #1E293B" }}>
+                          <span style={{ fontSize: "0.67rem", color: "#64748B" }}>{label}</span>
+                          <span style={{ fontSize: "0.7rem", color: "#F8FAFC" }}>{String(value)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Merchant Profile */}
+                    <div style={{ padding: "0.625rem 0.75rem", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3 }}>
+                      <div style={{ fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", color: "#475569", letterSpacing: "0.06em", marginBottom: "0.5rem" }}>Merchant Profile</div>
+                      {[
+                        { label: "Risk Level",        value: plan.merchant_risk_profile?.merchant_risk ?? "—" },
+                        { label: "Prior Complaints",  value: plan.merchant_risk_profile?.prior_complaints ?? "—" },
+                        { label: "Fraud Rate",        value: plan.merchant_risk_profile?.fraud_rate != null ? `${(plan.merchant_risk_profile.fraud_rate * 100).toFixed(0)}%` : "—" },
+                      ].map(({ label, value }) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", borderBottom: "1px solid #1E293B" }}>
+                          <span style={{ fontSize: "0.67rem", color: "#64748B" }}>{label}</span>
+                          <span style={{ fontSize: "0.7rem", color: "#F8FAFC" }}>{String(value)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Historical Cases */}
+                    <div style={{ padding: "0.625rem 0.75rem", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3 }}>
+                      <div style={{ fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", color: "#475569", letterSpacing: "0.06em", marginBottom: "0.5rem" }}>Historical Cases</div>
+                      {[
+                        { label: "Similar Cases",    value: plan.related_cases?.similar_cases ?? "—" },
+                        { label: "Customer Favour",  value: plan.related_cases?.resolved_in_favor ?? "—" },
+                        { label: "Resolution Rate",  value: plan.related_cases?.resolution_rate != null ? `${(plan.related_cases.resolution_rate * 100).toFixed(0)}%` : "—" },
+                      ].map(({ label, value }) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", borderBottom: "1px solid #1E293B" }}>
+                          <span style={{ fontSize: "0.67rem", color: "#64748B" }}>{label}</span>
+                          <span style={{ fontSize: "0.7rem", color: "#F8FAFC" }}>{String(value)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Coverage Summary */}
+                    <div style={{ padding: "0.625rem 0.75rem", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3 }}>
+                      <div style={{ fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", color: "#475569", letterSpacing: "0.06em", marginBottom: "0.5rem" }}>Coverage Summary</div>
+                      {plan.investigation_coverage ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                          {[
+                            { key: "customer_history_checked",  label: "Customer History" },
+                            { key: "merchant_history_checked",  label: "Merchant Risk" },
+                            { key: "duplicate_check_performed", label: "Duplicate Check" },
+                            { key: "related_cases_reviewed",    label: "Related Cases" },
+                          ].map(({ key, label }) => {
+                            const checked = (plan.investigation_coverage as any)?.[key];
+                            return (
+                              <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                                {checked
+                                  ? <CheckCircle style={{ width: 11, height: 11, color: "#15803D", flexShrink: 0 }} />
+                                  : <div style={{ width: 11, height: 11, borderRadius: "50%", border: "1px solid #475569", flexShrink: 0 }} />}
+                                <span style={{ fontSize: "0.68rem", color: checked ? "#4ADE80" : "#64748B" }}>{label}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : <span style={{ fontSize: "0.7rem", color: "#64748B" }}>—</span>}
+                    </div>
+                  </div>
+
+                  {/* Data quality bar */}
+                  {plan.data_quality_score != null && (
+                    <div style={{ paddingTop: "0.625rem", borderTop: "1px solid #334155" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.375rem" }}>
+                        <span style={{ fontSize: "0.6rem", fontWeight: 600, textTransform: "uppercase", color: "#475569", letterSpacing: "0.06em" }}>Data Quality</span>
+                        <span style={{ fontSize: "0.72rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: plan.data_quality_score >= 0.75 ? "#4ADE80" : plan.data_quality_score >= 0.55 ? "#FCD34D" : "#FCA5A5" }}>
+                          {Math.round(plan.data_quality_score * 100)}%
+                        </span>
+                      </div>
+                      <div style={{ height: 3, backgroundColor: "#334155", borderRadius: 2 }}>
+                        <div style={{ height: "100%", width: `${Math.round(plan.data_quality_score * 100)}%`, backgroundColor: plan.data_quality_score >= 0.75 ? "#15803D" : plan.data_quality_score >= 0.55 ? "#B45309" : "#B91C1C", borderRadius: 2 }} />
+                      </div>
+                    </div>
+                  )}
+                  <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: 8 }}>Full detail available in the Investigation tab.</p>
+                </Panel>
+              )}
+
+              {/* Risk indicators */}
+              <Panel>
+                <SectionTitle>Risk Indicators</SectionTitle>
+                <RiskTags tags={caseData.risk_tags} />
+              </Panel>
+
+              {/* Required documents */}
+              {(() => {
+                const docs: string[] = caseData.investigation_plan?.required_documents ?? [];
+                return docs.length > 0 ? (
+                  <Panel>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+                      <SectionTitle>Required Documents</SectionTitle>
+                      <span style={{ fontSize: "0.65rem", color: "#64748B", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3, padding: "0.1rem 0.5rem" }}>{docs.length} items</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.375rem" }}>
+                      {docs.map((doc: string, i: number) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.625rem", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3 }}>
+                          <FileText style={{ width: 11, height: 11, color: "#2563EB", flexShrink: 0 }} />
+                          <span style={{ fontSize: "0.7rem", color: "#94A3B8" }}>{doc}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: 8, borderTop: "1px solid #334155", paddingTop: 8 }}>
+                      Requirements determined by dispute category, fraud indicators, and transaction value.
+                    </p>
+                  </Panel>
+                ) : null;
+              })()}
+            </div>
+          )}
+
+          {/* ── Investigation tab ─────────────────────────────────────────── */}
+          {activeTab === "investigation" && (() => {
+            if (!plan) return (
+              <Panel style={{ padding: "3rem", textAlign: "center" }}>
+                <p style={{ fontSize: "0.8rem", color: "#64748B" }}>Investigation plan not yet generated.</p>
+                <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 4 }}>Re-submit or re-analyse to trigger the investigation agent.</p>
+              </Panel>
+            );
+
+            const invConfPct   = plan.investigation_confidence != null ? Math.round(plan.investigation_confidence * 100) : null;
+            const dqPct        = plan.data_quality_score != null ? Math.round(plan.data_quality_score * 100) : null;
+            const queueConfPct = plan.queue_confidence != null ? Math.round(plan.queue_confidence * 100) : null;
+
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+
+                {/* Investigation header */}
+                <Panel>
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                    <span style={{ fontSize: "0.7rem", fontWeight: 600, padding: "0.25rem 0.625rem", backgroundColor: "#1E293B", border: "1px solid #334155", borderRadius: 3, color: "#94A3B8" }}>
+                      {plan.recommended_queue?.replace(/_/g, " ") ?? "—"}
+                    </span>
+                    {plan.investigation_complexity && (
+                      <span style={{ fontSize: "0.7rem", fontWeight: 600, padding: "0.25rem 0.625rem", border: "1px solid #334155", borderRadius: 3, backgroundColor: plan.investigation_complexity === "CRITICAL" ? "#FEF2F2" : plan.investigation_complexity === "HIGH" ? "#FFFBEB" : "#F0FDF4", color: plan.investigation_complexity === "CRITICAL" ? "#991B1B" : plan.investigation_complexity === "HIGH" ? "#92400E" : "#166534", borderColor: plan.investigation_complexity === "CRITICAL" ? "#FECACA" : plan.investigation_complexity === "HIGH" ? "#FDE68A" : "#BBF7D0" }}>
+                        {plan.investigation_complexity} COMPLEXITY
+                      </span>
+                    )}
+                    {plan.duplicate_found && <span style={{ fontSize: "0.7rem", fontWeight: 600, padding: "0.25rem 0.625rem", backgroundColor: "#FEF2F2", color: "#991B1B", border: "1px solid #FECACA", borderRadius: 3 }}>DUPLICATE DETECTED</span>}
+                    {plan.manual_review_required && <span style={{ fontSize: "0.7rem", fontWeight: 600, padding: "0.25rem 0.625rem", backgroundColor: "#FFFBEB", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 3 }}>MANUAL REVIEW</span>}
+                  </div>
+                  <p style={{ fontSize: "0.75rem", color: "#94A3B8", lineHeight: 1.6 }}>{plan.investigation_summary}</p>
+
+                  {/* Confidence meters */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.875rem", marginTop: "0.875rem", paddingTop: "0.75rem", borderTop: "1px solid #334155" }}>
+                    {[
+                      { label: "Plan Confidence",  value: invConfPct },
+                      { label: "Queue Confidence", value: queueConfPct },
+                      { label: "Data Quality",     value: dqPct },
+                    ].map(({ label, value }) => value != null ? (
+                      <div key={label}>
+                        <Label>{label}</Label>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                          <div style={{ flex: 1, height: 4, backgroundColor: "#334155", borderRadius: 2 }}>
+                            <div style={{ height: "100%", width: `${value}%`, backgroundColor: value >= 75 ? "#15803D" : value >= 55 ? "#B45309" : "#B91C1C", borderRadius: 2, transition: "width 0.4s" }} />
+                          </div>
+                          <span style={{ fontSize: "0.72rem", fontWeight: 600, fontFamily: "ui-monospace, monospace", color: value >= 75 ? "#4ADE80" : value >= 55 ? "#FCD34D" : "#FCA5A5" }}>{value}%</span>
+                        </div>
+                      </div>
+                    ) : null)}
+                  </div>
+                </Panel>
+
+                {/* Manual review reasons */}
+                {plan.manual_review_required && (plan.manual_review_reason ?? []).length > 0 && (
+                  <Panel style={{ backgroundColor: "#FFFBEB", border: "1px solid #FDE68A" }}>
+                    <SectionTitle>Manual Review Required</SectionTitle>
+                    <ul style={{ display: "flex", flexDirection: "column", gap: "0.375rem", margin: 0, padding: 0, listStyle: "none" }}>
+                      {(plan.manual_review_reason ?? []).map((r: string, i: number) => (
+                        <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", fontSize: "0.72rem", color: "#92400E" }}>
+                          <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#B45309", flexShrink: 0, marginTop: 5 }} />
+                          {r}
                         </li>
                       ))}
                     </ul>
-                  </div>
+                  </Panel>
                 )}
-              </div>
-            )}
 
-            {/* ── Risk Profiles grid ───────────────────────────────────────── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <div className="bfsi-card p-5">
-                <p className="section-header">Customer Risk Profile</p>
-                <InfoRow label="Previous Disputes"    value={plan.customer_risk_profile?.previous_disputes ?? "—"} />
-                <InfoRow label="Fraud Claims"         value={plan.customer_risk_profile?.fraud_claims ?? "—"} />
-                <InfoRow label="Last Dispute (days)"  value={plan.customer_risk_profile?.last_dispute_days_ago ?? "—"} />
-                <InfoRow label="Risk Level"           value={plan.customer_risk_profile?.risk_level} />
-                {plan.customer_risk_profile?.assessment && (
-                  <div className="mt-3 text-xs text-bfsi-text-muted bg-bfsi-muted rounded px-3 py-2 leading-relaxed">
-                    {plan.customer_risk_profile.assessment}
-                  </div>
+                {/* Key investigation findings */}
+                {(plan.investigation_reasoning ?? []).length > 0 && (
+                  <Panel>
+                    <SectionTitle>Key Investigation Findings</SectionTitle>
+                    <ol style={{ display: "flex", flexDirection: "column", gap: "0.5rem", margin: 0, padding: 0, listStyle: "none" }}>
+                      {(plan.investigation_reasoning ?? []).map((finding: string, i: number) => (
+                        <li key={i} style={{ display: "flex", gap: "0.625rem", fontSize: "0.72rem", color: "#94A3B8" }}>
+                          <span style={{ flexShrink: 0, width: 18, height: 18, borderRadius: 3, backgroundColor: "#111827", border: "1px solid #334155", color: "#64748B", fontSize: "0.6rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+                          <span style={{ lineHeight: 1.6, paddingTop: 1 }}>{finding}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </Panel>
                 )}
-              </div>
 
-              <div className="bfsi-card p-5">
-                <p className="section-header">Merchant Risk Profile</p>
-                <InfoRow label="Merchant Risk"       value={plan.merchant_risk_profile?.merchant_risk} />
-                <InfoRow label="Prior Complaints"    value={plan.merchant_risk_profile?.prior_complaints ?? "—"} />
-                <InfoRow label="Fraud Rate"          value={plan.merchant_risk_profile?.fraud_rate != null ? `${(plan.merchant_risk_profile.fraud_rate * 100).toFixed(0)}%` : "—"} />
-                {plan.merchant_risk_profile?.assessment && (
-                  <div className="mt-3 text-xs text-bfsi-text-muted bg-bfsi-muted rounded px-3 py-2 leading-relaxed">
-                    {plan.merchant_risk_profile.assessment}
-                  </div>
+                {/* Investigation gaps */}
+                {(plan.investigation_gaps ?? []).length > 0 ? (
+                  <Panel style={{ backgroundColor: "#FFFBEB", border: "1px solid #FDE68A" }}>
+                    <SectionTitle>Investigation Gaps</SectionTitle>
+                    <ul style={{ display: "flex", flexDirection: "column", gap: "0.375rem", margin: 0, padding: 0, listStyle: "none" }}>
+                      {(plan.investigation_gaps ?? []).map((gap: string, i: number) => (
+                        <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", fontSize: "0.72rem", color: "#92400E" }}>
+                          <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#B45309", flexShrink: 0, marginTop: 5 }} />
+                          {gap}
+                        </li>
+                      ))}
+                    </ul>
+                  </Panel>
+                ) : (
+                  <Panel style={{ backgroundColor: "#F0FDF4", border: "1px solid #BBF7D0", display: "flex", alignItems: "center", gap: "0.625rem" }}>
+                    <CheckCircle style={{ width: 14, height: 14, color: "#15803D", flexShrink: 0 }} />
+                    <p style={{ fontSize: "0.72rem", color: "#166534", fontWeight: 500 }}>No investigation gaps identified — all areas covered.</p>
+                  </Panel>
                 )}
-              </div>
 
-              <div className="bfsi-card p-5">
-                <p className="section-header">Historical Precedent</p>
-                <InfoRow label="Similar Cases"        value={plan.related_cases?.similar_cases ?? "—"} />
-                <InfoRow label="Resolved in Favour"   value={plan.related_cases?.resolved_in_favor ?? "—"} />
-                <InfoRow label="Resolved Against"     value={plan.related_cases?.resolved_against ?? "—"} />
-                <InfoRow label="Resolution Rate"      value={plan.related_cases?.resolution_rate != null ? `${(plan.related_cases.resolution_rate * 100).toFixed(0)}%` : "—"} />
-                {plan.duplicate_found && plan.related_case_id && (
-                  <InfoRow label="Duplicate Of" value={plan.related_case_id} mono />
-                )}
-              </div>
-
-              <div className="bfsi-card p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <ListChecks className="w-4 h-4 text-bfsi-gold" />
-                  <p className="section-header mb-0">Recommended Steps</p>
+                {/* Customer History + Merchant Intelligence */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.875rem" }}>
+                  <Panel>
+                    <SectionTitle>Customer History</SectionTitle>
+                    <InfoRow label="Prior Disputes"  value={plan.customer_risk_profile?.previous_disputes ?? "—"} />
+                    <InfoRow label="Fraud Claims"    value={plan.customer_risk_profile?.fraud_claims ?? "—"} />
+                    <InfoRow label="Last Dispute"    value={plan.customer_risk_profile?.last_dispute_days_ago != null ? `${plan.customer_risk_profile.last_dispute_days_ago} days ago` : "—"} />
+                    <InfoRow label="Risk Level"      value={plan.customer_risk_profile?.risk_level ?? "—"} />
+                    {plan.customer_risk_profile?.assessment && <div style={{ marginTop: "0.5rem", fontSize: "0.7rem", color: "#64748B", lineHeight: 1.5 }}>{plan.customer_risk_profile.assessment}</div>}
+                  </Panel>
+                  <Panel>
+                    <SectionTitle>Merchant Intelligence</SectionTitle>
+                    <InfoRow label="Risk Level"       value={plan.merchant_risk_profile?.merchant_risk ?? "—"} />
+                    <InfoRow label="Prior Complaints" value={plan.merchant_risk_profile?.prior_complaints ?? "—"} />
+                    <InfoRow label="Fraud Rate"       value={plan.merchant_risk_profile?.fraud_rate != null ? `${(plan.merchant_risk_profile.fraud_rate * 100).toFixed(0)}%` : "—"} />
+                    {plan.merchant_risk_profile?.assessment && <div style={{ marginTop: "0.5rem", fontSize: "0.7rem", color: "#64748B", lineHeight: 1.5 }}>{plan.merchant_risk_profile.assessment}</div>}
+                  </Panel>
+                  <Panel>
+                    <SectionTitle>Historical Cases</SectionTitle>
+                    <InfoRow label="Similar Cases"      value={plan.related_cases?.similar_cases ?? "—"} />
+                    <InfoRow label="Resolved in Favour" value={plan.related_cases?.resolved_in_favor ?? "—"} />
+                    <InfoRow label="Resolution Rate"    value={plan.related_cases?.resolution_rate != null ? `${(plan.related_cases.resolution_rate * 100).toFixed(0)}%` : "—"} />
+                    {plan.duplicate_found && plan.related_case_id && <InfoRow label="Duplicate Of" value={plan.related_case_id} mono />}
+                  </Panel>
+                  <Panel>
+                    <SectionTitle>Recommended Steps</SectionTitle>
+                    {plan.recommended_steps?.length > 0 ? (
+                      <ol style={{ display: "flex", flexDirection: "column", gap: "0.375rem", margin: 0, padding: 0, listStyle: "none" }}>
+                        {plan.recommended_steps.map((step: string, i: number) => (
+                          <li key={i} style={{ display: "flex", gap: "0.5rem", fontSize: "0.72rem", color: "#94A3B8" }}>
+                            <span style={{ flexShrink: 0, fontSize: "0.65rem", fontWeight: 700, color: "#2563EB", paddingTop: 1 }}>{i + 1}.</span>
+                            <span style={{ lineHeight: 1.5 }}>{step}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : <p style={{ fontSize: "0.72rem", color: "#64748B" }}>No steps available.</p>}
+                  </Panel>
                 </div>
-                {plan.recommended_steps?.length > 0 ? (
-                  <ol className="space-y-2">
-                    {plan.recommended_steps.map((step: string, i: number) => (
-                      <li key={i} className="flex gap-3 text-xs text-bfsi-text-muted">
-                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-bfsi-gold/20 text-bfsi-gold text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
-                        <span className="leading-relaxed pt-0.5">{step}</span>
-                      </li>
-                    ))}
-                  </ol>
-                ) : <p className="text-xs text-bfsi-text-dim">No steps available.</p>}
-              </div>
-            </div>
 
-            {/* ── Data Quality Assessment ──────────────────────────────────── */}
-            {(plan.data_quality_score != null || (plan.data_quality_factors ?? []).length > 0) && (
-              <div className="bfsi-card p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <BarChart2 className="w-4 h-4 text-bfsi-gold" />
-                    <p className="section-header mb-0">Data Quality Assessment</p>
-                  </div>
-                  {dqPct != null && (
-                    <div className="flex items-center gap-2">
-                      <span className={cn("text-xl font-mono font-bold", dqColor)}>{dqPct}%</span>
-                      <span className="text-[10px] text-bfsi-text-dim">
-                        {dqPct >= 90 ? "Excellent" : dqPct >= 75 ? "Good" : dqPct >= 60 ? "Moderate" : "Limited"}
+                {/* Queue routing rationale — collapsible */}
+                {(plan.queue_confidence_factors ?? []).length > 0 && (
+                  <Panel>
+                    <button onClick={() => setWhyPlanOpen(v => !v)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                      <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#64748B" }}>Queue Routing Rationale</span>
+                      {whyPlanOpen ? <ChevronUp style={{ width: 14, height: 14, color: "#64748B" }} /> : <ChevronDown style={{ width: 14, height: 14, color: "#64748B" }} />}
+                    </button>
+                    {whyPlanOpen && (
+                      <ul style={{ display: "flex", flexDirection: "column", gap: "0.375rem", listStyle: "none", margin: 0, padding: 0, marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid #334155" }}>
+                        {(plan.queue_confidence_factors ?? []).map((f: string, i: number) => (
+                          <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", fontSize: "0.72rem", color: "#94A3B8" }}>
+                            <span style={{ width: 3, height: 3, borderRadius: "50%", backgroundColor: "#2563EB", flexShrink: 0, marginTop: 6 }} />
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Panel>
+                )}
+
+                {/* Investigation coverage */}
+                {plan.investigation_coverage && (
+                  <Panel>
+                    <SectionTitle>Investigation Coverage</SectionTitle>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem" }}>
+                      {[
+                        { key: "customer_history_checked",  label: "Customer History" },
+                        { key: "merchant_history_checked",  label: "Merchant Risk" },
+                        { key: "duplicate_check_performed", label: "Duplicate Check" },
+                        { key: "related_cases_reviewed",    label: "Related Cases" },
+                      ].map(({ key, label }) => {
+                        const checked = (plan.investigation_coverage as any)?.[key];
+                        return (
+                          <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.375rem", padding: "0.625rem 0.5rem", backgroundColor: checked ? "#F0FDF4" : "#111827", border: `1px solid ${checked ? "#BBF7D0" : "#334155"}`, borderRadius: 3, textAlign: "center" }}>
+                            {checked
+                              ? <CheckCircle style={{ width: 14, height: 14, color: "#15803D" }} />
+                              : <div style={{ width: 14, height: 14, borderRadius: "50%", border: "1px solid #334155" }} />}
+                            <span style={{ fontSize: "0.62rem", fontWeight: 500, color: checked ? "#166534" : "#64748B", lineHeight: 1.3 }}>{label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p style={{ fontSize: "0.62rem", color: "#475569", marginTop: 8 }}>
+                      35% queue confidence + 30% data quality + 20% historical precedent + 10% fraud alignment + 5% coverage
+                    </p>
+                  </Panel>
+                )}
+
+                {/* Data quality */}
+                {dqPct != null && (
+                  <Panel>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.625rem" }}>
+                      <SectionTitle>Data Quality Assessment</SectionTitle>
+                      <span style={{ fontSize: "0.75rem", fontWeight: 700, color: dqPct >= 90 ? "#4ADE80" : dqPct >= 75 ? "#FCD34D" : "#FCA5A5", fontFamily: "ui-monospace, monospace" }}>
+                        {dqPct}% — {dqPct >= 90 ? "Excellent" : dqPct >= 75 ? "Good" : dqPct >= 60 ? "Moderate" : "Limited"}
                       </span>
                     </div>
-                  )}
-                </div>
-                {(plan.data_quality_factors ?? []).length > 0 && (
-                  <ul className="space-y-1.5">
-                    {(plan.data_quality_factors ?? []).map((f: string, i: number) => (
-                      <li key={i} className="flex items-start gap-2 text-xs text-bfsi-text-muted">
-                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-bfsi-text-dim flex-shrink-0" />
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
+                    <div style={{ height: 4, backgroundColor: "#334155", borderRadius: 2, marginBottom: "0.75rem" }}>
+                      <div style={{ height: "100%", width: `${dqPct}%`, backgroundColor: dqPct >= 75 ? "#15803D" : dqPct >= 55 ? "#B45309" : "#B91C1C", borderRadius: 2 }} />
+                    </div>
+                    {(plan.data_quality_factors ?? []).length > 0 && (
+                      <ul style={{ display: "flex", flexDirection: "column", gap: "0.25rem", margin: 0, padding: 0, listStyle: "none" }}>
+                        {(plan.data_quality_factors ?? []).map((f: string, i: number) => (
+                          <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", fontSize: "0.7rem", color: "#64748B" }}>
+                            <span style={{ width: 3, height: 3, borderRadius: "50%", backgroundColor: "#64748B", flexShrink: 0, marginTop: 6 }} />
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Panel>
                 )}
               </div>
-            )}
+            );
+          })()}
 
-          </div>
-        );
-      })()}
-
-      {/* ── Evidence tab ──────────────────────────────────────────────────── */}
-      {activeTab === "evidence" && (
-        <div className="space-y-4">
-          {uploads.length === 0 ? (
-            <div className="bfsi-card p-10 text-center">
-              <ImageIcon className="w-10 h-10 text-bfsi-text-dim mx-auto mb-3" />
-              <p className="text-sm text-bfsi-text-dim">No evidence files uploaded for this case</p>
-            </div>
-          ) : (
-            uploads.map((file) => (
-              <div key={file.name} className="bfsi-card p-5">
-                <div className="flex items-start gap-5">
-                  {file.is_image ? (
-                    <div
-                      className="relative w-40 h-28 flex-shrink-0 rounded-lg overflow-hidden border border-bfsi-border cursor-pointer group"
-                      onClick={() => setLightbox(`http://localhost:8000${file.url}`)}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={`http://localhost:8000${file.url}`} alt={file.name} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <ZoomIn className="w-6 h-6 text-white" />
+          {/* ── Evidence tab ──────────────────────────────────────────────── */}
+          {activeTab === "evidence" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {uploads.length === 0 ? (
+                <Panel style={{ padding: "2.5rem", textAlign: "center" }}>
+                  <p style={{ fontSize: "0.8rem", color: "#64748B" }}>No evidence files uploaded for this case.</p>
+                </Panel>
+              ) : uploads.map((file) => (
+                <Panel key={file.name}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem" }}>
+                    {file.is_image ? (
+                      <div onClick={() => setLightbox(`http://localhost:8000${file.url}`)} style={{ width: 120, height: 80, flexShrink: 0, borderRadius: 3, overflow: "hidden", border: "1px solid #334155", cursor: "pointer", position: "relative" }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`http://localhost:8000${file.url}`} alt={file.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", opacity: 0, transition: "opacity 0.15s", display: "flex", alignItems: "center", justifyContent: "center" }} className="hover:opacity-100">
+                          <ZoomIn style={{ width: 20, height: 20, color: "white" }} />
+                        </div>
                       </div>
+                    ) : (
+                      <div style={{ width: 120, height: 80, flexShrink: 0, borderRadius: 3, border: "1px solid #334155", backgroundColor: "#111827", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <FileText style={{ width: 24, height: 24, color: "#64748B" }} />
+                      </div>
+                    )}
+                    <div>
+                      <p style={{ fontSize: "0.8rem", fontWeight: 600, color: "#F8FAFC", marginBottom: 4 }}>{file.name}</p>
+                      <p style={{ fontSize: "0.7rem", color: "#64748B" }}>{file.is_image ? "Image document" : "Document"} — text extracted and included in case analysis.</p>
                     </div>
-                  ) : (
-                    <div className="w-40 h-28 flex-shrink-0 rounded-lg border border-bfsi-border bg-bfsi-muted flex items-center justify-center">
-                      <FileText className="w-8 h-8 text-bfsi-text-dim" />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-bfsi-text mb-2 truncate">{file.name}</p>
-                    <p className="text-xs text-bfsi-text-dim mt-1">
-                      {file.is_image ? "Image" : "Document"} — text extracted and included in case analysis
-                    </p>
                   </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {/* ── Lightbox ──────────────────────────────────────────────────────────── */}
-      {lightbox && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
-          <button className="absolute top-4 right-4 text-white hover:text-gray-300" onClick={() => setLightbox(null)}>
-            <X className="w-7 h-7" />
-          </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="Evidence" className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()} />
-        </div>
-      )}
-
-      {activeTab === "audit" && (
-        <div className="bfsi-card p-5">
-          <p className="section-header">Immutable Audit Log</p>
-          {auditLogs.length === 0 ? (
-            <p className="text-sm text-bfsi-text-dim">No audit events recorded</p>
-          ) : (
-            <div className="space-y-3">
-              {auditLogs.map((log) => (
-                <div key={log.id} className="flex gap-4 py-3 border-b border-bfsi-border last:border-0">
-                  <div className="flex-shrink-0"><div className="w-2 h-2 rounded-full bg-bfsi-gold mt-1.5" /></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className="text-xs font-mono font-semibold text-bfsi-gold">{log.event_type}</span>
-                      {log.stage && (
-                        <span className="text-[10px] text-bfsi-text-dim bg-bfsi-muted px-1.5 py-0.5 rounded">{log.stage}</span>
-                      )}
-                      <span className="text-[10px] text-bfsi-text-dim ml-auto">{formatDate(log.created_at)}</span>
-                    </div>
-                    <p className="text-xs text-bfsi-text-muted">{log.message}</p>
-                    <p className="text-[10px] text-bfsi-text-dim mt-0.5">Actor: {log.actor}</p>
-                  </div>
-                </div>
+                </Panel>
               ))}
             </div>
           )}
-        </div>
-      )}
 
-      {activeTab === "workflow" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bfsi-card p-5">
-            <p className="section-header">Workflow Stage</p>
-            <WorkflowStatus status={caseData.status as CaseStatus} workflowReady={caseData.workflow_ready} />
-          </div>
-          <div className="bfsi-card p-5">
-            <p className="section-header">LangGraph Node Execution</p>
-            {workflowStates.length === 0 ? (
-              <p className="text-sm text-bfsi-text-dim">No workflow state data available</p>
-            ) : (
-              <div className="space-y-2">
-                {workflowStates.map((ws) => (
-                  <div key={ws.id} className="flex items-center justify-between p-3 bg-bfsi-muted rounded-lg">
-                    <div className="flex items-center gap-2">
-                      {ws.success
-                        ? <CheckCircle className="w-4 h-4 text-green-400" />
-                        : <AlertTriangle className="w-4 h-4 text-red-400" />}
-                      <span className="text-xs font-mono text-bfsi-text">{ws.node_name}</span>
+          {/* ── Audit Trail tab ───────────────────────────────────────────── */}
+          {activeTab === "audit" && (
+            <Panel>
+              <SectionTitle>Case Audit Log</SectionTitle>
+              {auditLogs.length === 0 ? (
+                <p style={{ fontSize: "0.8rem", color: "#64748B" }}>No audit events recorded.</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {auditLogs.map((log) => (
+                    <div key={log.id} style={{ display: "flex", gap: "1rem", padding: "0.625rem 0", borderBottom: "1px solid #1E293B" }}>
+                      <div style={{ flexShrink: 0, paddingTop: 3 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#2563EB" }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: 2 }}>
+                          <span style={{ fontSize: "0.7rem", fontWeight: 600, fontFamily: "ui-monospace, monospace", color: "#60A5FA" }}>{log.event_type}</span>
+                          {log.stage && <span style={{ fontSize: "0.6rem", color: "#64748B", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 2, padding: "0.1rem 0.4rem" }}>{log.stage}</span>}
+                          <span style={{ fontSize: "0.62rem", color: "#64748B", marginLeft: "auto" }}>{formatDate(log.created_at)}</span>
+                        </div>
+                        <p style={{ fontSize: "0.7rem", color: "#94A3B8" }}>{log.message}</p>
+                        <p style={{ fontSize: "0.62rem", color: "#475569", marginTop: 1 }}>Actor: {log.actor}</p>
+                      </div>
                     </div>
-                    {ws.execution_time_ms != null && (
-                      <span className="text-[10px] text-bfsi-text-dim font-mono">
-                        {ws.execution_time_ms.toFixed(0)}ms
-                      </span>
-                    )}
+                  ))}
+                </div>
+              )}
+            </Panel>
+          )}
+
+          {/* ── Workflow tab ──────────────────────────────────────────────── */}
+          {activeTab === "workflow" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.875rem" }}>
+              <Panel>
+                <SectionTitle>Case Stage</SectionTitle>
+                <WorkflowStatus status={caseData.status as CaseStatus} workflowReady={caseData.workflow_ready} />
+              </Panel>
+              <Panel>
+                <SectionTitle>Pipeline Execution</SectionTitle>
+                {workflowStates.length === 0 ? (
+                  <p style={{ fontSize: "0.8rem", color: "#64748B" }}>No execution data available.</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
+                    {workflowStates.map((ws) => (
+                      <div key={ws.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.5rem 0.625rem", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                          {ws.success
+                            ? <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#15803D", flexShrink: 0 }} />
+                            : <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#B91C1C", flexShrink: 0 }} />}
+                          <span style={{ fontSize: "0.7rem", fontFamily: "ui-monospace, monospace", color: "#94A3B8" }}>{ws.node_name}</span>
+                        </div>
+                        {ws.execution_time_ms != null && (
+                          <span style={{ fontSize: "0.65rem", color: "#64748B", fontFamily: "ui-monospace, monospace" }}>{ws.execution_time_ms.toFixed(0)}ms</span>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
+              </Panel>
+            </div>
+          )}
+        </div>
+
+        {/* ── RIGHT PANEL — Controls & meta ─────────────────────────────────── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+
+          {/* Actions */}
+          <Panel>
+            <SectionTitle>Actions</SectionTitle>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              <button onClick={handleReanalyse} disabled={reanalysing} className="btn-ghost" style={{ width: "100%", justifyContent: "center" }}>
+                {reanalysing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw style={{ width: 13, height: 13 }} />}
+                Re-analyse
+              </button>
+            </div>
+          </Panel>
+
+          {/* Case Status */}
+          <Panel>
+            <SectionTitle>Case Status</SectionTitle>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              <select className="bfsi-select" value={caseData.status} onChange={(e) => handleStatusUpdate(e.target.value)} disabled={updatingStatus} style={{ fontSize: "0.75rem" }}>
+                {CASE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {updatingStatus && (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.65rem", color: "#64748B" }}>
+                  <Loader2 className="w-3 h-3 animate-spin" /> Updating…
+                </div>
+              )}
+            </div>
+          </Panel>
+
+          {/* Priority — severity badge replaces numeric score */}
+          <Panel>
+            <SectionTitle>Priority</SectionTitle>
+            <div style={{ marginBottom: caseData.assigned_queue || caseData.fraud_suspicion || caseData.requires_manual_review ? "0.625rem" : 0 }}>
+              <span className={getPriorityColor(caseData.priority as never)} style={{ fontSize: "0.78rem", padding: "0.3rem 0.75rem", display: "inline-block", letterSpacing: "0.04em" }}>
+                {caseData.priority}
+              </span>
+            </div>
+            {caseData.assigned_queue && (
+              <div style={{ marginTop: "0.5rem" }}>
+                <Label>Assigned Queue</Label>
+                <span style={{ fontSize: "0.7rem", color: "#94A3B8" }}>{caseData.assigned_queue.replace(/_/g, " ")}</span>
               </div>
             )}
-          </div>
+            {caseData.fraud_suspicion && (
+              <div style={{ marginTop: "0.5rem", padding: "0.4rem 0.625rem", backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 3, display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                <AlertTriangle style={{ width: 12, height: 12, color: "#B91C1C", flexShrink: 0 }} />
+                <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "#991B1B" }}>Fraud Indicator</span>
+              </div>
+            )}
+            {caseData.requires_manual_review && (
+              <div style={{ marginTop: "0.5rem", padding: "0.4rem 0.625rem", backgroundColor: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 3 }}>
+                <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "#92400E" }}>Manual Review Required</span>
+                {caseData.manual_review_reason && <p style={{ fontSize: "0.65rem", color: "#92400E", marginTop: 3, lineHeight: 1.4 }}>{caseData.manual_review_reason}</p>}
+              </div>
+            )}
+            {caseData.sla_breached && (
+              <span style={{ display: "inline-block", marginTop: 6, fontSize: "0.65rem", fontWeight: 600, padding: "0.15rem 0.5rem", backgroundColor: "#FEF2F2", color: "#991B1B", border: "1px solid #FECACA", borderRadius: 3 }}>SLA BREACHED</span>
+            )}
+          </Panel>
+
+          {/* Assessment Reliability — renamed from Case Confidence */}
+          <Panel>
+            <SectionTitle>Assessment Reliability</SectionTitle>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: confColor }}>{reliabilityLabel}</span>
+              <span style={{ fontSize: "0.95rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: confColor }}>{confidencePct}%</span>
+            </div>
+            <div style={{ height: 5, backgroundColor: "#334155", borderRadius: 2, marginBottom: "0.625rem" }}>
+              <div style={{ height: "100%", width: `${confidencePct}%`, backgroundColor: caseData.confidence_score >= 0.75 ? "#15803D" : caseData.confidence_score >= 0.55 ? "#B45309" : "#B91C1C", borderRadius: 2, transition: "width 0.5s" }} />
+            </div>
+            {((caseData as any).confidence_factors ?? []).length > 0 && (
+              <ul style={{ display: "flex", flexDirection: "column", gap: "0.3rem", margin: 0, padding: 0, listStyle: "none" }}>
+                {((caseData as any).confidence_factors ?? []).slice(0, 4).map((f: string, i: number) => (
+                  <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "0.375rem", fontSize: "0.65rem", color: "#64748B" }}>
+                    <CheckCircle style={{ width: 10, height: 10, color: "#15803D", flexShrink: 0, marginTop: 2 }} />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          {/* Case Processing — agent execution summary */}
+          <Panel>
+            <SectionTitle>Case Processing</SectionTitle>
+            <InfoRow label="Analysis"      value={ariaVersion} />
+            <InfoRow label="Investigation" value={iiaVersion} />
+            <InfoRow label="Tools Used"    value={toolsUsed || "—"} />
+            {execTimeSec && <InfoRow label="Exec Time" value={`${execTimeSec}s`} />}
+          </Panel>
+
+          {/* Duplicate warning */}
+          {caseData.duplicate_of && (
+            <Panel style={{ backgroundColor: "#FFFBEB", border: "1px solid #FDE68A" }}>
+              <Label>Potential Duplicate</Label>
+              <p style={{ fontSize: "0.72rem", color: "#92400E" }}>This case may be a duplicate of:</p>
+              <Link href={`/internal-review/${caseData.duplicate_of}`} style={{ fontSize: "0.72rem", fontWeight: 600, color: "#2563EB", fontFamily: "ui-monospace, monospace", textDecoration: "none" }}>
+                {caseData.duplicate_of}
+              </Link>
+            </Panel>
+          )}
+        </div>
+      </div>
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 50, backgroundColor: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+          <button onClick={() => setLightbox(null)} style={{ position: "absolute", top: "1rem", right: "1rem", background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }}>
+            <X style={{ width: 24, height: 24 }} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox} alt="Evidence" style={{ maxWidth: "100%", maxHeight: "90vh", objectFit: "contain", borderRadius: 4 }} onClick={(e) => e.stopPropagation()} />
         </div>
       )}
     </>
