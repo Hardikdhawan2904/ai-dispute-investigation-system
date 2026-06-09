@@ -85,6 +85,19 @@ class DisputeService:
                 "Automated dispute classification could not be completed — manual investigation required."
             )
 
+        # Set status based on whether documents were submitted with the form
+        inv_plan = final_case.get("investigation_plan") or {}
+        has_required_docs = isinstance(inv_plan, dict) and bool(inv_plan.get("required_documents"))
+        documents_submitted = bool(document_texts)
+
+        if documents_submitted:
+            # Customer submitted files → agents analysed them → move straight to Under Investigation
+            final_case["status"] = "Under Investigation"
+        elif has_required_docs:
+            # No documents submitted but required → wait for them
+            final_case["status"] = "Pending Documents"
+        # else: no docs required → stays "Dispute Raised" from workflow default
+
         # Persist the dispute case
         db_case = DisputeService._persist_case(final_case, db)
 
@@ -307,7 +320,7 @@ class DisputeService:
             structured_reasoning=final_case.get("structured_reasoning", ""),
             evidence_match=final_case.get("evidence_match"),
             evidence_match_note=final_case.get("evidence_match_note", ""),
-            status="Dispute Raised",
+            status=final_case.get("status", "Dispute Raised"),
             workflow_ready=True,
             # Enterprise fields
             assigned_queue=final_case.get("assigned_queue"),

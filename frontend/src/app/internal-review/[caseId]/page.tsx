@@ -148,6 +148,8 @@ export default function CaseWorkspace() {
       setCaseData(event.case as unknown as DisputeCase);
       setLiveUpdate(true);
       setTimeout(() => setLiveUpdate(false), 3000);
+      // Refresh uploads so Evidence tab reflects newly submitted documents
+      getCaseUploads(caseId).then(setUploads).catch(() => {});
     }
   });
 
@@ -400,28 +402,119 @@ export default function CaseWorkspace() {
                 <RiskTags tags={caseData.risk_tags} />
               </Panel>
 
-              {/* Required documents */}
+              {/* Required documents — smart pending view */}
               {(() => {
-                const docs: string[] = caseData.investigation_plan?.required_documents ?? [];
-                return docs.length > 0 ? (
+                const allDocs: string[] = caseData.investigation_plan?.required_documents ?? [];
+                // Filter out passport doc unless transaction is genuinely International
+                const isInternational = (caseData.transaction_type || "").toLowerCase() === "international";
+                const docs: string[] = allDocs.filter((d: string) =>
+                  !(d.toLowerCase().includes("passport") && !isInternational)
+                );
+                if (docs.length === 0) return null;
+
+                // Docs the bank/merchant obtains internally — not the customer's responsibility
+                const BANK_OBTAINABLE = new Set([
+                  "Merchant order confirmation",
+                  "Payment gateway reference numbers",
+                  "CCTV request form (if applicable)",
+                  "Device or IP access logs",
+                  "OTP transaction logs",
+                  "Account activity report",
+                  "ATM reference number",
+                  "Merchant delivery confirmation",
+                  "Proof of transaction authorisation",
+                  "Any communication with customer",
+                  "Menu or price list at time of transaction",
+                ]);
+
+                const hasUploads = uploads.length > 0;
+
+                const customerDocs = docs.filter(d => !BANK_OBTAINABLE.has(d));
+                const bankDocs     = docs.filter(d => BANK_OBTAINABLE.has(d));
+
+                // Only mark as many received as files actually uploaded
+                const receivedCount = Math.min(uploads.length, customerDocs.length);
+                const receivedDocs  = customerDocs.slice(0, receivedCount);
+                const pendingCustomerDocs = customerDocs.slice(receivedCount);
+                const pendingDocs   = [...pendingCustomerDocs, ...bankDocs];
+
+                return (
                   <Panel>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                       <SectionTitle>Required Documents</SectionTitle>
-                      <span style={{ fontSize: "0.65rem", color: "#64748B", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3, padding: "0.1rem 0.5rem" }}>{docs.length} items</span>
+                      <div style={{ display: "flex", gap: "0.375rem" }}>
+                        {receivedDocs.length > 0 && (
+                          <span style={{ fontSize: "0.65rem", color: "#166534", backgroundColor: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 3, padding: "0.1rem 0.5rem" }}>
+                            {receivedDocs.length} received
+                          </span>
+                        )}
+                        {(pendingCustomerDocs.length + bankDocs.length) > 0 && (
+                          <span style={{ fontSize: "0.65rem", color: "#92400E", backgroundColor: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 3, padding: "0.1rem 0.5rem" }}>
+                            {pendingCustomerDocs.length + bankDocs.length} pending
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.375rem" }}>
-                      {docs.map((doc: string, i: number) => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.625rem", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3 }}>
-                          <FileText style={{ width: 11, height: 11, color: "#2563EB", flexShrink: 0 }} />
-                          <span style={{ fontSize: "0.7rem", color: "#94A3B8" }}>{doc}</span>
+
+                    {/* Received docs */}
+                    {receivedDocs.length > 0 && (
+                      <div style={{ marginBottom: "0.625rem" }}>
+                        <div style={{ fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#166534", marginBottom: "0.375rem" }}>Received from Customer</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.375rem" }}>
+                          {receivedDocs.map((doc, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.625rem", backgroundColor: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 3 }}>
+                              <CheckCircle style={{ width: 11, height: 11, color: "#15803D", flexShrink: 0 }} />
+                              <span style={{ fontSize: "0.7rem", color: "#166534" }}>{doc}</span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    )}
+
+                    {/* Customer docs still needed */}
+                    {pendingCustomerDocs.length > 0 && (
+                      <div style={{ marginBottom: bankDocs.length > 0 ? "0.625rem" : 0 }}>
+                        <div style={{ fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#1D4ED8", marginBottom: "0.375rem" }}>
+                          {hasUploads ? "Still Required from Customer" : "Required from Customer"}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.375rem" }}>
+                          {pendingCustomerDocs.map((doc, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.625rem", backgroundColor: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 3 }}>
+                              <FileText style={{ width: 11, height: 11, color: "#2563EB", flexShrink: 0 }} />
+                              <span style={{ fontSize: "0.7rem", color: "#1D4ED8" }}>{doc}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Bank / merchant obtainable docs */}
+                    {bankDocs.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#92400E", marginBottom: "0.375rem" }}>Pending — Bank to Obtain</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.375rem" }}>
+                          {bankDocs.map((doc, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.625rem", backgroundColor: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 3 }}>
+                              <FileText style={{ width: 11, height: 11, color: "#B45309", flexShrink: 0 }} />
+                              <span style={{ fontSize: "0.7rem", color: "#92400E" }}>{doc}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {pendingCustomerDocs.length === 0 && bankDocs.length === 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0.75rem", backgroundColor: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 3 }}>
+                        <CheckCircle style={{ width: 12, height: 12, color: "#15803D", flexShrink: 0 }} />
+                        <span style={{ fontSize: "0.72rem", color: "#166534", fontWeight: 500 }}>All required documents received.</span>
+                      </div>
+                    )}
+
                     <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: 8, borderTop: "1px solid #334155", paddingTop: 8 }}>
                       Requirements determined by dispute category, fraud indicators, and transaction value.
                     </p>
                   </Panel>
-                ) : null;
+                );
               })()}
             </div>
           )}
@@ -805,16 +898,21 @@ export default function CaseWorkspace() {
             <div style={{ height: 5, backgroundColor: "#334155", borderRadius: 2, marginBottom: "0.625rem" }}>
               <div style={{ height: "100%", width: `${confidencePct}%`, backgroundColor: caseData.confidence_score >= 0.75 ? "#15803D" : caseData.confidence_score >= 0.55 ? "#B45309" : "#B91C1C", borderRadius: 2, transition: "width 0.5s" }} />
             </div>
-            {((caseData as any).confidence_factors ?? []).length > 0 && (
-              <ul style={{ display: "flex", flexDirection: "column", gap: "0.3rem", margin: 0, padding: 0, listStyle: "none" }}>
-                {((caseData as any).confidence_factors ?? []).slice(0, 4).map((f: string, i: number) => (
-                  <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "0.375rem", fontSize: "0.65rem", color: "#64748B" }}>
-                    <CheckCircle style={{ width: 10, height: 10, color: "#15803D", flexShrink: 0, marginTop: 2 }} />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-            )}
+            {(() => {
+              const factors = ((caseData as any).confidence_factors ?? [])
+                .filter((f: string) => !/unavailable|failure|error|unknown/i.test(f))
+                .slice(0, 4);
+              return factors.length > 0 ? (
+                <ul style={{ display: "flex", flexDirection: "column", gap: "0.3rem", margin: 0, padding: 0, listStyle: "none" }}>
+                  {factors.map((f: string, i: number) => (
+                    <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "0.375rem", fontSize: "0.65rem", color: "#64748B" }}>
+                      <CheckCircle style={{ width: 10, height: 10, color: "#15803D", flexShrink: 0, marginTop: 2 }} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              ) : null;
+            })()}
           </Panel>
 
           {/* Case Processing — agent execution summary */}

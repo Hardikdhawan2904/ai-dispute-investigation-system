@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Search, RefreshCw, AlertCircle, CheckCircle2, FileText, Upload, X, CheckCircle } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -24,6 +24,8 @@ interface TrackingData {
   last_updated:         string | null;
   estimated_resolution: string;
   document_requested:   boolean;
+  required_documents:   string[];
+  documents_received:   number;
   timeline:             TimelineEvent[];
 }
 
@@ -103,6 +105,170 @@ function DataRow({
   );
 }
 
+// ── DocumentUploadSection ──────────────────────────────────────────────────────
+
+const ALLOWED_EXTS = [".pdf", ".jpg", ".jpeg", ".png", ".xlsx", ".csv"];
+
+function DocumentUploadSection({
+  caseId,
+  requiredDocuments,
+  documentsReceived,
+}: {
+  caseId: string;
+  requiredDocuments: string[];
+  documentsReceived: number;
+}) {
+  // Only show docs not yet covered by previous uploads
+  const pendingDocuments = requiredDocuments.slice(documentsReceived);
+  const fileRef                     = useRef<HTMLInputElement>(null);
+  const [files, setFiles]           = useState<File[]>([]);
+  const [uploading, setUploading]   = useState(false);
+  const [uploaded, setUploaded]     = useState(false);
+  const [uploadError, setUploadError] = useState("");
+
+  function handleFiles(selected: FileList | null) {
+    if (!selected) return;
+    const valid = Array.from(selected).filter(f =>
+      ALLOWED_EXTS.some(ext => f.name.toLowerCase().endsWith(ext))
+    );
+    setFiles(prev => {
+      const names = new Set(prev.map(f => f.name));
+      return [...prev, ...valid.filter(f => !names.has(f.name))];
+    });
+    setUploadError("");
+  }
+
+  function removeFile(name: string) {
+    setFiles(prev => prev.filter(f => f.name !== name));
+  }
+
+  async function handleUpload() {
+    if (!files.length || uploading) return;
+    setUploading(true);
+    setUploadError("");
+    try {
+      const form = new FormData();
+      files.forEach(f => form.append("files", f));
+      const res = await fetch(`${API_BASE}/api/disputes/cases/${caseId}/documents`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Upload failed");
+      }
+      setUploaded(true);
+      setFiles([]);
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="border border-amber-200 rounded overflow-hidden">
+      {/* Header */}
+      <div className="bg-amber-50 px-4 py-3 border-b border-amber-200">
+        <p className="text-xs font-semibold text-amber-800">Documents Required</p>
+        <p className="text-[11px] text-amber-700 mt-0.5 leading-relaxed">
+          Please upload the documents listed below to proceed with your dispute.
+        </p>
+      </div>
+
+      {/* Pending document list — only remaining ones */}
+      {pendingDocuments.length > 0 && (
+        <div className="bg-white px-4 pt-3 pb-2">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            {documentsReceived > 0
+              ? `Remaining (${pendingDocuments.length} of ${requiredDocuments.length})`
+              : `Required (${pendingDocuments.length})`}
+          </p>
+          <div className="space-y-1.5">
+            {pendingDocuments.map((doc, i) => (
+              <div key={i} className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 border border-gray-100 rounded">
+                <FileText className="w-3 h-3 text-blue-500 shrink-0" />
+                <span className="text-xs text-gray-700">{doc}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Upload area */}
+      <div className="bg-white px-4 pb-4 pt-3 border-t border-gray-100">
+        {uploaded ? (
+          <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded">
+            <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-green-800">Documents uploaded successfully</p>
+              <p className="text-[11px] text-green-700 mt-0.5">Our team will review and update your case status.</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Drop zone */}
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
+              className="border-2 border-dashed border-gray-200 rounded-lg p-4 text-center cursor-pointer hover:border-blue-300 hover:bg-blue-50 transition-colors"
+            >
+              <Upload className="w-5 h-5 text-gray-400 mx-auto mb-1.5" />
+              <p className="text-xs font-medium text-gray-600">Click to upload or drag & drop</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">PDF, JPG, PNG, XLSX — max 10 MB each</p>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                accept=".pdf,.jpg,.jpeg,.png,.xlsx,.csv"
+                className="hidden"
+                onChange={e => handleFiles(e.target.files)}
+              />
+            </div>
+
+            {/* Selected files */}
+            {files.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                {files.map(f => (
+                  <div key={f.name} className="flex items-center justify-between px-2.5 py-1.5 bg-blue-50 border border-blue-100 rounded">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="w-3 h-3 text-blue-500 shrink-0" />
+                      <span className="text-xs text-blue-800 truncate">{f.name}</span>
+                      <span className="text-[10px] text-blue-400 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                    </div>
+                    <button onClick={() => removeFile(f.name)} className="ml-2 text-blue-400 hover:text-blue-600 shrink-0">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {uploadError && (
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-red-600">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                {uploadError}
+              </p>
+            )}
+
+            <button
+              onClick={handleUpload}
+              disabled={!files.length || uploading}
+              className="mt-3 w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-100 disabled:text-gray-400 text-white text-xs font-semibold rounded transition-colors flex items-center justify-center gap-2"
+            >
+              {uploading
+                ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Uploading…</>
+                : <><Upload className="w-3.5 h-3.5" /> Upload Documents</>
+              }
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── TrackDispute ───────────────────────────────────────────────────────────────
 
 interface TrackDisputeProps {
@@ -117,7 +283,10 @@ export default function TrackDispute({ initialCaseId }: TrackDisputeProps) {
   const sseRef                      = useRef<EventSource | null>(null);
 
   const fetchCase = useCallback(async (id: string) => {
-    const caseId = id.trim().toUpperCase();
+    // Normalise: "CASE-527" or "CASE-00527" → "CASE-000527" (always 6-digit suffix)
+    const raw = id.trim().toUpperCase();
+    const match = raw.match(/^(CASE-)(\d+)$/);
+    const caseId = match ? `CASE-${match[2].padStart(6, "0")}` : raw;
     if (!caseId) return;
 
     setLoading(true);
@@ -269,16 +438,22 @@ export default function TrackDispute({ initialCaseId }: TrackDisputeProps) {
             </div>
           </div>
 
-          {/* Document request notice */}
-          {data.document_requested && (
-            <div className="border border-amber-300 bg-amber-50 rounded px-4 py-3">
-              <p className="text-xs font-semibold text-amber-800 mb-0.5">
-                Documents Requested
-              </p>
-              <p className="text-[11px] text-amber-700 leading-relaxed">
-                Our team has requested additional supporting documents for this case.
-                Please contact your branch or relationship manager to submit the required documents.
-              </p>
+          {/* Documents — only show upload when actually waiting for them */}
+          {data.status === "Documents Requested" ? (
+            <DocumentUploadSection
+              caseId={data.case_id}
+              requiredDocuments={data.required_documents ?? []}
+              documentsReceived={data.documents_received ?? 0}
+            />
+          ) : data.required_documents && data.required_documents.length > 0 && (
+            <div className="border border-green-200 bg-green-50 rounded px-4 py-3 flex items-start gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold text-green-800">Documents Received</p>
+                <p className="text-[11px] text-green-700 mt-0.5 leading-relaxed">
+                  Your documents have been submitted and are under review by our disputes team.
+                </p>
+              </div>
             </div>
           )}
 

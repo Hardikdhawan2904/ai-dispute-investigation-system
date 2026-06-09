@@ -9,6 +9,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from database.models import DisputeCase, AuditLog
+from services.document_rules import get_customer_required_documents
 
 
 def _utc_iso(dt: datetime | None) -> str | None:
@@ -75,6 +76,8 @@ class CustomerTrackingResponse(BaseModel):
     last_updated:         Optional[str] = None
     estimated_resolution: str
     document_requested:   bool
+    required_documents:   List[str] = []
+    documents_received:   int = 0
     timeline:             List[TimelineEvent]
 
 
@@ -116,6 +119,23 @@ def build_tracking_response(
                     timestamp=_utc_iso(log.created_at),
                 ))
 
+    # Count documents already uploaded by the customer from audit logs
+    docs_received = 0
+    for log in audit_logs:
+        if (log.event_type or "").strip() == "DOCUMENT_UPLOADED":
+            docs_received += (log.payload or {}).get("count", 0)
+
+    # Build customer-only document list — filters out bank/merchant-obtainable docs
+    required_docs: List[str] = get_customer_required_documents(
+        category         = case.dispute_category or "Other",
+        fraud_selected   = bool(case.fraud_suspicion),
+        amount           = float(case.amount or 0),
+        transaction_type = case.transaction_type or "",
+    )
+    # Belt-and-suspenders: strip passport from stored docs for non-international transactions
+    if (case.transaction_type or "").lower() != "international":
+        required_docs = [d for d in required_docs if "passport" not in d.lower()]
+
     return CustomerTrackingResponse(
         case_id              = case.case_id,
         status               = customer_status,
@@ -128,5 +148,7 @@ def build_tracking_response(
         last_updated         = _utc_iso(case.updated_at),
         estimated_resolution = est_resolution,
         document_requested   = doc_requested,
+        required_documents   = required_docs,
+        documents_received   = docs_received,
         timeline             = timeline,
     ).model_dump()

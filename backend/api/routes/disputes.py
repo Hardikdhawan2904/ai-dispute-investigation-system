@@ -2,6 +2,7 @@
 Dispute API routes — all endpoints for the BFSI dispute resolution platform.
 """
 import asyncio
+import threading
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -243,9 +244,8 @@ async def upload_case_documents(
     db: Session = Depends(get_db),
 ):
     """
-    Store additional documents against an existing case.
-    Files are saved to disk and logged — no LLM re-run.
-    Evidence should be submitted together with the form via /submit-public.
+    Store documents against a case and trigger automatic re-analysis.
+    Response returns immediately; re-analysis runs in the background.
     """
     from database.models import DisputeCase, AuditLog
 
@@ -275,17 +275,159 @@ async def upload_case_documents(
         saved.append(safe_name)
 
     if saved:
+        # Immediately advance status so customer sees progress right away
+        if case.status in ("Pending Documents", "Dispute Raised"):
+            case.status = "Under Investigation"
+
         db.add(AuditLog(
             case_id=case_id,
             event_type="DOCUMENT_UPLOADED",
             actor="customer",
-            message=f"Customer uploaded {len(saved)} document(s): {', '.join(saved)}",
+            message=f"Customer uploaded {len(saved)} document(s): {', '.join(saved)}. Case moved to Under Investigation.",
             payload={"files": saved, "count": len(saved)},
         ))
         db.commit()
         api_logger.info(f"Documents saved for {case_id}: {saved}")
+        # Daemon thread — fully isolated from FastAPI's thread pool and event loop
+        threading.Thread(target=_reanalyse_after_upload, args=(case_id,), daemon=True).start()
 
-    return {"case_id": case_id, "uploaded": saved, "count": len(saved)}
+    return {"case_id": case_id, "uploaded": saved, "count": len(saved), "reanalysis": "queued"}
+
+
+def _reanalyse_after_upload(case_id: str) -> None:
+    """
+    Background task: re-run Agent 1 + Agent 2 after customer uploads documents.
+
+    DB connections are held only during fast read/write phases — never during
+    LLM calls — so the connection pool is never starved.
+    """
+    from database.database import SessionLocal
+    from database.models import DisputeCase, AuditLog
+    from utils.extractor import extract_text
+    from agents.dispute_agent import run_dispute_agent
+    from agents.investigation_agent import run_investigation_agent
+    from services.priority_engine import compute_priority
+    from services.manual_review_service import should_flag_manual_review
+
+    # ── Phase 1: read case data, then release DB immediately ──────────────────
+    dispute_input: dict = {}
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return
+        dispute_input = {
+            "case_id":              case.case_id,
+            "customer_id":          case.customer_id,
+            "customer_name":        case.customer_name or "",
+            "email":                case.email or "",
+            "phone":                case.phone or "",
+            "transaction_id":       case.transaction_id,
+            "transaction_type":     case.transaction_type,
+            "merchant":             case.merchant or "",
+            "amount":               case.amount,
+            "currency":             case.currency,
+            "transaction_date":     case.transaction_date or "",
+            "transaction_time":     case.transaction_time or "",
+            "dispute_reason":       case.dispute_reason or "",
+            "fraud_selected":       case.fraud_suspicion,
+            "customer_comment":     case.customer_comment or "",
+            "transaction_metadata": case.transaction_metadata or {},
+        }
+    finally:
+        db.close()   # release before LLM calls
+
+    # ── Phase 2: extract document text (CPU, no DB) ───────────────────────────
+    document_texts: List[str] = []
+    upload_dir = _UPLOAD_ROOT / case_id
+    if upload_dir.exists():
+        for f in sorted(upload_dir.iterdir()):
+            if f.is_file() and f.suffix.lower() in _ALLOWED_EXTENSIONS:
+                text = extract_text(str(f))
+                if text.strip():
+                    document_texts.append(f"[{f.name}]\n{text}")
+
+    # ── Phase 3: run agents (slow LLM calls, no DB held) ─────────────────────
+    try:
+        result = run_dispute_agent(dispute_input, document_texts=document_texts)
+    except Exception as exc:
+        api_logger.error(f"_reanalyse_after_upload agent1 failed {case_id}: {exc}", exc_info=True)
+        return
+
+    investigation_plan = None
+    try:
+        investigation_plan = run_investigation_agent(result)
+    except Exception:
+        pass
+
+    # ── Phase 4: save results, open a fresh DB session ────────────────────────
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return
+
+        case.dispute_category        = result.get("dispute_category", case.dispute_category)
+        case.fraud_suspicion         = result.get("fraud_suspicion", case.fraud_suspicion)
+        case.customer_intent_summary = result.get("customer_intent_summary", case.customer_intent_summary)
+        case.confidence_score        = result.get("confidence_score", case.confidence_score)
+        case.risk_tags               = result.get("risk_tags", case.risk_tags)
+        case.structured_reasoning    = result.get("structured_reasoning", case.structured_reasoning)
+        case.evidence_match          = result.get("evidence_match")
+        case.evidence_match_note     = result.get("evidence_match_note", "")
+        case.fallback_mode           = result.get("fallback_mode", False)
+        case.failure_reason          = result.get("failure_reason")
+        case.confidence_factors      = result.get("confidence_factors") or []
+        case.tools_used              = result.get("tools_used") or []
+        case.agent_metadata          = result.get("agent_metadata")
+        case.metrics                 = result.get("metrics")
+        if investigation_plan:
+            case.investigation_plan = investigation_plan
+
+        priority_score, priority_label = compute_priority(case.to_dict())
+        case.priority_score = priority_score
+        case.priority       = priority_label
+        flag, reason = should_flag_manual_review(case.to_dict())
+        case.requires_manual_review = flag
+        case.manual_review_reason   = reason if flag else None
+
+        db.add(AuditLog(
+            case_id=case_id,
+            event_type="REANALYSED_AFTER_UPLOAD",
+            stage="structured_output",
+            actor="system",
+            message=(
+                f"Re-analysed after document upload. "
+                f"Evidence: {result.get('evidence_match')}. "
+                f"Confidence: {result.get('confidence_score', 0):.0%}."
+            ),
+            payload={
+                "confidence_score": case.confidence_score,
+                "evidence_match":   case.evidence_match,
+                "priority":         case.priority,
+                "document_count":   len(document_texts),
+            },
+        ))
+        updated_dict = case.to_dict()
+        db.commit()
+        api_logger.info(f"Re-analysis after upload complete for {case_id}")
+
+        # Broadcast ANALYSIS_COMPLETE so the ops workspace refreshes automatically
+        try:
+            import asyncio
+            asyncio.run(ws_manager.broadcast({
+                "type":    "ANALYSIS_COMPLETE",
+                "case_id": case_id,
+                "case":    updated_dict,
+            }))
+        except Exception as ws_exc:
+            api_logger.warning(f"WS broadcast failed after upload reanalysis {case_id}: {ws_exc}")
+
+    except Exception as exc:
+        api_logger.error(f"_reanalyse_after_upload save failed {case_id}: {exc}", exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

@@ -153,10 +153,11 @@ def finalize_node(state: InvestigationAgentState) -> dict:
     # Server-stamp required_documents — deterministic, never trust LLM output for this
     from services.document_rules import get_required_documents
     parsed["required_documents"] = get_required_documents(
-        category       = a1.get("dispute_category", "Other"),
-        fraud_selected = a1.get("fraud_suspicion", False),
-        amount         = float(a1.get("amount", 0)),
-        risk_tags      = a1.get("risk_tags") or [],
+        category         = a1.get("dispute_category", "Other"),
+        fraud_selected   = a1.get("fraud_suspicion", False),
+        amount           = float(a1.get("amount", 0)),
+        risk_tags        = a1.get("risk_tags") or [],
+        transaction_type = a1.get("transaction_type", ""),
     )
 
     # Server-stamp investigation_coverage — derived from actual tool execution records
@@ -245,9 +246,10 @@ def _fallback_output(
 
     from services.document_rules import get_required_documents
     fallback_docs = get_required_documents(
-        category       = cat,
-        fraud_selected = fraud,
-        amount         = amount,
+        category         = cat,
+        fraud_selected   = fraud,
+        amount           = amount,
+        transaction_type = a1.get("transaction_type", ""),
     )
 
     investigation_coverage = {

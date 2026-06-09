@@ -229,6 +229,11 @@ async def reanalyse_case(case_id: str):
                 case.investigation_plan = run_investigation_agent(result)
             except Exception:
                 pass
+            # Auto-switch to Pending Documents when required documents are identified
+            inv_plan = case.investigation_plan or {}
+            if isinstance(inv_plan, dict) and inv_plan.get("required_documents"):
+                if case.status not in ("Resolved", "Rejected", "Closed"):
+                    case.status = "Pending Documents"
             priority_score, priority_label = priority_engine.compute_priority(case.to_dict())
             case.priority_score = priority_score
             case.priority       = priority_label

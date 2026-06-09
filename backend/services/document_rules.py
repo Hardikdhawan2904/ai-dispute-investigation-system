@@ -88,6 +88,37 @@ _HIGH_VALUE_EXTRA: List[str] = [
     "Source of funds declaration",
 ]
 
+# Documents the bank or merchant obtains internally — NOT requested from the customer.
+# These appear in the internal required_documents list for analyst reference
+# but are filtered out before showing to the customer on the tracking page.
+_BANK_OBTAINABLE: set[str] = {
+    "Merchant order confirmation",
+    "Payment gateway reference numbers",
+    "CCTV request form (if applicable)",
+    "Device or IP access logs",
+    "OTP transaction logs",
+    "Account activity report",
+    "ATM reference number",
+    "Merchant delivery confirmation",
+    "Proof of transaction authorisation",
+    "Any communication with customer",
+    "Menu or price list at time of transaction",
+}
+
+
+def get_customer_required_documents(
+    category: str,
+    fraud_selected: bool = False,
+    amount: float = 0.0,
+    risk_tags: List[str] | None = None,
+    transaction_type: str = "",
+) -> List[str]:
+    """Return only the documents the customer can actually upload.
+    Filters out bank/merchant-obtainable documents from the full list."""
+    full = get_required_documents(category, fraud_selected, amount, risk_tags, transaction_type)
+    return [d for d in full if d not in _BANK_OBTAINABLE]
+
+
 # Minimum documents required to start AI analysis (by category).
 # Based on RBI dispute adjudication requirements:
 #   - Fraud / Unauthorized: FIR or bank statement mandatory
@@ -146,6 +177,7 @@ def get_required_documents(
     fraud_selected: bool = False,
     amount: float = 0.0,
     risk_tags: List[str] | None = None,
+    transaction_type: str = "",
 ) -> List[str]:
     """Return the full required document list for this dispute."""
     base = list(_DOCUMENT_MAP.get(category, _DOCUMENT_MAP["Other"]))
@@ -164,7 +196,12 @@ def get_required_documents(
         tags_upper = [t.upper() for t in risk_tags]
         if "OTP_VERIFIED" in tags_upper and "OTP transaction logs" not in base:
             base.append("OTP transaction logs")
-        if "INTERNATIONAL_TRANSACTION" in tags_upper:
+        # Only require passport when transaction type is genuinely International,
+        # not just because Agent 1 added the risk tag on a domestic transaction
+        if (
+            "INTERNATIONAL_TRANSACTION" in tags_upper
+            and transaction_type.strip().lower() == "international"
+        ):
             base.append("Passport or travel document (proof of location at transaction time)")
 
     return base

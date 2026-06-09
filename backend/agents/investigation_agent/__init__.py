@@ -125,9 +125,10 @@ def _build_human_message(a1: dict, tool_results: dict) -> str:
 
     # Required documents — computed deterministically, not by the LLM
     req_docs = get_required_documents(
-        category       = a1.get("dispute_category", "Other"),
-        fraud_selected = a1.get("fraud_suspicion", False),
-        amount         = float(a1.get("amount", 0)),
+        category         = a1.get("dispute_category", "Other"),
+        fraud_selected   = a1.get("fraud_suspicion", False),
+        amount           = float(a1.get("amount", 0)),
+        transaction_type = a1.get("transaction_type", ""),
         risk_tags      = risk_tags,
     )
     docs_section = "\n".join(f"  {i+1}. {d}" for i, d in enumerate(req_docs))
