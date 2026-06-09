@@ -40,7 +40,6 @@ _llm = ChatGroq(
     max_tokens=int(os.environ.get("LLM_MAX_TOKENS") or _cfg["max_tokens"]),
     api_key=os.environ.get("GROQ_API_KEY"),
 )
-_llm_with_tools = _llm.bind_tools(_tools)  # kept for graph wiring; call_model uses plain _llm
 
 
 # ── Node 1 — validate ─────────────────────────────────────────────────────────

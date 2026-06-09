@@ -73,14 +73,3 @@ export function getConfidenceLabel(score: number): string {
   return "Low";
 }
 
-/** Confidence text color — muted, not neon */
-export function getConfidenceColor(score: number): string {
-  if (score >= 0.75) return "text-emerald-400";
-  if (score >= 0.55) return "text-amber-400";
-  return "text-red-400";
-}
-
-export function truncate(str: string, maxLen: number): string {
-  if (!str || str.length <= maxLen) return str;
-  return str.slice(0, maxLen - 3) + "…";
-}

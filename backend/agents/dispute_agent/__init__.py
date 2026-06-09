@@ -1,17 +1,19 @@
 """
 Agent 1 — ARIA (Dispute Understanding Agent)
 
-Job: Read the customer's submission + evidence, use 4 analytical tools to
-     gather structured intelligence, then classify the dispute and score
+Job: Read the customer's submission from the database, use 4 analytical tools
+     to gather structured intelligence, then classify the dispute and score
      confidence. Nothing more — investigation is Agent 2's responsibility.
 
-Pattern: validate → build_evidence → ReAct loop (agent ↔ tools) → finalize
+DB interaction:
+  - Reads case data from dispute_cases by case_id (save-first architecture)
+  - Document texts passed in-memory (already extracted before this call)
 
-Tools (understanding only, no DB):
-  analyze_transaction_risk   → amount tier, time-of-day, card-not-present signals
-  score_fraud_indicators     → metadata checklist + comment keyword analysis
-  verify_evidence_match      → document corroboration check (called if docs attached)
-  compute_confidence_score   → calibrated confidence from all tool findings
+Tools (understanding only, no further DB queries):
+  assess_transaction_context  → amount tier, time-of-day, card-not-present signals
+  score_fraud_indicators      → metadata checklist + comment keyword analysis
+  verify_evidence_match       → document corroboration check (called if docs attached)
+  compute_confidence_score    → calibrated confidence from all tool findings
 """
 from typing import List, Optional
 
@@ -26,17 +28,63 @@ from services.dispute_understanding_fallback_service import (
 from utils.logger import agent_logger
 
 
-def run_dispute_agent(dispute_input: dict, document_texts: Optional[List[str]] = None) -> dict:
+def _read_case_from_db(case_id: str) -> dict:
+    """Read case data from dispute_cases table by case_id."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            raise ValueError(f"Case {case_id} not found in database")
+        return {
+            "case_id":              case.case_id,
+            "customer_id":          case.customer_id,
+            "customer_name":        case.customer_name or "",
+            "email":                case.email or "",
+            "phone":                case.phone or "",
+            "transaction_id":       case.transaction_id,
+            "transaction_type":     case.transaction_type,
+            "merchant":             case.merchant or "",
+            "amount":               case.amount,
+            "currency":             case.currency,
+            "transaction_date":     case.transaction_date or "",
+            "transaction_time":     case.transaction_time or "",
+            "customer_comment":     case.customer_comment or "",
+            "dispute_reason":       case.dispute_reason or "",
+            "fraud_selected":       case.fraud_selected,
+            "transaction_metadata": case.transaction_metadata or {},
+        }
+    finally:
+        db.close()
+
+
+def run_dispute_agent(
+    dispute_input: dict,
+    document_texts: Optional[List[str]] = None,
+    case_id: Optional[str] = None,
+) -> dict:
     """
-    Understand a dispute and return a fully structured case dict.
-    The LLM calls analytical tools autonomously, then produces the final JSON.
+    Read case from DB, understand the dispute, return a fully structured case dict.
+
+    If case_id is provided, reads fresh data from dispute_cases table (save-first).
+    Falls back to dispute_input dict if case_id is not provided (backward compat).
     Always returns a valid dict — falls back gracefully if the graph fails.
     """
+    # Read from DB if case_id provided — this is the primary path
+    if case_id:
+        try:
+            dispute_input = _read_case_from_db(case_id)
+            agent_logger.info(f"Agent 1 reading case {case_id} from database")
+        except Exception as exc:
+            agent_logger.warning(f"Agent 1 DB read failed for {case_id}, using in-memory input: {exc}")
+            # Fall through to use the passed dispute_input
+
     initial: DisputeAgentState = {
         "messages":            [],
         "dispute_input":       dispute_input,
         "document_texts":      document_texts or [],
-        "case_id":             "",
+        "case_id":             dispute_input.get("case_id", ""),
         "supporting_evidence": "",
         "document_section":    "",
         "final_case":          {},

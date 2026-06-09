@@ -268,13 +268,63 @@ def pending_documents_node(state: DisputeWorkflowState) -> dict:
     }
 
 
+def _save_agent1_to_db(case_id: str, analysis: dict) -> None:
+    """Intermediate DB save after Agent 1 — case visible with classification data."""
+    if not case_id:
+        return
+    from database.database import SessionLocal
+    from database.models import DisputeCase
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if case:
+            case.dispute_category        = analysis.get("dispute_category")
+            case.fraud_suspicion         = analysis.get("fraud_suspicion", False)
+            case.confidence_score        = analysis.get("confidence_score", 0.0)
+            case.risk_tags               = analysis.get("risk_tags", [])
+            case.structured_reasoning    = analysis.get("structured_reasoning", "")
+            case.customer_intent_summary = analysis.get("customer_intent_summary", "")
+            case.evidence_match          = analysis.get("evidence_match")
+            case.evidence_match_note     = analysis.get("evidence_match_note", "")
+            case.confidence_factors      = analysis.get("confidence_factors") or []
+            case.tools_used              = analysis.get("tools_used") or []
+            case.agent_metadata          = analysis.get("agent_metadata")
+            case.metrics                 = analysis.get("metrics")
+            case.fallback_mode           = analysis.get("fallback_mode", False)
+            case.failure_reason          = analysis.get("failure_reason")
+            case.current_stage           = "agent1_complete"
+            db.commit()
+    except Exception as exc:
+        workflow_logger.warning(f"Intermediate Agent 1 DB save failed for {case_id}: {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _save_agent2_to_db(case_id: str, investigation_plan: dict) -> None:
+    """Intermediate DB save after Agent 2 — investigation plan available immediately."""
+    if not case_id:
+        return
+    from database.database import SessionLocal
+    from database.models import DisputeCase
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if case:
+            case.investigation_plan = investigation_plan
+            case.current_stage      = "agent2_complete"
+            db.commit()
+    except Exception as exc:
+        workflow_logger.warning(f"Intermediate Agent 2 DB save failed for {case_id}: {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def dispute_understanding_node(state: DisputeWorkflowState) -> dict:
     """
     Invokes the Dispute Understanding Agent (Groq LLM).
-    Produces the AI analysis dict with all classification fields.
-
-    Fault-tolerant: any LLM/API failure triggers the fallback service so
-    customer disputes are NEVER lost and the workflow always continues.
+    Saves Agent 1 results to DB immediately after completion.
     """
     start = time.time()
     node  = "dispute_understanding"
@@ -283,7 +333,11 @@ def dispute_understanding_node(state: DisputeWorkflowState) -> dict:
         analysis = run_dispute_agent(
             state["dispute_input"],
             document_texts=state.get("document_texts") or [],
+            case_id=state.get("case_id"),   # Agent 1 reads fresh from DB
         )
+        # Do NOT save here — reasoning_node enriches risk_tags next.
+        # _save_agent1_to_db is called at the end of reasoning_node so
+        # Agent 2 reads the fully enriched data from DB.
         log_workflow_event(
             workflow_logger,
             event="NODE_AI_ANALYSIS_COMPLETE",
@@ -324,6 +378,8 @@ def dispute_understanding_node(state: DisputeWorkflowState) -> dict:
             retry_count=3,
             duration_ms=duration_ms,
         )
+        # Save fallback result so Agent 2 reads correct state from DB
+        _save_agent1_to_db(state.get("case_id", ""), analysis)
 
         log_workflow_event(
             workflow_logger,
@@ -375,6 +431,9 @@ def reasoning_node(state: DisputeWorkflowState) -> dict:
 
     analysis["risk_tags"] = list(dict.fromkeys(risk_tags))  # deduplicate, preserve order
 
+    # Save after reasoning so Agent 2 reads fully enriched tags from DB
+    _save_agent1_to_db(state.get("case_id", ""), analysis)
+
     log_workflow_event(
         workflow_logger,
         event="NODE_REASONING_COMPLETE",
@@ -400,7 +459,10 @@ def investigation_node(state: DisputeWorkflowState) -> dict:
     node = "investigation"
 
     try:
-        investigation_plan = run_investigation_agent(state["ai_analysis"])
+        # Agent 2 reads Agent 1 results from DB (reasoning-enriched) — not in-memory dict
+        investigation_plan = run_investigation_agent({"case_id": state.get("case_id", "")})
+        # Intermediate save — investigation plan available in DB immediately
+        _save_agent2_to_db(state.get("case_id", ""), investigation_plan)
         log_workflow_event(
             workflow_logger,
             event="NODE_INVESTIGATION_COMPLETE",
@@ -639,6 +701,7 @@ def run_dispute_workflow(dispute_input: dict, document_texts: Optional[List[str]
         fallback_analysis = generate_agent1_fallback(
             dispute_input, failure_reason=failure_reason, retry_count=3,
         )
+        _save_agent1_to_db(case_id, fallback_analysis)
         # Build a minimal final_case so the case always gets persisted
         d = dispute_input
         final_case = {

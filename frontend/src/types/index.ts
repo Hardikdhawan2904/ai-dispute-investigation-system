@@ -302,10 +302,3 @@ export interface WorkflowState {
   created_at: string;
 }
 
-// ── UI Helper Types ────────────────────────────────────────────────────────────
-
-export interface FormErrors {
-  [field: string]: string;
-}
-
-export type ApiStatus = "idle" | "loading" | "success" | "error";

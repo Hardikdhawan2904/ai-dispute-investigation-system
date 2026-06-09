@@ -14,17 +14,6 @@ class AddNoteRequest(BaseModel):
     is_internal: bool = True
 
 
-class CaseNoteResponse(BaseModel):
-    id: int
-    case_id: str
-    analyst: str
-    note: str
-    is_internal: bool
-    created_at: str
-
-
-# ── Document Requests ─────────────────────────────────────────────────────────
-
 class CreateDocumentRequestBody(BaseModel):
     requested_by: str = Field(..., min_length=1, max_length=128)
     document_type: str = Field(..., min_length=2, max_length=256)
@@ -32,30 +21,10 @@ class CreateDocumentRequestBody(BaseModel):
     due_date: Optional[datetime] = None
 
 
-class DocumentRequestResponse(BaseModel):
-    id: int
-    case_id: str
-    requested_by: str
-    document_type: str
-    description: Optional[str]
-    due_date: Optional[str]
-    fulfilled: bool
-    fulfilled_at: Optional[str]
-    created_at: str
-
-
 # ── Case Lock ─────────────────────────────────────────────────────────────────
 
 class AcquireLockRequest(BaseModel):
     analyst: str = Field(..., min_length=1, max_length=128)
-
-
-class LockResponse(BaseModel):
-    acquired: bool
-    locked_by: Optional[str] = None
-    locked_at: Optional[str] = None
-    expires_at: Optional[str] = None
-    error: Optional[str] = None
 
 
 # ── Analyst Actions ───────────────────────────────────────────────────────────
@@ -69,14 +38,6 @@ class AnalystActionRequest(BaseModel):
 
 
 # ── Queue ─────────────────────────────────────────────────────────────────────
-
-class QueueSummary(BaseModel):
-    queue: str
-    display: str
-    count: int
-    critical: int
-    sla_breached: int
-
 
 # ── Search ────────────────────────────────────────────────────────────────────
 

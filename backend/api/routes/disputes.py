@@ -309,33 +309,13 @@ def _reanalyse_after_upload(case_id: str) -> None:
     from services.priority_engine import compute_priority
     from services.manual_review_service import should_flag_manual_review
 
-    # ── Phase 1: read case data, then release DB immediately ──────────────────
-    dispute_input: dict = {}
+    # ── Phase 1: verify case exists ───────────────────────────────────────────
     db = SessionLocal()
     try:
-        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
-        if not case:
+        if not db.query(DisputeCase.case_id).filter(DisputeCase.case_id == case_id).first():
             return
-        dispute_input = {
-            "case_id":              case.case_id,
-            "customer_id":          case.customer_id,
-            "customer_name":        case.customer_name or "",
-            "email":                case.email or "",
-            "phone":                case.phone or "",
-            "transaction_id":       case.transaction_id,
-            "transaction_type":     case.transaction_type,
-            "merchant":             case.merchant or "",
-            "amount":               case.amount,
-            "currency":             case.currency,
-            "transaction_date":     case.transaction_date or "",
-            "transaction_time":     case.transaction_time or "",
-            "dispute_reason":       case.dispute_reason or "",
-            "fraud_selected":       case.fraud_suspicion,
-            "customer_comment":     case.customer_comment or "",
-            "transaction_metadata": case.transaction_metadata or {},
-        }
     finally:
-        db.close()   # release before LLM calls
+        db.close()
 
     # ── Phase 2: extract document text (CPU, no DB) ───────────────────────────
     document_texts: List[str] = []
@@ -348,45 +328,39 @@ def _reanalyse_after_upload(case_id: str) -> None:
                     document_texts.append(f"[{f.name}]\n{text}")
 
     # ── Phase 3: run agents (slow LLM calls, no DB held) ─────────────────────
+    from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db
     try:
-        result = run_dispute_agent(dispute_input, document_texts=document_texts)
+        result = run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
     except Exception as exc:
         api_logger.error(f"_reanalyse_after_upload agent1 failed {case_id}: {exc}", exc_info=True)
         return
 
+    # Persist Agent 1 results immediately so Agent 2 reads from DB (save-first)
+    _save_agent1_to_db(case_id, result)
+
     investigation_plan = None
     try:
-        investigation_plan = run_investigation_agent(result)
+        # Agent 2 reads Agent 1 results from DB by case_id — not from in-memory dict
+        investigation_plan = run_investigation_agent({"case_id": case_id})
+        if investigation_plan:
+            _save_agent2_to_db(case_id, investigation_plan)
     except Exception:
         pass
 
-    # ── Phase 4: save results, open a fresh DB session ────────────────────────
+    # ── Phase 4: save priority + manual-review flags, add audit log ──────────
     db = SessionLocal()
     try:
         case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
         if not case:
             return
 
-        case.dispute_category        = result.get("dispute_category", case.dispute_category)
-        case.fraud_suspicion         = result.get("fraud_suspicion", case.fraud_suspicion)
-        case.customer_intent_summary = result.get("customer_intent_summary", case.customer_intent_summary)
-        case.confidence_score        = result.get("confidence_score", case.confidence_score)
-        case.risk_tags               = result.get("risk_tags", case.risk_tags)
-        case.structured_reasoning    = result.get("structured_reasoning", case.structured_reasoning)
-        case.evidence_match          = result.get("evidence_match")
-        case.evidence_match_note     = result.get("evidence_match_note", "")
-        case.fallback_mode           = result.get("fallback_mode", False)
-        case.failure_reason          = result.get("failure_reason")
-        case.confidence_factors      = result.get("confidence_factors") or []
-        case.tools_used              = result.get("tools_used") or []
-        case.agent_metadata          = result.get("agent_metadata")
-        case.metrics                 = result.get("metrics")
-        if investigation_plan:
-            case.investigation_plan = investigation_plan
-
+        from services.queue_assignment_service import assign_queue
+        from services.sla_service import compute_sla_deadline
         priority_score, priority_label = compute_priority(case.to_dict())
         case.priority_score = priority_score
         case.priority       = priority_label
+        case.assigned_queue = assign_queue(case.to_dict())
+        case.sla_deadline   = compute_sla_deadline(priority_label)
         flag, reason = should_flag_manual_review(case.to_dict())
         case.requires_manual_review = flag
         case.manual_review_reason   = reason if flag else None

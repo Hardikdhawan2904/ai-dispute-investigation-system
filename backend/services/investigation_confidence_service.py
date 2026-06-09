@@ -37,17 +37,6 @@ def calculate_investigation_confidence(plan: dict) -> float:
     return round(max(0.10, min(1.00, score)), 2)
 
 
-def calculate_confidence_tier(score: float) -> str:
-    """Map numeric score to BFSI confidence tier label."""
-    if score >= 0.85:
-        return "Very High — automated processing appropriate"
-    if score >= 0.70:
-        return "High — standard analyst review sufficient"
-    if score >= 0.55:
-        return "Moderate — analyst verification recommended"
-    return "Low — mandatory human review required"
-
-
 def generate_confidence_factors(plan: dict) -> list:
     factors: list[str] = []
 

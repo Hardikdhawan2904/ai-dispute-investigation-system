@@ -1,7 +1,6 @@
 import axios from "axios";
 import type {
   DisputeSubmissionInput,
-  DisputeSubmissionResponse,
   CasesListResponse,
   DashboardStats,
   DisputeCase,
@@ -124,11 +123,6 @@ export async function lookupTransaction(transactionId: string): Promise<BankTran
 
 // ── Internal bank disputes ────────────────────────────────────────────────────
 
-export async function submitDispute(data: DisputeSubmissionInput): Promise<DisputeSubmissionResponse> {
-  const res = await api.post<DisputeSubmissionResponse>("/api/disputes/submit", data);
-  return res.data;
-}
-
 export async function submitDisputePublic(data: DisputeSubmissionInput): Promise<{
   success: boolean;
   case_id: string;
@@ -177,41 +171,6 @@ export async function getAuditLogs(caseId: string): Promise<{ case_id: string; a
 
 export async function getWorkflowStates(caseId: string): Promise<{ case_id: string; workflow_states: WorkflowState[] }> {
   const res = await api.get(`/api/disputes/cases/${caseId}/workflow-states`);
-  return res.data;
-}
-
-// ── Customer portal ───────────────────────────────────────────────────────────
-
-export interface CustomerDispute {
-  case_id: string;
-  transaction_id: string;
-  transaction_type: string;
-  merchant: string;
-  amount: number;
-  currency: string;
-  transaction_date?: string;
-  status: string;
-  created_at: string;
-  updated_at?: string;
-}
-
-export async function customerSubmitDispute(data: DisputeSubmissionInput): Promise<{
-  success: boolean;
-  case_id: string;
-  message: string;
-  dispute_case: CustomerDispute;
-}> {
-  const res = await api.post("/api/customer/disputes/submit", data);
-  return res.data;
-}
-
-export async function customerListDisputes(): Promise<CustomerDispute[]> {
-  const res = await api.get<CustomerDispute[]>("/api/customer/disputes");
-  return res.data;
-}
-
-export async function customerGetDispute(caseId: string): Promise<CustomerDispute> {
-  const res = await api.get<CustomerDispute>(`/api/customer/disputes/${caseId}`);
   return res.data;
 }
 

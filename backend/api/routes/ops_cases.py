@@ -156,31 +156,12 @@ async def reanalyse_case(case_id: str):
     import re
     from database.database import SessionLocal
 
-    # Read case data synchronously before entering the executor
+    # Verify case exists — Agent 1 will read full data from DB directly
     with SessionLocal() as db_read:
-        case_row = db_read.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
-        if not case_row:
+        if not db_read.query(DisputeCase.case_id).filter(DisputeCase.case_id == case_id).first():
             raise HTTPException(status_code=404, detail="Case not found")
-        dispute_input = {
-            "case_id":              case_row.case_id,
-            "customer_name":        case_row.customer_name,
-            "customer_id":          case_row.customer_id,
-            "email":                case_row.email or "",
-            "phone":                case_row.phone or "",
-            "transaction_id":       case_row.transaction_id,
-            "transaction_type":     case_row.transaction_type,
-            "merchant":             case_row.merchant,
-            "amount":               case_row.amount,
-            "currency":             case_row.currency,
-            "transaction_date":     case_row.transaction_date or "",
-            "transaction_time":     case_row.transaction_time or "",
-            "dispute_reason":       case_row.dispute_reason or "",
-            "fraud_selected":       case_row.fraud_suspicion,
-            "customer_comment":     case_row.customer_comment or "",
-            "transaction_metadata": case_row.transaction_metadata or {},
-        }
 
-    # Extract evidence text (CPU-bound but fast — keep on event loop)
+    # Extract evidence text from uploaded files
     from utils.extractor import extract_text
     upload_dir = _UPLOADS_ROOT / case_id
     document_texts = []
@@ -192,7 +173,8 @@ async def reanalyse_case(case_id: str):
                     document_texts.append(f"[{f.name}]\n{text}")
 
     def _run_analysis():
-        return run_dispute_agent(dispute_input, document_texts=document_texts)
+        # Agent 1 reads its input from DB by case_id — no manual dict needed
+        return run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
 
     try:
         result = await asyncio.get_running_loop().run_in_executor(None, _run_analysis)
@@ -209,43 +191,49 @@ async def reanalyse_case(case_id: str):
 
     def _save_result():
         from database.database import SessionLocal as _SL
+        from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db
+        from services.queue_assignment_service import assign_queue
+        from services.sla_service import compute_sla_deadline
+
+        # Agent 1 → DB (save-first: Agent 2 reads from here)
+        _save_agent1_to_db(case_id, result)
+
+        # Agent 2 reads Agent 1 results from DB — not from in-memory dict
+        try:
+            inv_plan = run_investigation_agent({"case_id": case_id})
+            if inv_plan:
+                _save_agent2_to_db(case_id, inv_plan)
+        except Exception:
+            pass
+
         db = _SL()
         try:
+            # Re-read authoritative state after both intermediate saves
             case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
             if not case:
                 return None
-            case.dispute_category        = result.get("dispute_category", case.dispute_category)
-            case.fraud_suspicion         = result.get("fraud_suspicion", case.fraud_suspicion)
-            case.customer_intent_summary = result.get("customer_intent_summary", case.customer_intent_summary)
-            case.confidence_score        = result.get("confidence_score", case.confidence_score)
-            case.risk_tags               = result.get("risk_tags", case.risk_tags)
-            case.structured_reasoning    = result.get("structured_reasoning", case.structured_reasoning)
-            case.evidence_match          = result.get("evidence_match")
-            case.evidence_match_note     = result.get("evidence_match_note", "")
-            # Clear fallback flags when re-analysis succeeds
-            case.fallback_mode           = result.get("fallback_mode", False)
-            case.failure_reason          = result.get("failure_reason")
-            try:
-                case.investigation_plan = run_investigation_agent(result)
-            except Exception:
-                pass
-            # Auto-switch to Pending Documents when required documents are identified
+
+            # Auto-switch status based on investigation plan required docs
             inv_plan = case.investigation_plan or {}
             if isinstance(inv_plan, dict) and inv_plan.get("required_documents"):
                 if case.status not in ("Resolved", "Rejected", "Closed"):
                     case.status = "Pending Documents"
+
             priority_score, priority_label = priority_engine.compute_priority(case.to_dict())
             case.priority_score = priority_score
             case.priority       = priority_label
+            case.assigned_queue = assign_queue(case.to_dict())
+            case.sla_deadline   = compute_sla_deadline(priority_label)
             flag, reason = manual_review_service.should_flag_manual_review(case.to_dict())
             case.requires_manual_review = flag
             case.manual_review_reason   = reason if flag else None
+
             db.add(AuditLog(
                 case_id=case_id,
                 event_type="REANALYSED",
                 stage="structured_output",
                 actor="system",
-                message=f"Case re-analysed. New confidence: {case.confidence_score:.0%}, Priority: {case.priority}",
+                message=f"Case re-analysed. Confidence: {case.confidence_score:.0%}, Priority: {case.priority}",
                 payload={"confidence_score": case.confidence_score, "priority": case.priority},
             ))
             db.commit()
@@ -308,29 +296,10 @@ async def analyse_uploads(case_id: str):
     from utils.extractor import extract_text
     from database.database import SessionLocal
 
-    # Read case data before entering the executor
+    # Verify case exists — Agent 1 reads full data from DB by case_id
     with SessionLocal() as db_read:
-        case_row = db_read.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
-        if not case_row:
+        if not db_read.query(DisputeCase.case_id).filter(DisputeCase.case_id == case_id).first():
             raise HTTPException(status_code=404, detail="Case not found")
-        dispute_input = {
-            "case_id":              case_id,
-            "customer_id":          case_row.customer_id,
-            "customer_name":        case_row.customer_name,
-            "email":                case_row.email or "",
-            "phone":                case_row.phone or "",
-            "transaction_id":       case_row.transaction_id or "",
-            "transaction_type":     case_row.transaction_type or "",
-            "merchant":             case_row.merchant or "",
-            "amount":               case_row.amount or 0,
-            "currency":             case_row.currency or "INR",
-            "transaction_date":     case_row.transaction_date or "",
-            "transaction_time":     case_row.transaction_time or "",
-            "dispute_reason":       case_row.dispute_reason or "",
-            "fraud_selected":       case_row.fraud_suspicion or False,
-            "customer_comment":     case_row.customer_comment or "",
-            "transaction_metadata": case_row.transaction_metadata or {},
-        }
 
     case_dir = _UPLOADS_ROOT / case_id
     if not case_dir.exists():
@@ -355,7 +324,8 @@ async def analyse_uploads(case_id: str):
         return {"case_id": case_id, "analysed": 0, "files": files}
 
     def _run_analysis():
-        return run_dispute_agent(dispute_input, document_texts=document_texts)
+        # Agent 1 reads its input from DB by case_id
+        return run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
 
     try:
         result = await asyncio.get_running_loop().run_in_executor(None, _run_analysis)
@@ -366,25 +336,51 @@ async def analyse_uploads(case_id: str):
 
     def _save_result():
         from database.database import SessionLocal as _SL
+        from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db
+        from agents.investigation_agent import run_investigation_agent as _run_inv
+        from services.priority_engine import compute_priority as _cp
+        from services.queue_assignment_service import assign_queue as _aq
+        from services.sla_service import compute_sla_deadline as _sla
+        from services.manual_review_service import should_flag_manual_review as _mr
+
+        # Agent 1 → DB (save-first)
+        _save_agent1_to_db(case_id, result)
+
+        # Agent 2 reads Agent 1 results from DB
+        try:
+            inv_plan = _run_inv({"case_id": case_id})
+            if inv_plan:
+                _save_agent2_to_db(case_id, inv_plan)
+        except Exception:
+            pass
+
         db = _SL()
         try:
+            # Re-read authoritative state after both intermediate saves
             case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
             if not case:
                 return None
-            case.dispute_category        = result.get("dispute_category", case.dispute_category)
-            case.fraud_suspicion         = result.get("fraud_suspicion", case.fraud_suspicion)
-            case.customer_intent_summary = result.get("customer_intent_summary", case.customer_intent_summary)
-            case.confidence_score        = result.get("confidence_score", case.confidence_score)
-            case.risk_tags               = result.get("risk_tags", case.risk_tags)
-            case.structured_reasoning    = result.get("structured_reasoning", case.structured_reasoning)
-            case.evidence_match          = result.get("evidence_match")
-            case.evidence_match_note     = result.get("evidence_match_note", "")
+
+            # Recompute priority, queue, SLA on the fresh DB state
+            priority_score, priority_label = _cp(case.to_dict())
+            case.priority_score = priority_score
+            case.priority       = priority_label
+            case.assigned_queue = _aq(case.to_dict())
+            case.sla_deadline   = _sla(priority_label)
+            flag, reason = _mr(case.to_dict())
+            case.requires_manual_review = flag
+            case.manual_review_reason   = reason if flag else None
+
             db.add(AuditLog(
                 case_id=case_id,
                 event_type="REANALYSED",
                 actor="system",
                 message=f"Unified re-analysis with {len(document_texts)} document(s). Confidence: {case.confidence_score:.0%}",
-                payload={"documents_extracted": len(document_texts), "confidence_score": case.confidence_score},
+                payload={
+                    "documents_extracted": len(document_texts),
+                    "confidence_score":    case.confidence_score,
+                    "priority":            case.priority,
+                },
             ))
             db.commit()
             db.refresh(case)

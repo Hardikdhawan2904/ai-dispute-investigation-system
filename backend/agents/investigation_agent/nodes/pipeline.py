@@ -41,7 +41,6 @@ _llm = ChatGroq(
     max_tokens=_cfg["max_tokens"],
     api_key=os.environ.get("GROQ_API_KEY"),
 )
-_llm_with_tools = _llm.bind_tools(_tools, parallel_tool_calls=True)
 
 
 # ── Nodes ──────────────────────────────────────────────────────────────────────

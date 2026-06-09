@@ -1,6 +1,15 @@
 """
 DisputeService — orchestrates workflow execution and database persistence.
-Sits between the API layer and the LangGraph workflow / ORM layer.
+
+Save-first architecture:
+  1. Case saved to DB immediately on submission (visible in queue, workflow_ready=False)
+  2. Agent 1 runs → intermediate DB save (classification fields)
+  3. Agent 2 runs → intermediate DB save (investigation_plan)
+  4. Final enrichment → DB update (priority, queue, SLA, status)
+  5. workflow_ready=True
+
+This means the case is always recoverable, always visible during processing,
+and analysts can see progress in real-time.
 """
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -27,12 +36,11 @@ class DisputeService:
     @staticmethod
     def submit_dispute(dispute_input: dict, db: Session, document_texts: Optional[List[str]] = None) -> dict:
         """
-        Full dispute submission pipeline:
-          1. Run LangGraph workflow (evidence text pre-extracted, passed in)
-          2. Persist dispute case
-          3. Write audit log
-          4. Persist workflow state snapshots
-        Returns the persisted DisputeCase dict.
+        Save-first dispute submission pipeline:
+          1. Save preliminary case to DB immediately (visible in queue)
+          2. Run LangGraph workflow — nodes save intermediate results to DB
+          3. Enrich with priority/queue/SLA and update DB record
+          4. Audit logs + workflow state snapshots
         """
         audit_logger.info(
             "Dispute submission received",
@@ -42,28 +50,47 @@ class DisputeService:
             },
         )
 
-        # Execute the LangGraph workflow — document_texts already extracted before this call
-        workflow_result = run_dispute_workflow(dispute_input, document_texts=document_texts or [])
-        final_case = workflow_result.get("final_case")
-        validation_errors = workflow_result.get("validation_errors", [])
+        # ── Step 1: Save to DB immediately ────────────────────────────────────
+        db_case = DisputeService._save_preliminary_case(dispute_input, db)
+        DisputeService._append_audit_log(
+            db=db, case_id=db_case.case_id,
+            event_type="CASE_RECEIVED", stage="intake",
+            message="Case received and saved to database. Analysis pipeline starting.",
+            payload={"customer_id": dispute_input.get("customer_id"), "transaction_id": dispute_input.get("transaction_id")},
+        )
+        db.commit()
+
+        # ── Step 2: Run LangGraph workflow (agents save intermediate results) ──
+        workflow_result = run_dispute_workflow(
+            dispute_input,
+            document_texts=document_texts or [],
+        )
+        final_case      = workflow_result.get("final_case")
+        validation_errors  = workflow_result.get("validation_errors", [])
         execution_trace = workflow_result.get("execution_trace", [])
 
         if not final_case:
-            # Validation failed — log and return error info
-            audit_logger.warning(
-                "Dispute rejected — validation failed",
-                extra={"errors": validation_errors},
+            # Validation failed — mark the already-saved case as rejected
+            db_case.status        = "Rejected"
+            db_case.workflow_ready = False
+            DisputeService._append_audit_log(
+                db=db, case_id=db_case.case_id,
+                event_type="VALIDATION_FAILED", stage="validation",
+                message=f"Submission rejected: {'; '.join(validation_errors)}",
+                payload={"errors": validation_errors},
             )
+            db.commit()
+            audit_logger.warning("Dispute rejected — validation failed", extra={"errors": validation_errors})
             return {
                 "success": False,
                 "errors": validation_errors,
-                "case_id": workflow_result.get("case_id", ""),
+                "case_id": db_case.case_id,
                 "final_case": None,
             }
 
-        # Enterprise enrichment before persisting
+        # ── Step 3: Enterprise enrichment ─────────────────────────────────────
         priority_score, priority_label = compute_priority(final_case)
-        final_case["priority"] = priority_label
+        final_case["priority"]       = priority_label
         final_case["priority_score"] = priority_score
 
         queue = assign_queue(final_case)
@@ -74,9 +101,8 @@ class DisputeService:
 
         manual_flag, manual_reason = should_flag_manual_review(final_case)
         final_case["requires_manual_review"] = manual_flag
-        final_case["manual_review_reason"] = manual_reason if manual_flag else None
+        final_case["manual_review_reason"]   = manual_reason if manual_flag else None
 
-        # Fallback safety net: any fallback case MUST have manual review (Change 6)
         if final_case.get("fallback_mode"):
             failure_reason = final_case.get("failure_reason", "UNKNOWN_ERROR")
             final_case["requires_manual_review"] = True
@@ -85,26 +111,25 @@ class DisputeService:
                 "Automated dispute classification could not be completed — manual investigation required."
             )
 
-        # Set status based on whether documents were submitted with the form
+        # Status: based on whether documents were submitted with the form
         inv_plan = final_case.get("investigation_plan") or {}
-        has_required_docs = isinstance(inv_plan, dict) and bool(inv_plan.get("required_documents"))
+        has_required_docs   = isinstance(inv_plan, dict) and bool(inv_plan.get("required_documents"))
         documents_submitted = bool(document_texts)
 
         if documents_submitted:
-            # Customer submitted files → agents analysed them → move straight to Under Investigation
             final_case["status"] = "Under Investigation"
         elif has_required_docs:
-            # No documents submitted but required → wait for them
             final_case["status"] = "Pending Documents"
-        # else: no docs required → stays "Dispute Raised" from workflow default
+        else:
+            final_case["status"] = "Dispute Raised"
 
-        # Persist the dispute case
-        db_case = DisputeService._persist_case(final_case, db)
+        # ── Step 4: Update the existing DB record with full results ────────────
+        DisputeService._update_case_with_results(db_case, final_case, db)
 
         # Sync to transactions + merchant_profiles
         sync_on_submission(db_case, db)
 
-        # Duplicate detection (post-persist so we exclude this case_id)
+        # Duplicate detection
         dup_of = find_duplicate(
             db_case.customer_id, db_case.transaction_id,
             db_case.amount, db_case.merchant or "", db,
@@ -128,7 +153,6 @@ class DisputeService:
                 payload={"reason": reason_msg},
             )
 
-        # Immutable audit record for every fallback activation (Change 7)
         if final_case.get("fallback_mode"):
             failure_reason = final_case.get("failure_reason", "UNKNOWN_ERROR")
             DisputeService._append_audit_log(
@@ -136,8 +160,7 @@ class DisputeService:
                 event_type="AGENT1_FALLBACK_ACTIVATED", stage="dispute_understanding",
                 message=(
                     f"Agent 1 (ARIA) was unavailable — fallback mode activated. "
-                    f"Failure reason: {failure_reason}. "
-                    "Case persisted with safe defaults. Manual review required."
+                    f"Failure reason: {failure_reason}. Manual review required."
                 ),
                 payload={
                     "fallback_mode":    True,
@@ -147,28 +170,24 @@ class DisputeService:
                 },
             )
 
-        # Append audit log
         DisputeService._append_audit_log(
-            db=db,
-            case_id=db_case.case_id,
-            event_type="CASE_CREATED",
-            stage="structured_output",
-            message=f"Dispute case created. Category: {db_case.dispute_category}, Priority: {db_case.priority}",
+            db=db, case_id=db_case.case_id,
+            event_type="CASE_CREATED", stage="structured_output",
+            message=f"Analysis complete. Category: {db_case.dispute_category}, Priority: {db_case.priority}",
             payload={
                 "confidence_score": db_case.confidence_score,
-                "risk_tags": db_case.risk_tags,
-                "assigned_queue": queue,
-                "priority_score": priority_score,
+                "risk_tags":        db_case.risk_tags,
+                "assigned_queue":   queue,
+                "priority_score":   priority_score,
             },
         )
 
-        # Persist workflow state snapshots
         DisputeService._persist_workflow_states(db, db_case.case_id, execution_trace)
 
         db.commit()
 
         audit_logger.info(
-            "Dispute case persisted",
+            "Dispute case analysis complete",
             extra={"case_id": db_case.case_id, "priority": db_case.priority},
         )
 
@@ -212,39 +231,29 @@ class DisputeService:
 
     @staticmethod
     def get_dashboard_stats(db: Session) -> dict:
-        total = db.query(DisputeCase).count()
+        total      = db.query(DisputeCase).count()
         open_cases = db.query(DisputeCase).filter(
             DisputeCase.status.in_(["Dispute Raised", "Under Investigation", "Pending Documents"])
         ).count()
-        fraud_cases = db.query(DisputeCase).filter(DisputeCase.fraud_suspicion == True).count()
+        fraud_cases    = db.query(DisputeCase).filter(DisputeCase.fraud_suspicion == True).count()
         critical_cases = db.query(DisputeCase).filter(DisputeCase.priority == "CRITICAL").count()
+        avg_conf       = db.query(func.avg(DisputeCase.confidence_score)).scalar() or 0.0
 
-        avg_conf = db.query(func.avg(DisputeCase.confidence_score)).scalar() or 0.0
-
-        # Category breakdown
-        cat_rows = db.query(DisputeCase.dispute_category, func.count()).group_by(DisputeCase.dispute_category).all()
-        cases_by_category = {row[0]: row[1] for row in cat_rows if row[0]}
-
-        # Priority breakdown
-        pri_rows = db.query(DisputeCase.priority, func.count()).group_by(DisputeCase.priority).all()
-        cases_by_priority = {row[0]: row[1] for row in pri_rows if row[0]}
-
-        # Status breakdown
-        stat_rows = db.query(DisputeCase.status, func.count()).group_by(DisputeCase.status).all()
-        cases_by_status = {row[0]: row[1] for row in stat_rows if row[0]}
-
-        recent = db.query(DisputeCase).order_by(desc(DisputeCase.created_at)).limit(5).all()
+        cat_rows  = db.query(DisputeCase.dispute_category, func.count()).group_by(DisputeCase.dispute_category).all()
+        pri_rows  = db.query(DisputeCase.priority,         func.count()).group_by(DisputeCase.priority).all()
+        stat_rows = db.query(DisputeCase.status,           func.count()).group_by(DisputeCase.status).all()
+        recent    = db.query(DisputeCase).order_by(desc(DisputeCase.created_at)).limit(5).all()
 
         return {
-            "total_cases": total,
-            "open_cases": open_cases,
-            "fraud_cases": fraud_cases,
-            "critical_cases": critical_cases,
+            "total_cases":         total,
+            "open_cases":          open_cases,
+            "fraud_cases":         fraud_cases,
+            "critical_cases":      critical_cases,
             "avg_confidence_score": round(float(avg_conf), 3),
-            "cases_by_category": cases_by_category,
-            "cases_by_priority": cases_by_priority,
-            "cases_by_status": cases_by_status,
-            "recent_cases": [c.to_dict() for c in recent],
+            "cases_by_category":   {r[0]: r[1] for r in cat_rows  if r[0]},
+            "cases_by_priority":   {r[0]: r[1] for r in pri_rows  if r[0]},
+            "cases_by_status":     {r[0]: r[1] for r in stat_rows if r[0]},
+            "recent_cases":        [c.to_dict() for c in recent],
         }
 
     @staticmethod
@@ -270,23 +279,18 @@ class DisputeService:
         if not case:
             return None
 
-        old_status = case.status
+        old_status  = case.status
         case.status = new_status
         case.updated_at = datetime.now(timezone.utc)
 
         DisputeService._append_audit_log(
-            db=db,
-            case_id=case_id,
-            event_type="STATUS_CHANGED",
-            stage="manual_update",
-            actor=actor,
+            db=db, case_id=case_id,
+            event_type="STATUS_CHANGED", stage="manual_update", actor=actor,
             message=f"Status changed from '{old_status}' to '{new_status}'",
             payload={"note": note, "actor": actor},
         )
 
-        # Sync to dispute_history + merchant resolution stats
         sync_on_resolution(case, db)
-
         db.commit()
         db.refresh(case)
         return case.to_dict()
@@ -294,53 +298,78 @@ class DisputeService:
     # ── Private helpers ────────────────────────────────────────────────────────
 
     @staticmethod
-    def _persist_case(final_case: dict, db: Session) -> DisputeCase:
+    def _save_preliminary_case(dispute_input: dict, db: Session) -> DisputeCase:
+        """
+        Persist the case immediately on submission with form data only.
+        AI fields are left at defaults — they are filled in by the workflow nodes
+        and _update_case_with_results() as the pipeline progresses.
+        """
         db_case = DisputeCase(
-            case_id=final_case["case_id"],
-            customer_id=final_case.get("customer_id", ""),
-            customer_name=final_case.get("customer_name", ""),
-            email=final_case.get("email", ""),
-            phone=final_case.get("phone", ""),
-            transaction_id=final_case.get("transaction_id", ""),
-            transaction_type=final_case.get("transaction_type", ""),
-            merchant=final_case.get("merchant", ""),
-            amount=final_case.get("amount", 0),
-            currency=final_case.get("currency", "INR"),
-            transaction_date=final_case.get("transaction_date", ""),
-            transaction_time=final_case.get("transaction_time", ""),
-            customer_comment=final_case.get("customer_comment", ""),
-            dispute_reason=final_case.get("dispute_reason", ""),
-            fraud_selected=final_case.get("fraud_selected", False),
-            dispute_category=final_case.get("dispute_category", "Other"),
-            fraud_suspicion=final_case.get("fraud_suspicion", False),
-            customer_intent_summary=final_case.get("customer_intent_summary", ""),
-            priority=final_case.get("priority", "MEDIUM"),
-            confidence_score=final_case.get("confidence_score", 0.5),
-            risk_tags=final_case.get("risk_tags", []),
-            structured_reasoning=final_case.get("structured_reasoning", ""),
-            evidence_match=final_case.get("evidence_match"),
-            evidence_match_note=final_case.get("evidence_match_note", ""),
-            status=final_case.get("status", "Dispute Raised"),
-            workflow_ready=True,
-            # Enterprise fields
-            assigned_queue=final_case.get("assigned_queue"),
-            priority_score=final_case.get("priority_score", 0.0),
-            sla_deadline=final_case.get("sla_deadline"),
-            sla_breached=False,
-            requires_manual_review=final_case.get("requires_manual_review", False),
-            manual_review_reason=final_case.get("manual_review_reason"),
-            transaction_metadata=final_case.get("transaction_metadata") or {},
-            investigation_plan=final_case.get("investigation_plan"),
-            confidence_factors=final_case.get("confidence_factors") or [],
-            tools_used=final_case.get("tools_used") or [],
-            agent_metadata=final_case.get("agent_metadata"),
-            metrics=final_case.get("metrics"),
-            fallback_mode=final_case.get("fallback_mode", False),
-            failure_reason=final_case.get("failure_reason"),
+            case_id          = dispute_input["case_id"],
+            customer_id      = dispute_input.get("customer_id", ""),
+            customer_name    = dispute_input.get("customer_name", ""),
+            email            = dispute_input.get("email", ""),
+            phone            = dispute_input.get("phone", ""),
+            transaction_id   = dispute_input.get("transaction_id", ""),
+            transaction_type = dispute_input.get("transaction_type", ""),
+            merchant         = dispute_input.get("merchant", ""),
+            amount           = dispute_input.get("amount", 0),
+            currency         = dispute_input.get("currency", "INR"),
+            transaction_date = dispute_input.get("transaction_date", ""),
+            transaction_time = dispute_input.get("transaction_time", ""),
+            customer_comment = dispute_input.get("customer_comment", ""),
+            dispute_reason   = dispute_input.get("dispute_reason", ""),
+            fraud_selected   = dispute_input.get("fraud_selected", False),
+            transaction_metadata = dispute_input.get("transaction_metadata") or {},
+            # Defaults until agents fill them in
+            status           = "Dispute Raised",
+            workflow_ready   = False,   # ← not complete yet
+            current_stage    = "intake",
+            priority         = "MEDIUM",
+            priority_score   = 0.0,
+            confidence_score = 0.0,
+            fraud_suspicion  = False,
+            risk_tags        = [],
+            confidence_factors = [],
+            tools_used       = [],
+            sla_breached     = False,
+            requires_manual_review = False,
+            fallback_mode    = False,
         )
         db.add(db_case)
-        db.flush()  # Get PK without committing
+        db.flush()
         return db_case
+
+    @staticmethod
+    def _update_case_with_results(db_case: DisputeCase, final_case: dict, db: Session) -> None:
+        """
+        Update the preliminary case record with the full AI analysis results.
+        Called after the workflow completes and enterprise enrichment is applied.
+        """
+        db_case.dispute_category        = final_case.get("dispute_category", "Other")
+        db_case.fraud_suspicion         = final_case.get("fraud_suspicion", False)
+        db_case.customer_intent_summary = final_case.get("customer_intent_summary", "")
+        db_case.priority                = final_case.get("priority", "MEDIUM")
+        db_case.confidence_score        = final_case.get("confidence_score", 0.5)
+        db_case.risk_tags               = final_case.get("risk_tags", [])
+        db_case.structured_reasoning    = final_case.get("structured_reasoning", "")
+        db_case.evidence_match          = final_case.get("evidence_match")
+        db_case.evidence_match_note     = final_case.get("evidence_match_note", "")
+        db_case.assigned_queue          = final_case.get("assigned_queue")
+        db_case.priority_score          = final_case.get("priority_score", 0.0)
+        db_case.sla_deadline            = final_case.get("sla_deadline")
+        db_case.requires_manual_review  = final_case.get("requires_manual_review", False)
+        db_case.manual_review_reason    = final_case.get("manual_review_reason")
+        db_case.investigation_plan      = final_case.get("investigation_plan")
+        db_case.confidence_factors      = final_case.get("confidence_factors") or []
+        db_case.tools_used              = final_case.get("tools_used") or []
+        db_case.agent_metadata          = final_case.get("agent_metadata")
+        db_case.metrics                 = final_case.get("metrics")
+        db_case.fallback_mode           = final_case.get("fallback_mode", False)
+        db_case.failure_reason          = final_case.get("failure_reason")
+        db_case.status                  = final_case.get("status", "Dispute Raised")
+        db_case.workflow_ready          = True
+        db_case.current_stage           = "completed"
 
     @staticmethod
     def _append_audit_log(
@@ -352,24 +381,18 @@ class DisputeService:
         actor: str = "system",
         payload: Optional[dict] = None,
     ) -> None:
-        log = AuditLog(
-            case_id=case_id,
-            event_type=event_type,
-            stage=stage,
-            actor=actor,
-            message=message,
-            payload=payload or {},
-        )
-        db.add(log)
+        db.add(AuditLog(
+            case_id=case_id, event_type=event_type, stage=stage,
+            actor=actor, message=message, payload=payload or {},
+        ))
 
     @staticmethod
     def _persist_workflow_states(db: Session, case_id: str, execution_trace: list) -> None:
         for entry in execution_trace:
-            ws = WorkflowState(
+            db.add(WorkflowState(
                 case_id=case_id,
                 node_name=entry.get("node", "unknown"),
                 execution_time_ms=entry.get("duration_ms"),
                 success=entry.get("success", True),
                 error_message=entry.get("details") if not entry.get("success") else None,
-            )
-            db.add(ws)
+            ))
