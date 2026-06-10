@@ -44,8 +44,9 @@ _ALWAYS_EVIDENCE_CATEGORIES = {
     "Other",           # Catch-all — evidence review always required
 }
 
-# Risk tags that trigger COMPLIANCE_AGENT
-# Extends beyond the investigation service to cover AML, social engineering, and velocity signals
+# Risk tags that trigger COMPLIANCE_AGENT — AML/regulatory signals only.
+# DUPLICATE_PAYMENT and RECURRING_DISPUTE are chargeback patterns handled by
+# CHARGEBACK_TEAM, not AML compliance. Do NOT include them here.
 _COMPLIANCE_TAGS = {
     "VELOCITY_BREACH",       # Multiple transactions in short window — AML signal
     "SUSPICIOUS_BEHAVIOR",   # Unusual pattern detected
@@ -53,8 +54,6 @@ _COMPLIANCE_TAGS = {
     "DEVICE_MISMATCH",       # Transaction from unrecognized device — AML/KYC review
     "OTP_VERIFIED",          # Customer shared OTP — social engineering, compliance must review
     "FRIENDLY_FRAUD_RISK",   # Pattern of false claims — compliance review required
-    "RECURRING_DISPUTE",     # Repeated subscription charge disputes — velocity pattern
-    "DUPLICATE_PAYMENT",     # Confirmed duplicate charge — payment integrity review
 }
 
 
@@ -147,12 +146,14 @@ def evaluate_case_complexity(case_id: str) -> str:
             score += len(high_risk)
             signals.append(f"High-risk tags: {', '.join(high_risk)}")
 
-        # Map score to complexity
+        # Map score to complexity.
+        # Agent 2 MEDIUM contributes score=2 — threshold aligned so that a MEDIUM
+        # Agent 2 assessment without additional signals stays MEDIUM (not LOW).
         if score >= 7:
             complexity = "CRITICAL"
-        elif score >= 5:
+        elif score >= 4:
             complexity = "HIGH"
-        elif score >= 3:
+        elif score >= 2:
             complexity = "MEDIUM"
         else:
             complexity = "LOW"
@@ -388,9 +389,9 @@ def estimate_workload(case_id: str) -> str:
 
         if score >= 7:
             complexity = "CRITICAL"
-        elif score >= 5:
+        elif score >= 4:
             complexity = "HIGH"
-        elif score >= 3:
+        elif score >= 2:
             complexity = "MEDIUM"
         else:
             complexity = "LOW"

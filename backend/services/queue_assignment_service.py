@@ -73,11 +73,12 @@ def assign_queue(case: dict) -> str:
             return "UPI_FRAUD"
         return "FRAUD_OPS"
 
-    # ── 2. Account takeover / suspicious behaviour / AML signals ─────────────
+    # ── 2. AML / regulatory signals — compliance-only triggers ──────────────────
+    # DUPLICATE_PAYMENT and RECURRING_DISPUTE are chargeback patterns, not AML.
+    # They fall through to the card chargeback / merchant queue below.
     _compliance_queue_tags = {
         "SUSPICIOUS_BEHAVIOR", "VELOCITY_BREACH", "MERCHANT_BLACKLISTED",
-        "DEVICE_MISMATCH", "OTP_VERIFIED", "FRIENDLY_FRAUD_RISK",
-        "RECURRING_DISPUTE", "DUPLICATE_PAYMENT",
+        "DEVICE_MISMATCH", "OTP_VERIFIED",
     }
     if any(t in risk_tags for t in _compliance_queue_tags):
         # Fraud takes precedence — only route to compliance if no fraud flag

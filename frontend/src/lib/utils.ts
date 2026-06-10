@@ -22,7 +22,8 @@ export function formatDate(dateString: string): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Asia/Kolkata",
+    hour12: true,
+    timeZone: "UTC",
   }).format(new Date(dateString));
 }
 

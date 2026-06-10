@@ -151,6 +151,44 @@ def finalize_node(state: OrchestrationAgentState) -> dict:
     parsed.setdefault("workflow_reasoning",             [])
     parsed.setdefault("tool_decisions",                 [])
 
+    # ── Server-side workflow path validation — LLM output overridden by tools ──
+    # The LLM (Llama 8B) sometimes drops agents from the path. The deterministic
+    # tool results are authoritative; recompute and override here.
+    try:
+        from agents.orchestration_agent.tools import (
+            _FRAUD_CATEGORIES, _MERCHANT_CATEGORIES,
+            _ALWAYS_EVIDENCE_CATEGORIES, _COMPLIANCE_TAGS, _AGENT_ORDER,
+        )
+        inv_plan  = case_input.get("investigation_plan") or {}
+        category  = case_input.get("dispute_category") or "Other"
+        fraud     = case_input.get("fraud_suspicion") or case_input.get("fraud_selected") or False
+        tags      = case_input.get("risk_tags") or []
+        ev_match  = case_input.get("evidence_match")
+
+        authoritative: list = []
+        if fraud or category in _FRAUD_CATEGORIES:
+            authoritative.append("FRAUD_AGENT")
+        has_doc_gaps = (
+            ev_match is not True
+            or (isinstance(inv_plan, dict) and bool(inv_plan.get("required_documents")))
+            or category in _ALWAYS_EVIDENCE_CATEGORIES
+        )
+        if has_doc_gaps:
+            authoritative.append("EVIDENCE_AGENT")
+        if category in _MERCHANT_CATEGORIES:
+            authoritative.append("MERCHANT_AGENT")
+        if any(t in _COMPLIANCE_TAGS for t in tags):
+            authoritative.append("COMPLIANCE_AGENT")
+
+        seen = set()
+        authoritative_path = [a for a in _AGENT_ORDER if a in authoritative and not seen.add(a)]
+
+        if authoritative_path:
+            parsed["workflow_path"]   = authoritative_path
+            parsed["required_agents"] = authoritative_path
+    except Exception as _e:
+        agent_logger.warning(f"WOA server-side path validation failed: {_e}")
+
     # completed_agents — server-stamped, never trust LLM value on first run.
     # Preserve what the LLM returned if it read completed agents from the tool
     # results; default to empty list when absent.

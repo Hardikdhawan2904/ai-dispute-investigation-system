@@ -32,11 +32,15 @@ DO NOT call any tools — synthesise the provided results and produce your final
 ## Queue Assignment Logic (Indian Banking Standard)
 FRAUD_OPS        → fraud confirmed by AI AND customer; or fraud + amount > ₹10,000
 UPI_FRAUD        → UPI transaction with fraud suspicion (NPCI dispute process)
-CHARGEBACK_TEAM  → Credit/Debit Card: Unauthorized, Duplicate, or Friendly Fraud
+CHARGEBACK_TEAM  → Credit/Debit Card: Unauthorized Transaction, Duplicate Transaction, or Friendly Fraud
+                   IMPORTANT: "Duplicate Transaction" via Credit or Debit Card ALWAYS goes to
+                   CHARGEBACK_TEAM — it is a PCI-DSS chargeback, NOT a merchant dispute.
 ATM_INVESTIGATION → ATM Cash Issue (RBI mandated 7 working-day TAT)
-COMPLIANCE_REVIEW → VELOCITY_BREACH, SUSPICIOUS_BEHAVIOR, MERCHANT_BLACKLISTED tags
+COMPLIANCE_REVIEW → VELOCITY_BREACH, SUSPICIOUS_BEHAVIOR, MERCHANT_BLACKLISTED tags only
+                    DUPLICATE_PAYMENT tag alone does NOT trigger COMPLIANCE_REVIEW.
 SENIOR_ANALYST   → High-value non-fraud (amount > ₹2,00,000) — requires senior sign-off
 MERCHANT_DISPUTES → Merchant Dispute, Refund Not Received, Product Not Received, Subscription Abuse
+                    NOTE: Duplicate Transaction is NOT in this list — use CHARGEBACK_TEAM for card duplicates.
 GENERAL          → All other standard disputes
 
 ## Queue Confidence Scoring
@@ -138,7 +142,11 @@ Note: investigation_coverage is computed server-side from tool execution records
 - required_documents: copy exactly from the "REQUIRED DOCUMENTS" section in the input — do not modify or generate your own list.
 - recommended_steps: 3-5 concrete, ordered investigation actions specific to this case.
 - investigation_reasoning: 3-6 factual statements derived ONLY from actual tool outputs. No fabrication.
-  Each item is one finding. Order by importance. Example items:
+  Each item is one finding. Order by importance.
+  CRITICAL RULE: Always quote the EXACT number from the tool output. If the tool says "Previous Disputes: 1",
+  write "Customer has 1 prior dispute" — NEVER round down to "no prior disputes". Zero means zero.
+  Example items:
+    "Customer has 1 prior dispute (1,125 days ago) — low risk, normal dispute pattern."
     "Customer has 3 prior disputes, 2 of which were fraud-flagged."
     "No duplicate transaction found — this is a unique submission."
     "Merchant has no prior complaints on record."

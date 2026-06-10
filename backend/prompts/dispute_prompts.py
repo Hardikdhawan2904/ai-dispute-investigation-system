@@ -37,27 +37,27 @@ Dispute Categories — assign EXACTLY one:
   "Friendly Fraud"            : evidence customer is disputing a legitimate transaction
   "Other"                     : genuinely unclassifiable
 
-Fraud Suspicion — set true if ANY of:
-  - Customer explicitly states they did NOT perform the transaction
-  - Unusual hour (midnight–5AM) transaction
-  - International merchant for a domestic card dispute
-  - OTP mentioned as shared with unknown party
-  - Sudden high-value transaction with no prior pattern
+Fraud Suspicion — set true ONLY if ANY of:
+  - Customer explicitly states they did NOT initiate the transaction (unauthorized)
+  - OTP mentioned as shared with an unknown party
+  - SIM swap, device loss, or account takeover explicitly described
+  DO NOT set true for: overcharge disputes, wrong amount, refund issues, or customer-initiated
+  transactions where the dispute is about amount accuracy.
 
-Risk Tags — include ALL applicable:
-  HIGH_VALUE_TRANSACTION    — amount > 50000
-  INTERNATIONAL_TRANSACTION — foreign merchant or currency mentioned
-  POSSIBLE_FRAUD            — fraud indicators present
-  DUPLICATE_PAYMENT         — same transaction multiple times
-  FRIENDLY_FRAUD_RISK       — customer may be filing false claim
-  HIGH_PRIORITY_CASE        — critical or high priority
-  OTP_VERIFIED              — customer mentions sharing OTP
-  DEVICE_MISMATCH           — transaction from unrecognized device
-  SUSPICIOUS_BEHAVIOR       — unusual pattern not fitting other categories
-  CARD_NOT_PRESENT          — online transaction
-  RECURRING_DISPUTE         — subscription or recurring charge issue
-  MERCHANT_BLACKLISTED      — known scam merchant pattern
-  VELOCITY_BREACH           — multiple transactions in short window
+Risk Tags — strict conditions below. DO NOT apply a tag unless its exact condition is met.
+  HIGH_VALUE_TRANSACTION    — ONLY when amount > 50000 INR. DO NOT apply for routine POS/restaurant/retail transactions below this threshold.
+  INTERNATIONAL_TRANSACTION — ONLY when currency is NOT INR, OR merchant is explicitly a foreign entity, OR customer comment mentions a foreign country/cross-border element. DO NOT apply to domestic Indian merchants even if the amount seems high.
+  POSSIBLE_FRAUD            — ONLY when fraud_selected=True AND fraud_signal_level from score_fraud_indicators is HIGH or CRITICAL. DO NOT apply for overcharge, wrong amount, or refund disputes where the customer acknowledged making the transaction.
+  DUPLICATE_PAYMENT         — ONLY when customer explicitly states the same charge appeared multiple times, or transaction context tool confirms duplicate.
+  FRIENDLY_FRAUD_RISK       — ONLY when customer claims goods were not received but evidence suggests delivery occurred, OR pattern of repeated disputes.
+  HIGH_PRIORITY_CASE        — ONLY when priority is CRITICAL or HIGH per the priority matrix.
+  OTP_VERIFIED              — ONLY when customer comment explicitly mentions OTP was shared with someone.
+  DEVICE_MISMATCH           — ONLY when customer reports transaction from an unknown/unregistered device.
+  SUSPICIOUS_BEHAVIOR       — ONLY when assess_transaction_context tool flags unusual behavior not covered by other tags.
+  CARD_NOT_PRESENT          — ONLY when transaction_type is online/e-commerce/card-not-present.
+  RECURRING_DISPUTE         — ONLY when dispute involves a subscription or recurring charge.
+  MERCHANT_BLACKLISTED      — ONLY when merchant name matches known scam patterns (crypto, lottery, prize, investment, forex) OR assess_transaction_context tool explicitly flags the merchant as suspicious. DO NOT apply to legitimate retail merchants (restaurants, stores, services).
+  VELOCITY_BREACH           — ONLY when customer comment or transaction context explicitly shows multiple similar charges within a short time window (minutes/hours). DO NOT apply based on transaction amount alone.
 
 ## FINAL OUTPUT
 Using the pre-computed tool results below, respond with ONLY this JSON object — no prose, no markdown fences:
@@ -75,7 +75,7 @@ Using the pre-computed tool results below, respond with ONLY this JSON object �
   "confidence_score": <compute from tool results per the formula above>,
   "confidence_factors": ["<one factor per adjustment applied, e.g. '+0.10 all required fields present'>", "..."],
   "risk_tags": ["<TAG>", "..."],
-  "structured_reasoning": "<3-5 sentences: why this category, why fraud_suspicion true/false, key evidence, what analyst should focus on first>",
+  "structured_reasoning": "<3-5 sentences covering: (1) why this category was chosen, (2) why fraud_suspicion is true/false, (3) what the evidence shows, (4) what the analyst should focus on first. DO NOT mention specific risk tag names — describe the underlying facts instead. Example: say 'the transaction amount is ₹2,890' not 'HIGH_VALUE_TRANSACTION is applied'.>",
   "evidence_match": <true|false|null — use verdict from verify_evidence_match; set null if NO_DOCUMENTS or CANNOT_VERIFY>,
   "evidence_match_note": "<1-2 sentences on document relevance, or empty string if no documents or OCR unavailable>",
   "status": "Dispute Raised",
