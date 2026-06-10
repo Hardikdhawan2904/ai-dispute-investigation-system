@@ -51,6 +51,9 @@ class DisputeWorkflowState(TypedDict):
     # Investigation plan (Agent 2 output)
     investigation_output: Optional[dict]
 
+    # Workflow plan (Agent 3 — WOA output)
+    orchestration_output: Optional[dict]
+
     # Final output
     final_case: Optional[dict]
 
@@ -321,6 +324,26 @@ def _save_agent2_to_db(case_id: str, investigation_plan: dict) -> None:
         db.close()
 
 
+def _save_agent3_to_db(case_id: str, workflow_plan: dict) -> None:
+    """Intermediate DB save after Agent 3 — workflow plan available immediately."""
+    if not case_id:
+        return
+    from database.database import SessionLocal
+    from database.models import DisputeCase
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if case:
+            case.workflow_plan  = workflow_plan
+            case.current_stage  = "agent3_complete"
+            db.commit()
+    except Exception as exc:
+        workflow_logger.warning(f"Intermediate Agent 3 DB save failed for {case_id}: {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def dispute_understanding_node(state: DisputeWorkflowState) -> dict:
     """
     Invokes the Dispute Understanding Agent (Groq LLM).
@@ -492,6 +515,52 @@ def investigation_node(state: DisputeWorkflowState) -> dict:
         }
 
 
+def orchestration_node(state: DisputeWorkflowState) -> dict:
+    """
+    Invokes the Workflow Orchestration Agent (WOA, Agent 3).
+    Reads Agent 1 + Agent 2 results from DB, determines required specialist
+    agents, generates workflow path, and identifies the next execution step.
+    """
+    from agents.orchestration_agent import run_orchestration_agent
+
+    start = time.time()
+    node  = "orchestration"
+
+    try:
+        workflow_plan = run_orchestration_agent(state.get("case_id", ""))
+        # Intermediate save — workflow plan available in DB immediately
+        _save_agent3_to_db(state.get("case_id", ""), workflow_plan)
+        log_workflow_event(
+            workflow_logger,
+            event="NODE_ORCHESTRATION_COMPLETE",
+            stage=node,
+            case_id=state.get("case_id"),
+            extra={
+                "workflow_complexity": workflow_plan.get("workflow_complexity"),
+                "required_agents":     workflow_plan.get("required_agents"),
+                "next_agent":          workflow_plan.get("next_agent"),
+                "escalation_required": workflow_plan.get("escalation_required"),
+            },
+        )
+        return {
+            "orchestration_output": workflow_plan,
+            "current_stage":        node,
+            "execution_trace":      _trace(
+                node, start, True,
+                f"complexity={workflow_plan.get('workflow_complexity')} "
+                f"next={workflow_plan.get('next_agent')} "
+                f"agents={workflow_plan.get('required_agents')}"
+            ),
+        }
+    except Exception as exc:
+        workflow_logger.warning(f"Orchestration agent failed: {exc}", exc_info=True)
+        return {
+            "orchestration_output": None,
+            "current_stage":        node,
+            "execution_trace":      _trace(node, start, False, f"agent failed: {exc}"),
+        }
+
+
 def structured_output_node(state: DisputeWorkflowState) -> dict:
     """
     Merge intake data + AI analysis into the canonical DisputeCase dict.
@@ -543,6 +612,8 @@ def structured_output_node(state: DisputeWorkflowState) -> dict:
         "transaction_metadata": d.get("transaction_metadata") or {},
         # Investigation plan (Agent 2)
         "investigation_plan": state.get("investigation_output"),
+        # Workflow plan (Agent 3 — WOA)
+        "workflow_plan": state.get("orchestration_output"),
         # Workflow
         "status": "Dispute Raised",
         "workflow_ready": True,
@@ -612,6 +683,7 @@ def build_dispute_workflow() -> Any:
     graph.add_node("dispute_understanding", dispute_understanding_node)
     graph.add_node("reasoning",            reasoning_node)
     graph.add_node("investigation",        investigation_node)
+    graph.add_node("orchestration",        orchestration_node)
     graph.add_node("structured_output",    structured_output_node)
     graph.add_node("invalid_submission",   invalid_submission_node)
 
@@ -640,9 +712,10 @@ def build_dispute_workflow() -> Any:
     )
 
     graph.add_edge("dispute_understanding", "reasoning")
-    graph.add_edge("reasoning", "investigation")
-    graph.add_edge("investigation", "structured_output")
-    graph.add_edge("structured_output", END)
+    graph.add_edge("reasoning",             "investigation")
+    graph.add_edge("investigation",         "orchestration")
+    graph.add_edge("orchestration",         "structured_output")
+    graph.add_edge("structured_output",     END)
     graph.add_edge("pending_documents", END)
     graph.add_edge("invalid_submission", END)
 
@@ -673,6 +746,7 @@ def run_dispute_workflow(dispute_input: dict, document_texts: Optional[List[str]
         "required_documents":   [],
         "ai_analysis":          None,
         "investigation_output": None,
+        "orchestration_output": None,
         "final_case":           None,
         "execution_trace":      [],
         "current_stage":        "start",

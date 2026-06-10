@@ -43,11 +43,13 @@ export default function InternalReviewPage() {
   const [fraudOnly, setFraudOnly]           = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    listCases({ limit: 200 })
-      .then((r) => { setCases(r.cases); setTotal(r.total); })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    listCases({ limit: 50 })
+      .then((r) => { if (!cancelled) { setCases(r.cases); setTotal(r.total); } })
+      .catch((err) => { if (!cancelled) console.error(err); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [refreshKey]);
 
   const handleSocketEvent = useCallback((event: DisputeSocketEvent) => {

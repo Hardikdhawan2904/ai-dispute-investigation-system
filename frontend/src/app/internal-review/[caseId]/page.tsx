@@ -24,11 +24,11 @@ const CASE_STATUSES: CaseStatus[] = [
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getReliabilityLabel(score: number): string {
-  if (score >= 0.85) return "High Reliability";
-  if (score >= 0.70) return "Good Reliability";
-  if (score >= 0.55) return "Moderate Reliability";
-  if (score >= 0.40) return "Limited Reliability";
-  return "Low Reliability";
+  if (score >= 0.85) return "High Strength";
+  if (score >= 0.70) return "Good Strength";
+  if (score >= 0.55) return "Moderate Strength";
+  if (score >= 0.40) return "Limited Strength";
+  return "Low Strength";
 }
 
 function parseFindings(text: string): { bullets: string[]; conclusion: string } {
@@ -61,9 +61,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function InfoRow({ label, value, mono = false }: { label: string; value?: string | number | boolean | null; mono?: boolean }) {
   const display = value === true ? "Yes" : value === false ? "No" : (value ?? "—");
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
-      <span style={{ fontSize: "0.68rem", color: "#64748B" }}>{label}</span>
-      <span style={{ fontSize: "0.72rem", color: "#F8FAFC", wordBreak: "break-all", fontFamily: mono ? "ui-monospace, monospace" : undefined }}>{String(display)}</span>
+    <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "0.5rem", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
+      <span style={{ fontSize: "0.68rem", color: "#64748B", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+      <span style={{ fontSize: "0.72rem", color: "#F8FAFC", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, fontFamily: mono ? "ui-monospace, monospace" : undefined }}>{String(display)}</span>
     </div>
   );
 }
@@ -127,7 +127,7 @@ export default function CaseWorkspace() {
   const [elapsed, setElapsed]               = useState(0);
   const [uploads, setUploads]               = useState<CaseUploadFile[]>([]);
   const [lightbox, setLightbox]             = useState<string | null>(null);
-  const [activeTab, setActiveTab]           = useState<"analysis" | "investigation" | "evidence" | "audit" | "workflow">("analysis");
+  const [activeTab, setActiveTab]           = useState<"analysis" | "investigation" | "evidence" | "audit" | "workflow" | "orchestration">("analysis");
   const [whyPlanOpen, setWhyPlanOpen]       = useState(false);
   const [liveUpdate, setLiveUpdate]         = useState(false);
   const [sidebarOpen, setSidebarOpen]       = useState<Record<string, boolean>>({
@@ -200,9 +200,12 @@ export default function CaseWorkspace() {
   const ariaVersion    = (caseData as any).agent_metadata?.agent_version ?? "ARIA v1.x";
   const iiaVersion     = (plan as any)?.agent_version ?? "IIA v1.x";
 
+  const wfPlan = caseData.workflow_plan;
+
   const tabs = [
     { key: "analysis",      label: "Case Analysis" },
     { key: "investigation", label: "Investigation" },
+    { key: "orchestration", label: "Orchestration" },
     { key: "evidence",      label: `Evidence (${uploads.length})` },
     { key: "audit",         label: "Audit Trail" },
     { key: "workflow",      label: "Workflow" },
@@ -733,6 +736,247 @@ export default function CaseWorkspace() {
             );
           })()}
 
+          {/* ── Case Coordination tab ─────────────────────────────────────── */}
+          {activeTab === "orchestration" && (() => {
+            if (!wfPlan) return (
+              <Panel style={{ padding: "3rem", textAlign: "center" }}>
+                <p style={{ fontSize: "0.8rem", color: "#64748B" }}>Case coordination plan not yet generated.</p>
+                <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: "0.5rem" }}>Re-analyse the case to generate the coordination plan.</p>
+              </Panel>
+            );
+
+            // ── Business-language translation maps ──────────────────────────
+            const reviewLabels: Record<string, { label: string; color: string; action: string }> = {
+              FRAUD_AGENT:      { label: "Fraud Review",         color: "#FCA5A5", action: "Conduct fraud investigation and verify transaction authenticity" },
+              MERCHANT_AGENT:   { label: "Merchant Verification", color: "#FCD34D", action: "Contact merchant and request transaction confirmation" },
+              EVIDENCE_AGENT:   { label: "Evidence Verification", color: "#60A5FA", action: "Verify submitted documents and supporting evidence" },
+              COMPLIANCE_AGENT: { label: "Compliance Review",    color: "#A78BFA", action: "Complete compliance assessment and regulatory review" },
+            };
+
+            const operationalStatus: Record<string, string> = {
+              READY:       "Pending Review",
+              IN_PROGRESS: "Under Review",
+              WAITING:     "Awaiting Response",
+              COMPLETED:   "Ready for Resolution",
+              ESCALATED:   "Escalated — Senior Review Required",
+            };
+
+            const complexityColor: Record<string, string> = {
+              CRITICAL: "#FCA5A5", HIGH: "#FCD34D", MEDIUM: "#60A5FA", LOW: "#4ADE80",
+            };
+            const escalationColor: Record<string, string> = {
+              CRITICAL: "#FCA5A5", HIGH: "#FCD34D", MEDIUM: "#FDE68A",
+            };
+
+            const complexColor  = complexityColor[wfPlan.workflow_complexity] ?? "#94A3B8";
+            const escalColor    = wfPlan.escalation_level ? (escalationColor[wfPlan.escalation_level] ?? "#FCD34D") : null;
+            const statusLabel   = operationalStatus[wfPlan.workflow_status] ?? wfPlan.workflow_status;
+            const statusColor   = wfPlan.workflow_status === "COMPLETED"   ? "#4ADE80"
+                                : wfPlan.workflow_status === "ESCALATED"   ? "#FCA5A5"
+                                : wfPlan.workflow_status === "IN_PROGRESS" ? "#FCD34D"
+                                : wfPlan.workflow_status === "WAITING"     ? "#FB923C"
+                                : "#60A5FA";
+
+            const nextReview    = wfPlan.next_agent ? (reviewLabels[wfPlan.next_agent] ?? { label: wfPlan.next_agent, color: "#94A3B8", action: "Review this case" }) : null;
+            const nextAction    = nextReview?.action ?? "No further reviews required — case is ready for resolution.";
+            const requiredReviews = (wfPlan.required_agents ?? []).map(a => reviewLabels[a] ?? { label: a, color: "#94A3B8", action: "" });
+
+            // Translate technical reasoning into analyst-friendly language
+            const sanitiseReason = (r: string): string => {
+              const agentPhrases: [RegExp, string][] = [
+                [/FRAUD_AGENT\s*(mandatory|required|needed)?/gi,      "Fraud review is required"],
+                [/EVIDENCE_AGENT\s*(mandatory|required|needed)?/gi,   "Evidence verification is required"],
+                [/MERCHANT_AGENT\s*(mandatory|required|needed)?/gi,   "Merchant verification is required"],
+                [/COMPLIANCE_AGENT\s*(mandatory|required|needed)?/gi, "Compliance review is required"],
+                [/\bAgent\s*[123]\b/gi,                               "case assessment"],
+                [/\bLLM\b/gi,                                         "assessment"],
+                [/\bfallback\b/gi,                                    "standard criteria"],
+                [/\btool\b/gi,                                        "check"],
+                [/\borchestrat\w+\b/gi,                               "coordination"],
+                [/\bworkflow path\b/gi,                               "review process"],
+                [/\brouting\b/gi,                                     "case direction"],
+              ];
+              let out = r;
+              for (const [pattern, replacement] of agentPhrases) {
+                out = out.replace(pattern, replacement);
+              }
+              // Capitalise first letter after replacements
+              return out.charAt(0).toUpperCase() + out.slice(1);
+            };
+
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+
+                {/* Fallback info — reworded as operational note, not technical error */}
+                {wfPlan.fallback_mode && (
+                  <div style={{ padding: "0.625rem 1rem", backgroundColor: "#1E293B", border: "1px solid #334155", borderRadius: 4, display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
+                    <AlertTriangle style={{ width: 13, height: 13, color: "#94A3B8", flexShrink: 0, marginTop: 2 }} />
+                    <span style={{ fontSize: "0.7rem", color: "#94A3B8" }}>
+                      Case routing completed using standard assessment criteria.
+                    </span>
+                  </div>
+                )}
+
+                {/* ── Row 1: Four metric cards ── */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem" }}>
+                  <Panel>
+                    <Label>Case Complexity</Label>
+                    <div style={{ fontSize: "1rem", fontWeight: 700, color: complexColor }}>{wfPlan.workflow_complexity}</div>
+                  </Panel>
+                  <Panel>
+                    <Label>Escalation</Label>
+                    {wfPlan.escalation_required
+                      ? <div style={{ fontSize: "0.9rem", fontWeight: 700, color: escalColor ?? "#FCD34D" }}>{wfPlan.escalation_level} — Required</div>
+                      : <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#4ADE80" }}>Not Required</div>}
+                  </Panel>
+                  <Panel>
+                    <Label>Estimated Effort</Label>
+                    <div style={{ fontSize: "1rem", fontWeight: 700, color: "#F8FAFC" }}>{wfPlan.estimated_investigation_hours}h</div>
+                    <div style={{ fontSize: "0.65rem", color: "#64748B", marginTop: 2 }}>{wfPlan.analyst_level} Analyst</div>
+                  </Panel>
+                  <Panel>
+                    <Label>Human Review</Label>
+                    {wfPlan.manual_review_required
+                      ? <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#FCA5A5" }}>Required</div>
+                      : <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#4ADE80" }}>Not Required</div>}
+                  </Panel>
+                </div>
+
+                {/* ── Row 2: Review Summary — primary card ── */}
+                <Panel style={{ border: "1px solid #334155" }}>
+                  <SectionTitle>Review Summary</SectionTitle>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem 2rem" }}>
+                    <div>
+                      <Label>Required Reviews</Label>
+                      {requiredReviews.length > 0
+                        ? <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem", marginTop: 4 }}>
+                            {requiredReviews.map(r => (
+                              <span key={r.label} style={{ fontSize: "0.7rem", fontWeight: 600, color: r.color, padding: "0.15rem 0.5rem", backgroundColor: `${r.color}14`, border: `1px solid ${r.color}33`, borderRadius: 3 }}>{r.label}</span>
+                            ))}
+                          </div>
+                        : <div style={{ fontSize: "0.72rem", color: "#4ADE80", marginTop: 4 }}>No specialist review required</div>}
+                    </div>
+                    <div>
+                      <Label>Current Stage</Label>
+                      <div style={{ fontSize: "0.78rem", fontWeight: 700, color: statusColor, marginTop: 4 }}>{statusLabel}</div>
+                    </div>
+                    <div>
+                      <Label>Next Action</Label>
+                      <div style={{ fontSize: "0.72rem", color: "#F8FAFC", lineHeight: 1.5, marginTop: 4 }}>{nextAction}</div>
+                    </div>
+                    <div>
+                      <Label>Escalation</Label>
+                      <div style={{ fontSize: "0.72rem", marginTop: 4 }}>
+                        {wfPlan.escalation_required
+                          ? <span style={{ color: escalColor ?? "#FCD34D", fontWeight: 600 }}>{wfPlan.escalation_level} — Senior review required</span>
+                          : <span style={{ color: "#4ADE80" }}>Not required</span>}
+                      </div>
+                    </div>
+                  </div>
+                </Panel>
+
+                {/* ── Row 3: Next Action + Review Process ── */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+
+                  {/* Next Action */}
+                  <Panel>
+                    <SectionTitle>Next Action</SectionTitle>
+                    {nextReview ? (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.625rem" }}>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: nextReview.color, flexShrink: 0 }} />
+                          <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#F8FAFC" }}>{nextReview.label}</span>
+                        </div>
+                        <div style={{ fontSize: "0.72rem", color: "#CBD5E1", lineHeight: 1.55, marginBottom: "0.625rem" }}>{nextReview.action}</div>
+                        {(wfPlan.remaining_agents ?? []).length > 0 && (
+                          <div style={{ paddingTop: "0.5rem", borderTop: "1px solid #1E293B" }}>
+                            <Label>Following Reviews</Label>
+                            <div style={{ fontSize: "0.7rem", color: "#64748B", marginTop: 4 }}>
+                              {wfPlan.remaining_agents.map(a => reviewLabels[a]?.label ?? a).join("  →  ")}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <CheckCircle style={{ width: 14, height: 14, color: "#4ADE80", flexShrink: 0 }} />
+                        <span style={{ fontSize: "0.75rem", color: "#4ADE80" }}>No further reviews required — case is ready for resolution.</span>
+                      </div>
+                    )}
+                    <div style={{ marginTop: "0.75rem", paddingTop: "0.5rem", borderTop: "1px solid #1E293B" }}>
+                      <Label>Case Status</Label>
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, color: statusColor }}>{statusLabel}</span>
+                    </div>
+                  </Panel>
+
+                  {/* Case Progression */}
+                  <Panel>
+                    <SectionTitle>Case Progression</SectionTitle>
+                    {(wfPlan.workflow_path ?? []).length === 0 ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <CheckCircle style={{ width: 14, height: 14, color: "#4ADE80", flexShrink: 0 }} />
+                        <span style={{ fontSize: "0.72rem", color: "#4ADE80" }}>No specialist reviews required for this case.</span>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
+                        {wfPlan.workflow_path.map((agent, idx) => {
+                          const info   = reviewLabels[agent] ?? { label: agent, color: "#94A3B8", action: "" };
+                          const isDone = wfPlan.completed_agents?.includes(agent);
+                          const isNow  = agent === wfPlan.next_agent;
+                          return (
+                            <div key={agent} style={{ display: "flex", alignItems: "center", gap: "0.625rem", padding: "0.4rem 0.625rem", backgroundColor: isNow ? "#1E3A5F" : isDone ? "#0D2414" : "#0F172A", borderRadius: 3, border: `1px solid ${isNow ? "#2563EB" : isDone ? "#166534" : "#1E293B"}` }}>
+                              <span style={{ fontSize: "0.6rem", fontWeight: 700, color: "#475569", width: 14, textAlign: "center", flexShrink: 0 }}>{idx + 1}</span>
+                              <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: isDone ? "#4ADE80" : isNow ? info.color : "#334155", flexShrink: 0 }} />
+                              <span style={{ fontSize: "0.72rem", color: isDone ? "#4ADE80" : isNow ? "#F8FAFC" : "#64748B", flex: 1, fontWeight: isNow ? 600 : 400 }}>{info.label}</span>
+                              {isDone && <CheckCircle style={{ width: 11, height: 11, color: "#4ADE80", flexShrink: 0 }} />}
+                              {isNow  && !isDone && <span style={{ fontSize: "0.58rem", color: "#60A5FA", fontWeight: 700, flexShrink: 0 }}>NOW</span>}
+                              {!isNow && !isDone && <span style={{ fontSize: "0.58rem", color: "#334155", flexShrink: 0 }}>PENDING</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </Panel>
+                </div>
+
+                {/* ── Row 4: Required Reviews ── */}
+                {requiredReviews.length > 0 && (
+                  <Panel>
+                    <SectionTitle>Required Reviews</SectionTitle>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.5rem" }}>
+                      {requiredReviews.map(r => (
+                        <div key={r.label} style={{ display: "flex", alignItems: "flex-start", gap: "0.625rem", padding: "0.5rem 0.625rem", backgroundColor: "#0F172A", border: `1px solid ${r.color}22`, borderRadius: 3 }}>
+                          <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: r.color, flexShrink: 0, marginTop: 3 }} />
+                          <div>
+                            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: r.color, marginBottom: 2 }}>{r.label}</div>
+                            <div style={{ fontSize: "0.65rem", color: "#64748B", lineHeight: 1.4 }}>{r.action}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Panel>
+                )}
+
+                {/* ── Row 5: Case Routing Summary ── */}
+                {(wfPlan.workflow_reasoning ?? []).length > 0 && (
+                  <Panel>
+                    <SectionTitle>Case Routing Summary</SectionTitle>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+                      {wfPlan.workflow_reasoning.map((r, i) => (
+                        <div key={i} style={{ display: "flex", gap: "0.625rem", alignItems: "flex-start", padding: "0.45rem 0", borderBottom: i < wfPlan.workflow_reasoning.length - 1 ? "1px solid #1E293B" : "none" }}>
+                          <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#334155", flexShrink: 0, marginTop: 6 }} />
+                          <span style={{ fontSize: "0.72rem", color: "#CBD5E1", lineHeight: 1.55 }}>{sanitiseReason(r)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </Panel>
+                )}
+
+
+              </div>
+            );
+          })()}
+
           {/* ── Evidence tab ──────────────────────────────────────────────── */}
           {activeTab === "evidence" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
@@ -888,9 +1132,9 @@ export default function CaseWorkspace() {
             )}
           </Panel>
 
-          {/* Assessment Reliability — renamed from Case Confidence */}
+          {/* Assessment Strength */}
           <Panel>
-            <SectionTitle>Assessment Reliability</SectionTitle>
+            <SectionTitle>Assessment Strength</SectionTitle>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
               <span style={{ fontSize: "0.75rem", fontWeight: 600, color: confColor }}>{reliabilityLabel}</span>
               <span style={{ fontSize: "0.95rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: confColor }}>{confidencePct}%</span>

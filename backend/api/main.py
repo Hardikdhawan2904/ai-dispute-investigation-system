@@ -17,9 +17,11 @@ from database.database import init_db
 from api.routes import disputes, health, auth, customer, dispute_tracking
 from api.routes import ops_cases, ops_analytics, queues
 from api.websocket_manager import ws_manager
+from api.executor import analysis_executor
 from utils.logger import api_logger
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -27,6 +29,7 @@ async def lifespan(app: FastAPI):
     init_db()
     api_logger.info("Database initialised")
     yield
+    analysis_executor.shutdown(wait=False)
     api_logger.info("=== BFSI Dispute Resolution Platform — Shutdown ===")
 
 

@@ -5,6 +5,7 @@ import asyncio
 import threading
 from pathlib import Path
 from typing import List, Optional
+from api.executor import analysis_executor
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
@@ -124,7 +125,7 @@ async def submit_dispute_public(
             db.close()
 
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, _run_sync)
+    result = await loop.run_in_executor(analysis_executor, _run_sync)
 
     if not result["success"]:
         await ws_manager.broadcast({
@@ -170,9 +171,9 @@ def get_document_requirements(
 
 
 @router.get("/cases", response_model=CasesListResponse)
-def list_cases(
+async def list_cases(
     skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=100),
     status: Optional[str] = Query(default=None),
     priority: Optional[str] = Query(default=None),
     category: Optional[str] = Query(default=None),
@@ -185,19 +186,19 @@ def list_cases(
     )
     return CasesListResponse(
         total=result["total"],
-        cases=[DisputeCaseResponse(**_safe_case_dict(c)) for c in result["cases"]],
+        cases=[DisputeCaseResponse(**_list_case_dict(c)) for c in result["cases"]],
     )
 
 
 @router.get("/stats", response_model=DashboardStatsResponse)
-def dashboard_stats(db: Session = Depends(get_db)):
+async def dashboard_stats(db: Session = Depends(get_db)):
     stats = DisputeService.get_dashboard_stats(db)
     recent = [DisputeCaseResponse(**_safe_case_dict(c)) for c in stats.pop("recent_cases", [])]
     return DashboardStatsResponse(**stats, recent_cases=recent)
 
 
 @router.get("/cases/{case_id}", response_model=DisputeCaseResponse)
-def get_case(case_id: str, db: Session = Depends(get_db)):
+async def get_case(case_id: str, db: Session = Depends(get_db)):
     case = DisputeService.get_case(case_id, db)
     if not case:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
@@ -205,7 +206,7 @@ def get_case(case_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/cases/{case_id}/status", response_model=DisputeCaseResponse)
-def update_case_status(case_id: str, body: StatusUpdateRequest, db: Session = Depends(get_db)):
+async def update_case_status(case_id: str, body: StatusUpdateRequest, db: Session = Depends(get_db)):
     updated = DisputeService.update_status(case_id, body.status, body.actor, body.note, db)
     if not updated:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
@@ -213,7 +214,7 @@ def update_case_status(case_id: str, body: StatusUpdateRequest, db: Session = De
 
 
 @router.get("/cases/{case_id}/audit-logs")
-def get_audit_logs(case_id: str, db: Session = Depends(get_db)):
+async def get_audit_logs(case_id: str, db: Session = Depends(get_db)):
     logs = DisputeService.get_audit_logs(case_id, db)
     if not logs and not DisputeService.get_case(case_id, db):
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
@@ -221,7 +222,7 @@ def get_audit_logs(case_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/cases/{case_id}/workflow-states")
-def get_workflow_states(case_id: str, db: Session = Depends(get_db)):
+async def get_workflow_states(case_id: str, db: Session = Depends(get_db)):
     states = DisputeService.get_workflow_states(case_id, db)
     return {"case_id": case_id, "workflow_states": states}
 
@@ -275,9 +276,9 @@ async def upload_case_documents(
         saved.append(safe_name)
 
     if saved:
-        # Immediately advance status so customer sees progress right away
-        if case.status in ("Pending Documents", "Dispute Raised"):
-            case.status = "Under Investigation"
+        # Re-evaluate status now that new files are on disk
+        from services.document_rules import resolve_investigation_status
+        case.status = resolve_investigation_status(case, case_id)
 
         db.add(AuditLog(
             case_id=case_id,
@@ -328,7 +329,8 @@ def _reanalyse_after_upload(case_id: str) -> None:
                     document_texts.append(f"[{f.name}]\n{text}")
 
     # ── Phase 3: run agents (slow LLM calls, no DB held) ─────────────────────
-    from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db
+    from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db
+    from agents.orchestration_agent import run_orchestration_agent
     try:
         result = run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
     except Exception as exc:
@@ -347,6 +349,14 @@ def _reanalyse_after_upload(case_id: str) -> None:
     except Exception:
         pass
 
+    # Agent 3 reads Agent 1 + Agent 2 results from DB
+    try:
+        wf_plan = run_orchestration_agent(case_id)
+        if wf_plan:
+            _save_agent3_to_db(case_id, wf_plan)
+    except Exception:
+        pass
+
     # ── Phase 4: save priority + manual-review flags, add audit log ──────────
     db = SessionLocal()
     try:
@@ -356,6 +366,8 @@ def _reanalyse_after_upload(case_id: str) -> None:
 
         from services.queue_assignment_service import assign_queue
         from services.sla_service import compute_sla_deadline
+        from services.document_rules import resolve_investigation_status
+        case.status = resolve_investigation_status(case, case_id)
         priority_score, priority_label = compute_priority(case.to_dict())
         case.priority_score = priority_score
         case.priority       = priority_label
@@ -406,6 +418,65 @@ def _reanalyse_after_upload(case_id: str) -> None:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _list_case_dict(case: dict) -> dict:
+    """Lightweight dict for list endpoints — strips large JSON blobs.
+    investigation_plan and workflow_plan are only fetched on case detail view."""
+    return {
+        "case_id":              case.get("case_id", ""),
+        "customer_id":          case.get("customer_id", ""),
+        "customer_name":        case.get("customer_name"),
+        "transaction_id":       case.get("transaction_id", ""),
+        "transaction_type":     case.get("transaction_type", ""),
+        "merchant":             case.get("merchant", ""),
+        "amount":               case.get("amount", 0.0),
+        "currency":             case.get("currency", "INR"),
+        "dispute_reason":       case.get("dispute_reason"),
+        "fraud_selected":       case.get("fraud_selected", False),
+        "dispute_category":     case.get("dispute_category"),
+        "fraud_suspicion":      case.get("fraud_suspicion", False),
+        "priority":             case.get("priority", "MEDIUM"),
+        "confidence_score":     case.get("confidence_score", 0.0),
+        "risk_tags":            case.get("risk_tags", []),
+        "evidence_match":       case.get("evidence_match"),
+        "fallback_mode":        case.get("fallback_mode", False),
+        "failure_reason":       case.get("failure_reason"),
+        "status":               case.get("status", "Dispute Raised"),
+        "workflow_ready":       case.get("workflow_ready", False),
+        "assigned_queue":       case.get("assigned_queue"),
+        "assigned_analyst":     case.get("assigned_analyst"),
+        "priority_score":       case.get("priority_score", 0.0),
+        "sla_deadline":         case.get("sla_deadline"),
+        "sla_breached":         case.get("sla_breached", False),
+        "sla_paused_at":        case.get("sla_paused_at"),
+        "duplicate_of":         case.get("duplicate_of"),
+        "requires_manual_review": case.get("requires_manual_review", False),
+        "manual_review_reason": case.get("manual_review_reason"),
+        "locked_by":            case.get("locked_by"),
+        "locked_at":            case.get("locked_at"),
+        "created_at":           case.get("created_at") or "",
+        "updated_at":           case.get("updated_at"),
+        # Omitted: investigation_plan, workflow_plan, structured_reasoning,
+        #          customer_intent_summary, confidence_factors, tools_used,
+        #          agent_metadata, metrics, evidence_match_note, transaction_metadata
+        # These are loaded on demand in GET /cases/{case_id}
+        "investigation_plan":   None,
+        "workflow_plan":        None,
+        # Required by Pydantic schema but empty for list view
+        "email":                None,
+        "phone":                None,
+        "transaction_date":     None,
+        "transaction_time":     None,
+        "customer_comment":     None,
+        "confidence_factors":   [],
+        "tools_used":           [],
+        "agent_metadata":       None,
+        "metrics":              None,
+        "evidence_match_note":  None,
+        "structured_reasoning": None,
+        "customer_intent_summary": None,
+    }
+
+
 def _safe_case_dict(case: dict) -> dict:
     return {
         "case_id": case.get("case_id", ""),
@@ -455,4 +526,5 @@ def _safe_case_dict(case: dict) -> dict:
         "created_at": case.get("created_at") or "",
         "updated_at": case.get("updated_at"),
         "investigation_plan": case.get("investigation_plan"),
+        "workflow_plan":      case.get("workflow_plan"),
     }

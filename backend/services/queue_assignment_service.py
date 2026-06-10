@@ -38,12 +38,21 @@ QUEUE_DISPLAY = {
     "GENERAL":           "General Disputes",
 }
 
-# Dispute categories routed to the merchant disputes queue
+# Dispute categories routed to the merchant disputes queue (non-card path)
 _MERCHANT_CATEGORIES = {
     "Merchant Dispute",
     "Refund Not Received",
     "Product Not Received",
     "Subscription Abuse",
+    "Duplicate Transaction",
+}
+
+# Categories that are PCI-DSS chargebacks when made via Credit/Debit Card
+_CHARGEBACK_CATEGORIES = {
+    "Unauthorized Transaction",
+    "Duplicate Transaction",
+    "Friendly Fraud",
+    "Merchant Dispute",         # Card overcharge via merchant → PCI chargeback path
 }
 
 
@@ -64,23 +73,24 @@ def assign_queue(case: dict) -> str:
             return "UPI_FRAUD"
         return "FRAUD_OPS"
 
-    # ── 2. Account takeover / suspicious behaviour signals ────────────────────
-    if "SUSPICIOUS_BEHAVIOR" in risk_tags or "VELOCITY_BREACH" in risk_tags:
-        return "COMPLIANCE_REVIEW"
+    # ── 2. Account takeover / suspicious behaviour / AML signals ─────────────
+    _compliance_queue_tags = {
+        "SUSPICIOUS_BEHAVIOR", "VELOCITY_BREACH", "MERCHANT_BLACKLISTED",
+        "DEVICE_MISMATCH", "OTP_VERIFIED", "FRIENDLY_FRAUD_RISK",
+        "RECURRING_DISPUTE", "DUPLICATE_PAYMENT",
+    }
+    if any(t in risk_tags for t in _compliance_queue_tags):
+        # Fraud takes precedence — only route to compliance if no fraud flag
+        if not fraud:
+            return "COMPLIANCE_REVIEW"
 
     # ── 3. ATM cash issues — RBI mandated 7-day TAT ───────────────────────────
     if category == "ATM Cash Issue" or tx_type == "ATM":
         return "ATM_INVESTIGATION"
 
     # ── 4. Card chargebacks — PCI-DSS governed process ───────────────────────
-    if tx_type in ("Credit Card", "Debit Card") and category in (
-        "Unauthorized Transaction", "Duplicate Transaction", "Friendly Fraud"
-    ):
+    if tx_type in ("Credit Card", "Debit Card") and category in _CHARGEBACK_CATEGORIES:
         return "CHARGEBACK_TEAM"
-
-    # ── 5. Compliance triggers ────────────────────────────────────────────────
-    if "MERCHANT_BLACKLISTED" in risk_tags or "DEVICE_MISMATCH" in risk_tags:
-        return "COMPLIANCE_REVIEW"
 
     # ── 6. High-value non-fraud — senior sign-off required ────────────────────
     if amount > 200_000:   # > ₹2 lakhs

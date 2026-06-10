@@ -147,6 +147,54 @@ export interface InvestigationPlan {
   created_at?: string;
 }
 
+export type SpecialistAgent =
+  | "FRAUD_AGENT"
+  | "MERCHANT_AGENT"
+  | "EVIDENCE_AGENT"
+  | "COMPLIANCE_AGENT";
+
+export type WorkflowStatus = "READY" | "IN_PROGRESS" | "WAITING" | "COMPLETED" | "ESCALATED";
+export type WorkflowComplexity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type AnalystLevel = "JUNIOR" | "STANDARD" | "SENIOR" | "LEAD";
+export type EscalationLevel = "CRITICAL" | "HIGH" | "MEDIUM" | null;
+
+export interface WorkflowPlan {
+  case_id: string;
+  workflow_complexity: WorkflowComplexity;
+  required_agents: SpecialistAgent[];
+  workflow_path: SpecialistAgent[];
+  workflow_status: WorkflowStatus;
+  next_agent: SpecialistAgent | null;
+  remaining_agents: SpecialistAgent[];
+  completed_agents: SpecialistAgent[];
+  escalation_required: boolean;
+  escalation_level: EscalationLevel;
+  manual_review_required: boolean;
+  estimated_investigation_hours: number;
+  analyst_level: AnalystLevel;
+  workflow_reasoning: string[];
+  tool_decisions: Array<{ tool: string; reason: string }>;
+  tools_used: string[];
+  agent_metadata?: {
+    agent_name: string;
+    agent_version: string;
+    model: string;
+    execution_timestamp: string;
+    execution_duration_ms: number;
+  };
+  metrics?: {
+    total_duration_ms: number;
+    llm_calls: number;
+    tool_calls: number;
+    retry_count: number;
+  };
+  workflow_execution_id: string;
+  workflow_version: string;
+  fallback_mode?: boolean;
+  failure_reason?: string | null;
+  created_at?: string;
+}
+
 export interface DisputeCase {
   case_id: string;
   customer_id: string;
@@ -185,6 +233,8 @@ export interface DisputeCase {
   locked_by?: string;
   locked_at?: string;
   investigation_plan?: InvestigationPlan | null;
+  // Agent 3 — WOA workflow plan
+  workflow_plan?: WorkflowPlan | null;
   // Agent 1 fallback resilience
   fallback_mode?: boolean;
   failure_reason?: string | null;

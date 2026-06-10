@@ -367,6 +367,7 @@ class DisputeService:
         db_case.metrics                 = final_case.get("metrics")
         db_case.fallback_mode           = final_case.get("fallback_mode", False)
         db_case.failure_reason          = final_case.get("failure_reason")
+        db_case.workflow_plan           = final_case.get("workflow_plan")
         db_case.status                  = final_case.get("status", "Dispute Raised")
         db_case.workflow_ready          = True
         db_case.current_stage           = "completed"

@@ -7,6 +7,7 @@ risk explanations, and advanced search.
 import asyncio
 import pathlib
 from typing import Optional
+from api.executor import analysis_executor
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from sqlalchemy.orm import Session
@@ -42,7 +43,7 @@ router = APIRouter(prefix="/api/ops/cases", tags=["Ops — Cases"])
 # ── Case notes ────────────────────────────────────────────────────────────────
 
 @router.get("/{case_id}/notes")
-def get_notes(case_id: str, include_internal: bool = True, db: Session = Depends(get_db)):
+async def get_notes(case_id: str, include_internal: bool = True, db: Session = Depends(get_db)):
     return {"case_id": case_id, "notes": case_note_service.get_notes(case_id, db, include_internal)}
 
 
@@ -59,7 +60,7 @@ def add_note(case_id: str, body: AddNoteRequest, db: Session = Depends(get_db)):
 # ── Document requests ─────────────────────────────────────────────────────────
 
 @router.get("/{case_id}/document-requests")
-def get_document_requests(case_id: str, db: Session = Depends(get_db)):
+async def get_document_requests(case_id: str, db: Session = Depends(get_db)):
     return {"case_id": case_id, "requests": document_request_service.get_requests(case_id, db)}
 
 
@@ -85,7 +86,7 @@ def fulfill_document_request(request_id: int, db: Session = Depends(get_db)):
 # ── Case lock ─────────────────────────────────────────────────────────────────
 
 @router.get("/{case_id}/lock")
-def check_lock(case_id: str, db: Session = Depends(get_db)):
+async def check_lock(case_id: str, db: Session = Depends(get_db)):
     return case_lock_service.check_lock(case_id, db)
 
 
@@ -121,7 +122,7 @@ def analyst_action(case_id: str, body: AnalystActionRequest, db: Session = Depen
 # ── Investigation timeline ────────────────────────────────────────────────────
 
 @router.get("/{case_id}/timeline")
-def get_timeline(case_id: str, db: Session = Depends(get_db)):
+async def get_timeline(case_id: str, db: Session = Depends(get_db)):
     case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
@@ -134,7 +135,7 @@ def get_timeline(case_id: str, db: Session = Depends(get_db)):
 # ── Risk explanation ──────────────────────────────────────────────────────────
 
 @router.get("/{case_id}/risk-explanation")
-def get_risk_explanation(case_id: str, db: Session = Depends(get_db)):
+async def get_risk_explanation(case_id: str, db: Session = Depends(get_db)):
     case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
@@ -177,7 +178,7 @@ async def reanalyse_case(case_id: str):
         return run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
 
     try:
-        result = await asyncio.get_running_loop().run_in_executor(None, _run_analysis)
+        result = await asyncio.get_running_loop().run_in_executor(analysis_executor, _run_analysis)
     except GroqRateLimitError as exc:
         m = re.search(r"try again in (\S+)", str(exc), re.IGNORECASE)
         wait = f" Please try again in {m.group(1)}." if m else ""
@@ -191,7 +192,8 @@ async def reanalyse_case(case_id: str):
 
     def _save_result():
         from database.database import SessionLocal as _SL
-        from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db
+        from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db
+        from agents.orchestration_agent import run_orchestration_agent
         from services.queue_assignment_service import assign_queue
         from services.sla_service import compute_sla_deadline
 
@@ -206,6 +208,14 @@ async def reanalyse_case(case_id: str):
         except Exception:
             pass
 
+        # Agent 3 reads Agent 1 + Agent 2 results from DB
+        try:
+            wf_plan = run_orchestration_agent(case_id)
+            if wf_plan:
+                _save_agent3_to_db(case_id, wf_plan)
+        except Exception:
+            pass
+
         db = _SL()
         try:
             # Re-read authoritative state after both intermediate saves
@@ -213,11 +223,8 @@ async def reanalyse_case(case_id: str):
             if not case:
                 return None
 
-            # Auto-switch status based on investigation plan required docs
-            inv_plan = case.investigation_plan or {}
-            if isinstance(inv_plan, dict) and inv_plan.get("required_documents"):
-                if case.status not in ("Resolved", "Rejected", "Closed"):
-                    case.status = "Pending Documents"
+            from services.document_rules import resolve_investigation_status
+            case.status = resolve_investigation_status(case, case_id)
 
             priority_score, priority_label = priority_engine.compute_priority(case.to_dict())
             case.priority_score = priority_score
@@ -248,7 +255,7 @@ async def reanalyse_case(case_id: str):
             db.close()
 
     try:
-        final = await asyncio.get_running_loop().run_in_executor(None, _save_result)
+        final = await asyncio.get_running_loop().run_in_executor(analysis_executor, _save_result)
     except Exception as exc:
         from utils.logger import api_logger
         api_logger.error(f"reanalyse _save_result executor failed: {type(exc).__name__}: {exc}", exc_info=True)
@@ -265,7 +272,7 @@ _IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 _UPLOADS_ROOT = pathlib.Path("uploads")
 
 @router.get("/{case_id}/uploads")
-def list_uploads(case_id: str, db: Session = Depends(get_db)):
+async def list_uploads(case_id: str, db: Session = Depends(get_db)):
     case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -328,7 +335,7 @@ async def analyse_uploads(case_id: str):
         return run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
 
     try:
-        result = await asyncio.get_running_loop().run_in_executor(None, _run_analysis)
+        result = await asyncio.get_running_loop().run_in_executor(analysis_executor, _run_analysis)
     except GroqRateLimitError as exc:
         raise HTTPException(status_code=503, detail="Groq API token limit exceeded.") from exc
     except Exception as exc:
@@ -336,8 +343,9 @@ async def analyse_uploads(case_id: str):
 
     def _save_result():
         from database.database import SessionLocal as _SL
-        from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db
+        from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db
         from agents.investigation_agent import run_investigation_agent as _run_inv
+        from agents.orchestration_agent import run_orchestration_agent as _run_woa
         from services.priority_engine import compute_priority as _cp
         from services.queue_assignment_service import assign_queue as _aq
         from services.sla_service import compute_sla_deadline as _sla
@@ -354,12 +362,23 @@ async def analyse_uploads(case_id: str):
         except Exception:
             pass
 
+        # Agent 3 reads Agent 1 + Agent 2 results from DB
+        try:
+            wf_plan = _run_woa(case_id)
+            if wf_plan:
+                _save_agent3_to_db(case_id, wf_plan)
+        except Exception:
+            pass
+
         db = _SL()
         try:
             # Re-read authoritative state after both intermediate saves
             case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
             if not case:
                 return None
+
+            from services.document_rules import resolve_investigation_status
+            case.status = resolve_investigation_status(case, case_id)
 
             # Recompute priority, queue, SLA on the fresh DB state
             priority_score, priority_label = _cp(case.to_dict())
@@ -395,7 +414,7 @@ async def analyse_uploads(case_id: str):
         finally:
             db.close()
 
-    response = await asyncio.get_running_loop().run_in_executor(None, _save_result)
+    response = await asyncio.get_running_loop().run_in_executor(analysis_executor, _save_result)
     if response is None:
         raise HTTPException(status_code=404, detail="Case not found after analysis")
     return response
@@ -404,7 +423,7 @@ async def analyse_uploads(case_id: str):
 # ── Advanced search ───────────────────────────────────────────────────────────
 
 @router.delete("/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_case(case_id: str, db: Session = Depends(get_db)):
+async def delete_case(case_id: str, db: Session = Depends(get_db)):
     case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -415,7 +434,7 @@ def delete_case(case_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/search")
-def search_cases(body: CaseSearchRequest, db: Session = Depends(get_db)):
+async def search_cases(body: CaseSearchRequest, db: Session = Depends(get_db)):
     result = case_search_service.search_cases(
         db=db,
         query=body.query,

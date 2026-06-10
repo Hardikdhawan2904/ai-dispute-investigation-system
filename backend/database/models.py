@@ -194,16 +194,16 @@ class DisputeCase(Base):
     fraud_selected        = Column(Boolean, default=False)
 
     # AI Analysis outputs
-    dispute_category      = Column(String(128), nullable=True)
-    fraud_suspicion       = Column(Boolean, default=False)
+    dispute_category      = Column(String(128), nullable=True, index=True)
+    fraud_suspicion       = Column(Boolean, default=False, index=True)
     customer_intent_summary = Column(Text, nullable=True)
-    priority              = Column(String(32), default="MEDIUM")
+    priority              = Column(String(32), default="MEDIUM", index=True)
     confidence_score      = Column(Float, default=0.0)
     risk_tags             = Column(JSON, default=list)
     structured_reasoning  = Column(Text, nullable=True)
 
     # Workflow metadata
-    status                = Column(String(64), default="Dispute Raised")
+    status                = Column(String(64), default="Dispute Raised", index=True)
     workflow_ready        = Column(Boolean, default=False)
     current_stage         = Column(String(64), default="intake")
 
@@ -249,11 +249,14 @@ class DisputeCase(Base):
     fallback_mode         = Column(Boolean, default=False)
     failure_reason        = Column(String(64), nullable=True)
 
+    # Agent 3 — WOA (Workflow Orchestration Agent) output
+    workflow_plan         = Column(JSON, nullable=True)
+
     # Supporting evidence (raw form fields for re-analysis)
     transaction_metadata  = Column(JSON, default=dict)
 
-    # Timestamps
-    created_at            = Column(DateTime, default=_utc_now, nullable=False)
+    # Timestamps — indexed because every list query orders by created_at
+    created_at            = Column(DateTime, default=_utc_now, nullable=False, index=True)
     updated_at            = Column(DateTime, default=_utc_now, onupdate=_utc_now)
 
     # Relationships
@@ -310,6 +313,7 @@ class DisputeCase(Base):
             "metrics": self.metrics,
             "fallback_mode": self.fallback_mode or False,
             "failure_reason": self.failure_reason,
+            "workflow_plan": self.workflow_plan,
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
         }

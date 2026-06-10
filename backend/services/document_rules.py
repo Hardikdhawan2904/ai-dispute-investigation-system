@@ -219,6 +219,39 @@ def minimum_document_count(
     return base_min
 
 
+def resolve_investigation_status(case, case_id: str) -> str:
+    """
+    Determine the correct case status based on customer-required docs vs uploaded files.
+
+    Returns "Under Investigation" when all customer-side documents have been received,
+    "Pending Documents" when the customer still has items to submit,
+    or the existing status unchanged for terminal cases.
+
+    This is the single source of truth for the Pending Documents ↔ Under Investigation
+    transition and must be used by every re-analysis path.
+    """
+    if case.status in ("Resolved", "Rejected", "Closed", "Escalated"):
+        return case.status
+
+    import pathlib
+    customer_docs = get_customer_required_documents(
+        category        = case.dispute_category or "Other",
+        fraud_selected  = case.fraud_selected or False,
+        amount          = float(case.amount or 0),
+        risk_tags       = case.risk_tags or [],
+        transaction_type = case.transaction_type or "",
+    )
+
+    upload_dir   = pathlib.Path("uploads") / str(case_id)
+    upload_count = len([f for f in upload_dir.iterdir() if f.is_file()]) if upload_dir.exists() else 0
+
+    if not customer_docs:
+        # No customer-side docs required — move to Under Investigation once any analysis ran
+        return "Under Investigation" if (case.evidence_match is not None or upload_count > 0) else case.status
+
+    return "Under Investigation" if upload_count >= len(customer_docs) else "Pending Documents"
+
+
 def check_documents_sufficient(
     category: str,
     fraud_selected: bool,
