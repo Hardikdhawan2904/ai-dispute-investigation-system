@@ -86,7 +86,7 @@ def fulfill_document_request(request_id: int, db: Session = Depends(get_db)):
 # ── Case lock ─────────────────────────────────────────────────────────────────
 
 @router.get("/{case_id}/lock")
-async def check_lock(case_id: str, db: Session = Depends(get_db)):
+def check_lock(case_id: str, db: Session = Depends(get_db)):
     return case_lock_service.check_lock(case_id, db)
 
 
@@ -122,7 +122,7 @@ def analyst_action(case_id: str, body: AnalystActionRequest, db: Session = Depen
 # ── Investigation timeline ────────────────────────────────────────────────────
 
 @router.get("/{case_id}/timeline")
-async def get_timeline(case_id: str, db: Session = Depends(get_db)):
+def get_timeline(case_id: str, db: Session = Depends(get_db)):
     case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
@@ -135,7 +135,7 @@ async def get_timeline(case_id: str, db: Session = Depends(get_db)):
 # ── Risk explanation ──────────────────────────────────────────────────────────
 
 @router.get("/{case_id}/risk-explanation")
-async def get_risk_explanation(case_id: str, db: Session = Depends(get_db)):
+def get_risk_explanation(case_id: str, db: Session = Depends(get_db)):
     case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
@@ -272,7 +272,7 @@ _IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 _UPLOADS_ROOT = pathlib.Path("uploads")
 
 @router.get("/{case_id}/uploads")
-async def list_uploads(case_id: str, db: Session = Depends(get_db)):
+def list_uploads(case_id: str, db: Session = Depends(get_db)):
     case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")

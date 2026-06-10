@@ -171,7 +171,7 @@ def get_document_requirements(
 
 
 @router.get("/cases", response_model=CasesListResponse)
-async def list_cases(
+def list_cases(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
     status: Optional[str] = Query(default=None),
@@ -191,14 +191,14 @@ async def list_cases(
 
 
 @router.get("/stats", response_model=DashboardStatsResponse)
-async def dashboard_stats(db: Session = Depends(get_db)):
+def dashboard_stats(db: Session = Depends(get_db)):
     stats = DisputeService.get_dashboard_stats(db)
     recent = [DisputeCaseResponse(**_safe_case_dict(c)) for c in stats.pop("recent_cases", [])]
     return DashboardStatsResponse(**stats, recent_cases=recent)
 
 
 @router.get("/cases/{case_id}", response_model=DisputeCaseResponse)
-async def get_case(case_id: str, db: Session = Depends(get_db)):
+def get_case(case_id: str, db: Session = Depends(get_db)):
     case = DisputeService.get_case(case_id, db)
     if not case:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
@@ -206,7 +206,7 @@ async def get_case(case_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/cases/{case_id}/status", response_model=DisputeCaseResponse)
-async def update_case_status(case_id: str, body: StatusUpdateRequest, db: Session = Depends(get_db)):
+def update_case_status(case_id: str, body: StatusUpdateRequest, db: Session = Depends(get_db)):
     updated = DisputeService.update_status(case_id, body.status, body.actor, body.note, db)
     if not updated:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
@@ -214,7 +214,7 @@ async def update_case_status(case_id: str, body: StatusUpdateRequest, db: Sessio
 
 
 @router.get("/cases/{case_id}/audit-logs")
-async def get_audit_logs(case_id: str, db: Session = Depends(get_db)):
+def get_audit_logs(case_id: str, db: Session = Depends(get_db)):
     logs = DisputeService.get_audit_logs(case_id, db)
     if not logs and not DisputeService.get_case(case_id, db):
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
@@ -222,7 +222,7 @@ async def get_audit_logs(case_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/cases/{case_id}/workflow-states")
-async def get_workflow_states(case_id: str, db: Session = Depends(get_db)):
+def get_workflow_states(case_id: str, db: Session = Depends(get_db)):
     states = DisputeService.get_workflow_states(case_id, db)
     return {"case_id": case_id, "workflow_states": states}
 
