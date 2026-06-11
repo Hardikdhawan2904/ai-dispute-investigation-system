@@ -24,6 +24,7 @@ Routing rules (complete):
 """
 from langchain_core.tools import tool
 
+from services.routing_rules import COMPLIANCE_AGENT_TAGS as _COMPLIANCE_TAGS_BASE
 from utils.logger import agent_logger
 
 # ── Routing tables ────────────────────────────────────────────────────────────
@@ -44,17 +45,8 @@ _ALWAYS_EVIDENCE_CATEGORIES = {
     "Other",           # Catch-all — evidence review always required
 }
 
-# Risk tags that trigger COMPLIANCE_AGENT — AML/regulatory signals only.
-# DUPLICATE_PAYMENT and RECURRING_DISPUTE are chargeback patterns handled by
-# CHARGEBACK_TEAM, not AML compliance. Do NOT include them here.
-_COMPLIANCE_TAGS = {
-    "VELOCITY_BREACH",       # Multiple transactions in short window — AML signal
-    "SUSPICIOUS_BEHAVIOR",   # Unusual pattern detected
-    "MERCHANT_BLACKLISTED",  # Known scam merchant — regulatory escalation needed
-    "DEVICE_MISMATCH",       # Transaction from unrecognized device — AML/KYC review
-    "OTP_VERIFIED",          # Customer shared OTP — social engineering, compliance must review
-    "FRIENDLY_FRAUD_RISK",   # Pattern of false claims — compliance review required
-}
+# Tags that trigger COMPLIANCE_AGENT — imported from shared routing_rules.
+_COMPLIANCE_TAGS = _COMPLIANCE_TAGS_BASE
 
 
 _COMPLEXITY_WEIGHTS = {

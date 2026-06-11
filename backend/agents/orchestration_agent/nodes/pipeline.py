@@ -21,7 +21,11 @@ from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wai
 
 from agents.orchestration_agent.config import get_llm_config, get_agent_tool_names, load_agent_config
 from agents.orchestration_agent.state import OrchestrationAgentState
-from agents.orchestration_agent.tools import TOOL_REGISTRY
+from agents.orchestration_agent.tools import (
+    TOOL_REGISTRY,
+    _FRAUD_CATEGORIES, _MERCHANT_CATEGORIES,
+    _ALWAYS_EVIDENCE_CATEGORIES, _COMPLIANCE_TAGS, _AGENT_ORDER,
+)
 from utils.helpers import extract_json_from_text, utc_now_iso
 from utils.logger import agent_logger, log_workflow_event
 
@@ -151,14 +155,8 @@ def finalize_node(state: OrchestrationAgentState) -> dict:
     parsed.setdefault("workflow_reasoning",             [])
     parsed.setdefault("tool_decisions",                 [])
 
-    # ── Server-side workflow path validation — LLM output overridden by tools ──
-    # The LLM (Llama 8B) sometimes drops agents from the path. The deterministic
-    # tool results are authoritative; recompute and override here.
+    # ── Server-side workflow path — tool results are authoritative over LLM ─────
     try:
-        from agents.orchestration_agent.tools import (
-            _FRAUD_CATEGORIES, _MERCHANT_CATEGORIES,
-            _ALWAYS_EVIDENCE_CATEGORIES, _COMPLIANCE_TAGS, _AGENT_ORDER,
-        )
         inv_plan  = case_input.get("investigation_plan") or {}
         category  = case_input.get("dispute_category") or "Other"
         fraud     = case_input.get("fraud_suspicion") or case_input.get("fraud_selected") or False
