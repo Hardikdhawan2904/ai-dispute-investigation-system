@@ -1,24 +1,24 @@
+import os
+from dotenv import load_dotenv
 import psycopg2
 import json
 import random
 from datetime import datetime, timedelta
 
+load_dotenv()
+
 print("Connecting to database...")
-conn = psycopg2.connect(
-    host="localhost",
-    database="bfsi_dispute_db",
-    user="postgres",
-    password="sushant123su"
-)
+db_url = os.environ.get("DATABASE_URL")
+conn = psycopg2.connect(db_url)
 cur = conn.cursor()
 
 try:
     print("Clearing existing dispute cases and logs...")
-    cur.execute("DELETE FROM dispute_cases;")
     cur.execute("DELETE FROM audit_logs;")
     cur.execute("DELETE FROM workflow_states;")
     cur.execute("DELETE FROM case_notes;")
     cur.execute("DELETE FROM document_requests;")
+    cur.execute("DELETE FROM dispute_cases;")
     conn.commit()
     print("Existing dispute tables cleared.")
 

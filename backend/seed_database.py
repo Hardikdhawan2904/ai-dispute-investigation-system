@@ -1,16 +1,16 @@
+import os
+from dotenv import load_dotenv
 # pyrefly: ignore [missing-import]
 from faker import Faker
 import psycopg2
 from datetime import date
 
+load_dotenv()
+
 fake = Faker("en_IN")
 
-conn = psycopg2.connect(
-    host="localhost",
-    database="bfsi_dispute_db",
-    user="postgres",
-    password="sushant123su"
-)
+db_url = os.environ.get("DATABASE_URL")
+conn = psycopg2.connect(db_url)
 
 cur = conn.cursor()
 

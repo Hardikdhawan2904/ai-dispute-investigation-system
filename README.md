@@ -9,15 +9,15 @@ The long-term product vision is a multi-agent dispute intelligence system spanni
 Implemented today:
 
 - Public dispute submission with file upload and OCR/text extraction
+- **Agent 4: Identity & Trust Intelligence Agent** (validates user registry, KYC records, device fingerprints, and dispute history behavioral patterns)
 - Agent 1: dispute understanding and classification
 - Rule-based post-processing for tags, priority, queue, SLA, and manual-review flags
 - Agent 2: investigation planning using database-backed historical lookups
 - Persistence of case records, audit logs, and workflow snapshots
-- Internal operations dashboards and customer-safe tracking views
+- Internal operations dashboards and customer-safe tracking views (including the new "Trust Intelligence" workspace tab)
 
 Planned / represented in the broader workflow vision, but not yet implemented as dedicated agents:
 
-- Separate user verification / trust analysis agent
 - Merchant intelligence agent as a standalone layer
 - Dedicated evidence intelligence agent
 - Dedicated compliance / policy agent
@@ -31,14 +31,45 @@ The system currently works in this order:
 
 1. A customer or ops user submits a dispute from the frontend.
 2. The backend validates the form, generates a case ID, and extracts text from uploaded documents.
-3. Agent 1 analyzes the submission and classifies the dispute.
-4. The workflow applies deterministic enrichment rules on top of Agent 1 output.
-5. Agent 2 reads Agent 1 output and gathers historical intelligence from the database.
-6. The backend computes operational fields such as priority, queue, SLA deadline, and manual-review flags.
-7. The final case, investigation plan, workflow trace, and audit logs are saved in the database.
-8. Customer tracking pages and internal dashboards read from the stored case data.
+3. **Agent 4 (ITIA)** evaluates customer identity, KYC database profiles, device fingerprints, and historical dispute behavior concurrently to compute trust and risk scores.
+4. Agent 1 analyzes the submission and classifies the dispute, using the trust scoring context.
+5. The workflow applies deterministic enrichment rules on top of Agent 1 output.
+6. Agent 2 reads Agent 1 output and gathers historical intelligence from the database.
+7. The backend computes operational fields such as priority, queue, SLA deadline, and manual-review flags.
+8. The final case, investigation plan, workflow trace, and audit logs are saved in the database.
+9. Customer tracking pages and internal dashboards read from the stored case data (featuring the visual Trust Intelligence tab).
 
 ## Current Agent Architecture
+
+### Agent 4: Identity & Trust Intelligence Agent (ITIA)
+
+Purpose:
+
+- Evaluate customer identity registry, contact information, device fingerprints, and prior dispute activity.
+- Deterministically calculate trust and behavioral risk scores through parallel database-backed tool evaluations and LLM synthesis.
+- Provide a structured trust brief and identity status badge (`VERIFIED`, `SUSPICIOUS`, `FAILED`) to downstream agents.
+
+Inputs:
+
+- Customer intake profile data (name, email, phone, customer_id)
+- Device and transaction location metadata
+
+Database-backed lookups:
+
+- Customer KYC match profiles (Name, Phone, Email matches)
+- Device fingerprint indicators (Recognized device ID, location consistency, device risk rating)
+- Dispute history behavior checks (prior dispute count, velocity breach detection, friendly fraud indicators)
+
+Outputs:
+
+- `user_trust_score` (0.0 to 1.0)
+- `behavioral_risk_score` (0.0 to 1.0)
+- `identity_verification` (status: `VERIFIED`/`SUSPICIOUS`/`FAILED`)
+- `kyc_checks`
+- `device_fingerprint`
+- `dispute_behavior`
+- `trust_reasoning`
+- `trust_summary`
 
 ### Agent 1: Dispute Understanding Agent
 
@@ -226,6 +257,23 @@ Within the backend:
 - `utils/` - helpers, logging, extraction
 
 ## Local Development
+
+### Database Migrations & Seeding
+
+Before running the application, set up the PostgreSQL database columns and populate base data:
+
+1. **Run column migrations**:
+   ```bash
+   python -c "from database.database import init_db; init_db()"
+   ```
+2. **Seed base customer, merchant, and transaction records** (using standard hyphenated ID formats):
+   ```bash
+   python scripts/seed_postgresql_fixed.py
+   ```
+3. **Seed active cases** (for populating the operational workspace queue with mock case profiles and trust logs):
+   ```bash
+   python scripts/seed_dispute_cases.py
+   ```
 
 ### Backend
 

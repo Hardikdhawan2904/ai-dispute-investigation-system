@@ -1,17 +1,17 @@
+import os
+from dotenv import load_dotenv
 import psycopg2
 import random
 from datetime import datetime, timedelta
 from faker import Faker
 
+load_dotenv()
+
 fake = Faker("en_IN")
 
 print("Connecting to PostgreSQL database...")
-conn = psycopg2.connect(
-    host="localhost",
-    database="bfsi_dispute_db",
-    user="postgres",
-    password="sushant123su"
-)
+db_url = os.environ.get("DATABASE_URL")
+conn = psycopg2.connect(db_url)
 cur = conn.cursor()
 
 try:
