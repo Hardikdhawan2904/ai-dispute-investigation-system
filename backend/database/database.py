@@ -35,6 +35,7 @@ class Base(DeclarativeBase):
 
 def init_db() -> None:
     """Create all tables and apply incremental column migrations."""
+    # pyrefly: ignore [missing-import]
     import database.models  # noqa: F401 — registers all ORM models
     Base.metadata.create_all(bind=engine)
     _apply_column_migrations()
@@ -57,6 +58,27 @@ def _apply_column_migrations() -> None:
             conn.execute(text("ALTER TABLE dispute_cases ADD COLUMN workflow_plan JSON"))
             conn.commit()
             db_logger.info("Migration applied: dispute_cases.workflow_plan column added.")
+
+        # Identity & Trust Agent columns
+        if "trust_intelligence" not in existing_cols:
+            conn.execute(text("ALTER TABLE dispute_cases ADD COLUMN trust_intelligence JSON"))
+            conn.commit()
+            db_logger.info("Migration applied: dispute_cases.trust_intelligence column added.")
+
+        if "user_trust_score" not in existing_cols:
+            conn.execute(text("ALTER TABLE dispute_cases ADD COLUMN user_trust_score FLOAT DEFAULT 1.0"))
+            conn.commit()
+            db_logger.info("Migration applied: dispute_cases.user_trust_score column added.")
+
+        if "behavioral_risk_score" not in existing_cols:
+            conn.execute(text("ALTER TABLE dispute_cases ADD COLUMN behavioral_risk_score FLOAT DEFAULT 0.0"))
+            conn.commit()
+            db_logger.info("Migration applied: dispute_cases.behavioral_risk_score column added.")
+
+        if "identity_status" not in existing_cols:
+            conn.execute(text("ALTER TABLE dispute_cases ADD COLUMN identity_status VARCHAR(64) DEFAULT 'PENDING'"))
+            conn.commit()
+            db_logger.info("Migration applied: dispute_cases.identity_status column added.")
 
         # Performance indexes for list/filter queries
         existing_indexes = {idx["name"] for idx in inspector.get_indexes("dispute_cases")}

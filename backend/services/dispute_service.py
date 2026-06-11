@@ -322,6 +322,10 @@ class DisputeService:
             fraud_selected   = dispute_input.get("fraud_selected", False),
             transaction_metadata = dispute_input.get("transaction_metadata") or {},
             # Defaults until agents fill them in
+            trust_intelligence    = None,
+            user_trust_score      = 1.0,
+            behavioral_risk_score = 0.0,
+            identity_status       = "PENDING",
             status           = "Dispute Raised",
             workflow_ready   = False,   # ← not complete yet
             current_stage    = "intake",
@@ -368,6 +372,10 @@ class DisputeService:
         db_case.fallback_mode           = final_case.get("fallback_mode", False)
         db_case.failure_reason          = final_case.get("failure_reason")
         db_case.workflow_plan           = final_case.get("workflow_plan")
+        db_case.trust_intelligence      = final_case.get("trust_intelligence")
+        db_case.user_trust_score        = final_case.get("user_trust_score", 1.0)
+        db_case.behavioral_risk_score   = final_case.get("behavioral_risk_score", 0.0)
+        db_case.identity_status         = final_case.get("identity_status", "PENDING")
         db_case.status                  = final_case.get("status", "Dispute Raised")
         db_case.workflow_ready          = True
         db_case.current_stage           = "completed"

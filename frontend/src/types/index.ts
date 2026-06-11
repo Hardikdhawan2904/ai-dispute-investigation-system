@@ -235,11 +235,54 @@ export interface DisputeCase {
   investigation_plan?: InvestigationPlan | null;
   // Agent 3 — WOA workflow plan
   workflow_plan?: WorkflowPlan | null;
+  // Agent 4 — Trust Agent outputs
+  trust_intelligence?: TrustIntelligence | null;
+  user_trust_score?: number;
+  behavioral_risk_score?: number;
+  identity_status?: string;
   // Agent 1 fallback resilience
   fallback_mode?: boolean;
   failure_reason?: string | null;
   created_at: string;
   updated_at?: string;
+}
+
+export interface TrustIntelligence {
+  case_id: string;
+  user_trust_score: number;
+  behavioral_risk_score: number;
+  identity_verification: "VERIFIED" | "SUSPICIOUS" | "FAILED";
+  kyc_checks: {
+    name_match: boolean;
+    contact_match: boolean;
+    join_date: string;
+  };
+  device_fingerprint: {
+    recognized_device: boolean;
+    location_consistent: boolean;
+    device_risk: "LOW" | "MEDIUM" | "HIGH";
+  };
+  dispute_behavior: {
+    prior_dispute_count: number;
+    velocity_breach_detected: boolean;
+    friendly_fraud_risk: "LOW" | "MEDIUM" | "HIGH";
+  };
+  trust_reasoning: string[];
+  trust_summary: string;
+  tools_used?: string[];
+  agent_metadata?: {
+    name: string;
+    version: string;
+    model: string;
+    timestamp: string;
+    duration_ms: number;
+  };
+  metrics?: {
+    total_duration_ms: number;
+    llm_calls: number;
+    tool_calls: number;
+    retry_count: number;
+  };
 }
 
 export interface CaseNote {

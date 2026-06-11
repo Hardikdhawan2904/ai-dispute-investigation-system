@@ -174,6 +174,15 @@ async def reanalyse_case(case_id: str):
                     document_texts.append(f"[{f.name}]\n{text}")
 
     def _run_analysis():
+        from agents.identity_trust_agent import run_identity_trust_agent
+        from workflows.dispute_workflow import _save_identity_trust_to_db
+        try:
+            trust_res = run_identity_trust_agent({}, case_id=case_id)
+            if trust_res:
+                _save_identity_trust_to_db(case_id, trust_res)
+        except Exception as exc:
+            from utils.logger import api_logger
+            api_logger.warning(f"Reanalyse trust agent failed for {case_id}: {exc}")
         # Agent 1 reads its input from DB by case_id — no manual dict needed
         return run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
 
@@ -331,6 +340,15 @@ async def analyse_uploads(case_id: str):
         return {"case_id": case_id, "analysed": 0, "files": files}
 
     def _run_analysis():
+        from agents.identity_trust_agent import run_identity_trust_agent
+        from workflows.dispute_workflow import _save_identity_trust_to_db
+        try:
+            trust_res = run_identity_trust_agent({}, case_id=case_id)
+            if trust_res:
+                _save_identity_trust_to_db(case_id, trust_res)
+        except Exception as exc:
+            from utils.logger import api_logger
+            api_logger.warning(f"Analyse uploads trust agent failed for {case_id}: {exc}")
         # Agent 1 reads its input from DB by case_id
         return run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
 

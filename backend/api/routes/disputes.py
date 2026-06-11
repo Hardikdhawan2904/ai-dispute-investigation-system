@@ -45,7 +45,20 @@ async def submit_dispute_public(
     from utils.extractor import extract_text
     from database.models import BankCustomer, Transaction
 
-    data = DisputeSubmissionRequest.model_validate_json(payload).model_dump()
+    from pydantic import ValidationError
+    try:
+        data = DisputeSubmissionRequest.model_validate_json(payload).model_dump()
+    except ValidationError as err:
+        safe_errors = []
+        for e in err.errors(include_url=False):
+            safe_e = {k: v for k, v in e.items() if k != "ctx"}
+            if "ctx" in e:
+                safe_e["ctx"] = {ck: str(cv) for ck, cv in e["ctx"].items()}
+            safe_errors.append(safe_e)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=safe_errors,
+        )
 
     # Always resolve customer details from the DB — never trust form-submitted values.
     customer = db.query(BankCustomer).filter(
@@ -329,8 +342,17 @@ def _reanalyse_after_upload(case_id: str) -> None:
                     document_texts.append(f"[{f.name}]\n{text}")
 
     # ── Phase 3: run agents (slow LLM calls, no DB held) ─────────────────────
-    from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db
+    from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db, _save_identity_trust_to_db
+    from agents.identity_trust_agent import run_identity_trust_agent
     from agents.orchestration_agent import run_orchestration_agent
+
+    try:
+        trust_result = run_identity_trust_agent({}, case_id=case_id)
+        if trust_result:
+            _save_identity_trust_to_db(case_id, trust_result)
+    except Exception as exc:
+        api_logger.error(f"_reanalyse_after_upload identity_trust failed {case_id}: {exc}", exc_info=True)
+
     try:
         result = run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
     except Exception as exc:

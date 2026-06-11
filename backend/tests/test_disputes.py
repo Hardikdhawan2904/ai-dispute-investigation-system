@@ -71,7 +71,8 @@ def test_health_check():
 
 def test_submit_dispute_validation_error():
     """Submission with missing required fields should return 422."""
-    response = client.post("/api/disputes/submit", json={"customer_name": "Bad"})
+    import json
+    response = client.post("/api/disputes/submit-public", data={"payload": json.dumps({"customer_name": "Bad"})})
     assert response.status_code == 422
 
 
@@ -98,14 +99,16 @@ def test_get_nonexistent_case():
 
 def test_submit_dispute_invalid_amount():
     """Negative amount should fail validation."""
+    import json
     payload = {**SAMPLE_PAYLOAD, "amount": -100}
-    response = client.post("/api/disputes/submit", json=payload)
+    response = client.post("/api/disputes/submit-public", data={"payload": json.dumps(payload)})
     assert response.status_code == 422
 
 
 def test_submit_dispute_invalid_email():
+    import json
     payload = {**SAMPLE_PAYLOAD, "email": "not-an-email"}
-    response = client.post("/api/disputes/submit", json=payload)
+    response = client.post("/api/disputes/submit-public", data={"payload": json.dumps(payload)})
     assert response.status_code == 422
 
 

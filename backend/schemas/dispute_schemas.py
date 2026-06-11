@@ -75,6 +75,14 @@ class DisputeSubmissionRequest(BaseModel):
     def validate_currency(cls, v: str) -> str:
         return v.upper().strip()
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and "@" not in v:
+            raise ValueError("Invalid email format")
+        return v
+
+
 
 # ── Response Schemas ──────────────────────────────────────────────────────────
 

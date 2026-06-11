@@ -20,6 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 
+# pyrefly: ignore [missing-import]
 from database.database import Base
 
 
@@ -252,6 +253,12 @@ class DisputeCase(Base):
     # Agent 3 — WOA (Workflow Orchestration Agent) output
     workflow_plan         = Column(JSON, nullable=True)
 
+    # Identity & Trust Intelligence Agent outputs
+    trust_intelligence    = Column(JSON, nullable=True)
+    user_trust_score      = Column(Float, default=1.0)
+    behavioral_risk_score = Column(Float, default=0.0)
+    identity_status       = Column(String(64), default="PENDING")
+
     # Supporting evidence (raw form fields for re-analysis)
     transaction_metadata  = Column(JSON, default=dict)
 
@@ -314,6 +321,10 @@ class DisputeCase(Base):
             "fallback_mode": self.fallback_mode or False,
             "failure_reason": self.failure_reason,
             "workflow_plan": self.workflow_plan,
+            "trust_intelligence": self.trust_intelligence,
+            "user_trust_score": self.user_trust_score,
+            "behavioral_risk_score": self.behavioral_risk_score,
+            "identity_status": self.identity_status,
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
         }
