@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import psycopg2
 import random
 from datetime import datetime, timedelta
+# pyrefly: ignore [missing-import]
 from faker import Faker
 
 load_dotenv()
