@@ -149,21 +149,14 @@ def finalize_node(state: InvestigationAgentState) -> dict:
     parsed.setdefault("data_quality_factors",      [])
     parsed.setdefault("manual_review_reason",      [])
 
-    # Sanitise related_cases — LLM sometimes outputs null for numeric sub-fields,
-    # causing the frontend to display "—" instead of a number.
-    rc = parsed.get("related_cases")
-    if isinstance(rc, dict):
-        parsed["related_cases"] = {
-            "similar_cases":    int(rc.get("similar_cases")    or 0),
-            "resolved_in_favor": int(rc.get("resolved_in_favor") or 0),
-            "resolved_against":  int(rc.get("resolved_against")  or 0),
-            "resolution_rate":  float(rc.get("resolution_rate") or 0.0),
-        }
-    else:
-        parsed["related_cases"] = {
-            "similar_cases": 0, "resolved_in_favor": 0,
-            "resolved_against": 0, "resolution_rate": 0.0,
-        }
+    # Sanitise related_cases — LLM sometimes outputs null for numeric sub-fields.
+    rc = parsed.get("related_cases") or {}
+    parsed["related_cases"] = {
+        "similar_cases":     int(rc.get("similar_cases")     or 0),
+        "resolved_in_favor": int(rc.get("resolved_in_favor") or 0),
+        "resolved_against":  int(rc.get("resolved_against")  or 0),
+        "resolution_rate": float(rc.get("resolution_rate")   or 0.0),
+    }
 
     # Server-stamp required_documents — deterministic, never trust LLM output for this
     from services.document_rules import get_required_documents

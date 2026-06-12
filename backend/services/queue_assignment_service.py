@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import List
 
+from services.routing_rules import COMPLIANCE_TAGS as _COMPLIANCE_QUEUE_TAGS
+
 
 _QUEUES = [
     "FRAUD_OPS",
@@ -73,14 +75,8 @@ def assign_queue(case: dict) -> str:
             return "UPI_FRAUD"
         return "FRAUD_OPS"
 
-    # ── 2. AML / regulatory signals — compliance-only triggers ──────────────────
-    # DUPLICATE_PAYMENT and RECURRING_DISPUTE are chargeback patterns, not AML.
-    # They fall through to the card chargeback / merchant queue below.
-    _compliance_queue_tags = {
-        "SUSPICIOUS_BEHAVIOR", "VELOCITY_BREACH", "MERCHANT_BLACKLISTED",
-        "DEVICE_MISMATCH", "OTP_VERIFIED",
-    }
-    if any(t in risk_tags for t in _compliance_queue_tags):
+    # ── 2. AML / regulatory signals — see services/routing_rules.py ─────────────
+    if any(t in risk_tags for t in _COMPLIANCE_QUEUE_TAGS):
         # Fraud takes precedence — only route to compliance if no fraud flag
         if not fraud:
             return "COMPLIANCE_REVIEW"

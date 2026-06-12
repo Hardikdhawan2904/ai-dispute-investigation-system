@@ -21,11 +21,15 @@ from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wai
 
 from agents.dispute_agent.config import get_llm_config, get_agent_tool_names, load_agent_config
 from agents.dispute_agent.state import DisputeAgentState
-from agents.dispute_agent.tools import TOOL_REGISTRY
+from agents.dispute_agent.tools import TOOL_REGISTRY, _INTL_SIGNALS
 from prompts.dispute_prompts import SYSTEM_PROMPT, DISPUTE_DATA_TEMPLATE
 from utils.helpers import extract_json_from_text, utc_now_iso, generate_case_id
 from utils.logger import agent_logger, log_workflow_event
 from utils.pii_masking import mask_name, mask_id, mask_document, mask_free_text
+
+_REQUIRED_FIELDS   = ("customer_id", "transaction_id", "dispute_reason",
+                      "customer_comment", "merchant", "amount", "transaction_date")
+_FRAUD_CATEGORIES  = frozenset({"Unauthorized Transaction", "Friendly Fraud"})
 
 # ── LLM + tools + agent identity (all sourced from agent.yaml) ───────────────
 _cfg        = get_llm_config()
@@ -255,58 +259,42 @@ def finalize_node(state: DisputeAgentState) -> dict:
     parsed["tools_used"]     = tools_used
     parsed["agent_metadata"] = agent_metadata
 
-    # ── Server-side confidence score — LLM often forgets to add its own factors ─
-    # Recompute from actual case data so the score is always consistent with the
-    # evidence, completeness, and fraud signals — never trust the LLM's arithmetic.
-    _evidence_match = parsed.get("evidence_match")
-    _comment        = str(d.get("customer_comment") or "")
-    _fraud_ai       = bool(parsed.get("fraud_suspicion"))
-    _category       = str(parsed.get("dispute_category") or "")
-    _FRAUD_CATS     = {"Unauthorized Transaction", "Friendly Fraud"}
-    _fraud_consistent = _fraud_ai and _category in _FRAUD_CATS
+    # ── Server-side confidence score ──────────────────────────────────────────
+    ev_match = parsed.get("evidence_match")
+    comment  = str(d.get("customer_comment") or "")
+    conf = 0.50
+    if all(d.get(f) for f in _REQUIRED_FIELDS):
+        conf += 0.10
+    if len(comment) >= 80:
+        conf += 0.10
+    elif len(comment) < 30:
+        conf -= 0.10
+    if ev_match is True:
+        conf += 0.20
+    elif ev_match is False:
+        conf -= 0.20
+    if bool(parsed.get("fraud_suspicion")) and str(parsed.get("dispute_category") or "") in _FRAUD_CATEGORIES:
+        conf += 0.15
+    parsed["confidence_score"] = round(max(0.10, min(1.00, conf)), 2)
 
-    _conf = 0.50
-    # Check field completeness (key fields all present)
-    _required_fields = ["customer_id", "transaction_id", "dispute_reason", "customer_comment",
-                        "merchant", "amount", "transaction_date"]
-    if all(d.get(f) for f in _required_fields):
-        _conf += 0.10
-    # Detailed comment
-    if len(_comment) >= 80:
-        _conf += 0.10
-    elif len(_comment) < 30:
-        _conf -= 0.10
-    # Evidence verdict
-    if _evidence_match is True:
-        _conf += 0.20
-    elif _evidence_match is False:
-        _conf -= 0.20
-    # Consistent fraud signals
-    if _fraud_consistent:
-        _conf += 0.15
-    parsed["confidence_score"] = round(max(0.10, min(1.00, _conf)), 2)
+    # ── Server-side risk tag validation ───────────────────────────────────────
+    amount      = float(d.get("amount") or 0)
+    fraud_flag  = bool(parsed.get("fraud_suspicion"))
+    tx_type     = (d.get("transaction_type") or "").upper()
+    merchant_lc = (d.get("merchant") or "").lower()
+    is_intl     = any(s in merchant_lc for s in _INTL_SIGNALS) or tx_type == "INTERNATIONAL"
+    is_foreign  = (d.get("currency") or "INR").upper() != "INR"
+    comment_lc  = comment.lower()
 
-    # ── Server-side risk tag validation — strip tags the LLM hallucinated ────
-    # The LLM (Llama 8B) ignores explicit prompt thresholds; enforce them here.
-    amount        = float(d.get("amount") or 0)
-    fraud_flag    = bool(parsed.get("fraud_suspicion"))
-    tx_type       = (d.get("transaction_type") or "").upper()
-    merchant_name = (d.get("merchant") or "").lower()
-    raw_tags: list = parsed.get("risk_tags") or []
-
-    _INTL_SIGNALS = {"paypal", "apple", "google", "itunes", "netflix", "spotify",
-                     "steam", "alibaba", "amazon.com", "stripe", "coinbase", "wise"}
-    is_intl_merchant = any(s in merchant_name for s in _INTL_SIGNALS) or tx_type == "INTERNATIONAL"
-    is_foreign_currency = (d.get("currency") or "INR").upper() != "INR"
-
-    validated_tags = []
-    for tag in raw_tags:
-        if tag == "HIGH_VALUE_TRANSACTION"    and amount < 50_000:            continue
-        if tag == "INTERNATIONAL_TRANSACTION" and not is_intl_merchant and not is_foreign_currency: continue
-        if tag == "POSSIBLE_FRAUD"            and not fraud_flag:             continue
-        if tag == "VELOCITY_BREACH"           and "within" not in (d.get("customer_comment") or "").lower(): continue
-        validated_tags.append(tag)
-    parsed["risk_tags"] = validated_tags
+    parsed["risk_tags"] = [
+        tag for tag in (parsed.get("risk_tags") or [])
+        if not (
+            (tag == "HIGH_VALUE_TRANSACTION"    and amount < 50_000)
+            or (tag == "INTERNATIONAL_TRANSACTION" and not is_intl and not is_foreign)
+            or (tag == "POSSIBLE_FRAUD"            and not fraud_flag)
+            or (tag == "VELOCITY_BREACH"           and "within" not in comment_lc)
+        )
+    ]
     # Stamp fallback_activated=False into metrics for normal runs
     metrics["fallback_activated"] = False
     parsed["metrics"]        = metrics

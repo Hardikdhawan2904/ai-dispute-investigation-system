@@ -17,6 +17,11 @@ from datetime import datetime
 
 from langchain_core.tools import tool
 
+_INTL_SIGNALS = frozenset({
+    ".com", "paypal", "apple", "google", "itunes", "netflix",
+    "spotify", "steam", "alibaba", "amazon.com", "shopify",
+    "stripe", "payoneer", "wise", "skrill", "coinbase",
+})
 
 # ── Tool 1 — Transaction risk analysis ────────────────────────────────────────
 
@@ -101,13 +106,8 @@ def assess_transaction_context(
         signals.append("Net Banking (NEFT/RTGS/IMPS) — funds transfer largely irreversible post-settlement")
 
     # ── International merchant detection ─────────────────────────────────────
-    intl_signals = {
-        ".com", "paypal", "apple", "google", "itunes", "netflix",
-        "spotify", "steam", "alibaba", "amazon.com", "shopify",
-        "stripe", "payoneer", "wise", "skrill", "coinbase",
-    }
     merchant_lower = merchant.lower()
-    is_intl = any(s in merchant_lower for s in intl_signals)
+    is_intl = any(s in merchant_lower for s in _INTL_SIGNALS)
     if is_intl:
         risk_points += 2
         signals.append("International / digital-goods merchant — FEMA reporting may apply above USD 25,000")

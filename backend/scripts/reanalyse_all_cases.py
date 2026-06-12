@@ -73,6 +73,7 @@ def reanalyse_case(case_id: str) -> bool:
         print(f" {time.time()-t0:.1f}s  queue={result2.get('recommended_queue') if result2 else 'N/A'}", flush=True)
     except Exception as e:
         print(f" FAILED: {e}", flush=True)
+        return False
 
     print(f"  [{case_id}] Running Agent 3 (WOA)...", end="", flush=True)
     t0 = time.time()
@@ -83,6 +84,7 @@ def reanalyse_case(case_id: str) -> bool:
         print(f" {time.time()-t0:.1f}s  path={result3.get('workflow_path') if result3 else 'N/A'}", flush=True)
     except Exception as e:
         print(f" FAILED: {e}", flush=True)
+        return False
 
     # Recompute priority, queue, SLA, manual review
     db = SessionLocal()

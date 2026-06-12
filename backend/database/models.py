@@ -264,6 +264,9 @@ class DisputeCase(Base):
     fraud_probability     = Column(Float, default=0.0)
     fraud_risk_level      = Column(String(32), default="LOW")
 
+    # Agent 4 — EIA (Evidence Intelligence Agent) output
+    evidence_assessment   = Column(JSON, nullable=True)
+
     # Supporting evidence (raw form fields for re-analysis)
     transaction_metadata  = Column(JSON, default=dict)
 
@@ -333,6 +336,7 @@ class DisputeCase(Base):
             "fraud_reasoning_brief": self.fraud_reasoning_brief,
             "fraud_probability": self.fraud_probability,
             "fraud_risk_level": self.fraud_risk_level,
+            "evidence_assessment": self.evidence_assessment,
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
         }
