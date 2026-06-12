@@ -240,6 +240,10 @@ export interface DisputeCase {
   user_trust_score?: number;
   behavioral_risk_score?: number;
   identity_status?: string;
+  // Agent 5 — Fraud Reasoning Agent outputs
+  fraud_reasoning_brief?: FraudReasoningBrief | null;
+  fraud_probability?: number;
+  fraud_risk_level?: string;
   // Agent 1 fallback resilience
   fallback_mode?: boolean;
   failure_reason?: string | null;
@@ -393,5 +397,40 @@ export interface WorkflowState {
   success: boolean;
   error_message?: string;
   created_at: string;
+}
+
+export interface FraudReasoningBrief {
+  case_id: string;
+  fraud_probability: number;
+  fraud_risk_level: string;
+  anomaly_detection: {
+    amount_anomaly: boolean;
+    time_anomaly: boolean;
+    velocity_anomaly: boolean;
+  };
+  device_location_risk: {
+    unrecognized_device: boolean;
+    location_mismatch: boolean;
+  };
+  spending_history_analysis: {
+    average_amount: number;
+    deviation_factor: number;
+  };
+  fraud_reasoning: string[];
+  fraud_summary: string;
+  tools_used?: string[];
+  agent_metadata?: {
+    name: string;
+    version: string;
+    model: string;
+    timestamp: string;
+    duration_ms: number;
+  };
+  metrics?: {
+    total_duration_ms: number;
+    llm_calls: number;
+    tool_calls: number;
+    retry_count: number;
+  };
 }
 

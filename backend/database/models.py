@@ -259,6 +259,11 @@ class DisputeCase(Base):
     behavioral_risk_score = Column(Float, default=0.0)
     identity_status       = Column(String(64), default="PENDING")
 
+    # Fraud Reasoning Agent outputs
+    fraud_reasoning_brief = Column(JSON, nullable=True)
+    fraud_probability     = Column(Float, default=0.0)
+    fraud_risk_level      = Column(String(32), default="LOW")
+
     # Supporting evidence (raw form fields for re-analysis)
     transaction_metadata  = Column(JSON, default=dict)
 
@@ -325,6 +330,9 @@ class DisputeCase(Base):
             "user_trust_score": self.user_trust_score,
             "behavioral_risk_score": self.behavioral_risk_score,
             "identity_status": self.identity_status,
+            "fraud_reasoning_brief": self.fraud_reasoning_brief,
+            "fraud_probability": self.fraud_probability,
+            "fraud_risk_level": self.fraud_risk_level,
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
         }

@@ -2,8 +2,8 @@ from typing import Annotated, List, Optional, TypedDict
 from langgraph.graph.message import add_messages
 
 
-class IdentityTrustAgentState(TypedDict):
-    messages:            Annotated[list, add_messages]  # full ReAct history
+class FraudReasoningAgentState(TypedDict):
+    messages:            Annotated[list, add_messages]  # ReAct history
     dispute_input:       dict        # raw intake fields
     case_id:             str         # assigned before LLM call
     tool_results:        dict        # pre-computed tool results

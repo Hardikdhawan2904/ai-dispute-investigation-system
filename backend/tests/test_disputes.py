@@ -2,7 +2,10 @@
 Integration tests for the BFSI Dispute Resolution Platform.
 Run: pytest tests/test_disputes.py -v
 """
+import sys
 import os
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text

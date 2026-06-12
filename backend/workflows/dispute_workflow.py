@@ -16,7 +16,7 @@ from langgraph.graph import StateGraph, END
 
 from agents.dispute_agent import run_dispute_agent
 from agents.investigation_agent import run_investigation_agent
-from agents.identity_trust_agent import run_identity_trust_agent
+from agents.fraud_reasoning_agent import run_fraud_reasoning_agent
 from utils.logger import workflow_logger, log_workflow_event
 from utils.helpers import generate_case_id, utc_now_iso, sanitize_amount
 from services.dispute_understanding_fallback_service import classify_failure, generate_agent1_fallback
@@ -51,6 +51,9 @@ class DisputeWorkflowState(TypedDict):
 
     # Trust analysis (Agent 4 output)
     trust_output: Optional[dict]
+
+    # Fraud analysis (Agent 5 output)
+    fraud_output: Optional[dict]
 
     # Investigation plan (Agent 2 output)
     investigation_output: Optional[dict]
@@ -96,7 +99,7 @@ def intake_node(state: DisputeWorkflowState) -> dict:
     dispute_input["amount"] = sanitize_amount(dispute_input.get("amount", 0))
 
     # Assign case ID — use pre-generated ID from public submit endpoint if provided
-    case_id = dispute_input.pop("_preset_case_id", None) or generate_case_id()
+    case_id = dispute_input.pop("_preset_case_id", None) or dispute_input.get("case_id") or generate_case_id()
     dispute_input["case_id"] = case_id
 
     log_workflow_event(
@@ -348,8 +351,11 @@ def _save_agent3_to_db(case_id: str, workflow_plan: dict) -> None:
         db.close()
 
 
-def _save_identity_trust_to_db(case_id: str, trust_intelligence: dict) -> None:
-    """Intermediate DB save after Identity & Trust Agent."""
+
+
+
+def _save_fraud_reasoning_to_db(case_id: str, fraud_reasoning_brief: dict) -> None:
+    """Intermediate DB save after Fraud Reasoning Agent."""
     if not case_id:
         return
     from database.database import SessionLocal
@@ -358,55 +364,62 @@ def _save_identity_trust_to_db(case_id: str, trust_intelligence: dict) -> None:
     try:
         case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
         if case:
-            case.trust_intelligence    = trust_intelligence
-            case.user_trust_score      = trust_intelligence.get("user_trust_score", 1.0)
-            case.behavioral_risk_score = trust_intelligence.get("behavioral_risk_score", 0.0)
-            case.identity_status       = trust_intelligence.get("identity_verification", "PENDING")
-            case.current_stage         = "identity_trust_complete"
+            case.fraud_reasoning_brief = fraud_reasoning_brief
+            case.fraud_probability     = fraud_reasoning_brief.get("fraud_probability", 0.0)
+            case.fraud_risk_level      = fraud_reasoning_brief.get("fraud_risk_level", "LOW")
+            # Save trust fields calculated inside fraud reasoning agent
+            case.trust_intelligence    = fraud_reasoning_brief
+            case.user_trust_score      = fraud_reasoning_brief.get("user_trust_score", 1.0)
+            case.behavioral_risk_score = fraud_reasoning_brief.get("behavioral_risk_score", 0.0)
+            case.identity_status       = fraud_reasoning_brief.get("identity_verification", "PENDING")
+            case.current_stage         = "fraud_reasoning_complete"
             db.commit()
     except Exception as exc:
-        workflow_logger.warning(f"Intermediate Identity & Trust DB save failed for {case_id}: {exc}")
+        workflow_logger.warning(f"Intermediate Fraud Reasoning DB save failed for {case_id}: {exc}")
         db.rollback()
     finally:
         db.close()
 
 
-def identity_trust_node(state: DisputeWorkflowState) -> dict:
+def fraud_reasoning_node(state: DisputeWorkflowState) -> dict:
     """
-    Invokes the Identity & Trust Intelligence Agent (ITIA, Agent 4).
+    Invokes the Fraud Reasoning Agent (FRIA, Agent 5).
     Saves results to DB immediately.
     """
     start = time.time()
-    node  = "identity_trust"
+    node  = "fraud_reasoning"
 
     try:
-        trust_output = run_identity_trust_agent(
+        fraud_output = run_fraud_reasoning_agent(
             state["dispute_input"],
             case_id=state.get("case_id"),
         )
-        _save_identity_trust_to_db(state.get("case_id", ""), trust_output)
+        _save_fraud_reasoning_to_db(state.get("case_id", ""), fraud_output)
         log_workflow_event(
             workflow_logger,
-            event="NODE_IDENTITY_TRUST_COMPLETE",
+            event="NODE_FRAUD_REASONING_COMPLETE",
             stage=node,
             case_id=state.get("case_id"),
             extra={
-                "user_trust_score":      trust_output.get("user_trust_score"),
-                "behavioral_risk_score": trust_output.get("behavioral_risk_score"),
-                "identity_verification": trust_output.get("identity_verification"),
+                "fraud_probability": fraud_output.get("fraud_probability"),
+                "fraud_risk_level":  fraud_output.get("fraud_risk_level"),
+                "user_trust_score":  fraud_output.get("user_trust_score"),
+                "identity_verification": fraud_output.get("identity_verification"),
             },
         )
         return {
-            "trust_output":    trust_output,
+            "fraud_output":    fraud_output,
+            "trust_output":    fraud_output,
             "current_stage":   node,
             "execution_trace": _trace(
                 node, start, True,
-                f"trust={trust_output.get('user_trust_score')} risk={trust_output.get('behavioral_risk_score')}",
+                f"probability={fraud_output.get('fraud_probability')} risk={fraud_output.get('fraud_risk_level')}",
             ),
         }
     except Exception as exc:
-        workflow_logger.warning(f"Identity & Trust agent failed: {exc}", exc_info=True)
+        workflow_logger.warning(f"Fraud Reasoning agent failed: {exc}", exc_info=True)
         return {
+            "fraud_output":    None,
             "trust_output":    None,
             "current_stage":   node,
             "execution_trace": _trace(node, start, False, f"agent failed: {exc}"),
@@ -682,6 +695,10 @@ def structured_output_node(state: DisputeWorkflowState) -> dict:
         "user_trust_score":      (state.get("trust_output") or {}).get("user_trust_score", 1.0) if state.get("trust_output") else 1.0,
         "behavioral_risk_score": (state.get("trust_output") or {}).get("behavioral_risk_score", 0.0) if state.get("trust_output") else 0.0,
         "identity_status":       (state.get("trust_output") or {}).get("identity_verification", "PENDING") if state.get("trust_output") else "PENDING",
+        # Fraud Reasoning Agent (Agent 5) outputs
+        "fraud_reasoning_brief": state.get("fraud_output"),
+        "fraud_probability":     (state.get("fraud_output") or {}).get("fraud_probability", 0.0) if state.get("fraud_output") else 0.0,
+        "fraud_risk_level":      (state.get("fraud_output") or {}).get("fraud_risk_level", "LOW") if state.get("fraud_output") else "LOW",
         # Supporting evidence (preserved for re-analysis)
         "transaction_metadata": d.get("transaction_metadata") or {},
         # Investigation plan (Agent 2)
@@ -754,7 +771,7 @@ def build_dispute_workflow() -> Any:
     graph.add_node("validation",           validation_node)
     graph.add_node("document_check",       document_check_node)
     graph.add_node("pending_documents",    pending_documents_node)
-    graph.add_node("identity_trust",       identity_trust_node)
+    graph.add_node("fraud_reasoning",      fraud_reasoning_node)
     graph.add_node("dispute_understanding", dispute_understanding_node)
     graph.add_node("reasoning",            reasoning_node)
     graph.add_node("investigation",        investigation_node)
@@ -781,12 +798,12 @@ def build_dispute_workflow() -> Any:
         "document_check",
         route_after_document_check,
         {
-            "sufficient":   "identity_trust",
+            "sufficient":   "fraud_reasoning",
             "insufficient": "pending_documents",
         },
     )
 
-    graph.add_edge("identity_trust", "dispute_understanding")
+    graph.add_edge("fraud_reasoning", "dispute_understanding")
     graph.add_edge("dispute_understanding", "reasoning")
     graph.add_edge("reasoning",             "investigation")
     graph.add_edge("investigation",         "orchestration")
@@ -824,6 +841,7 @@ def run_dispute_workflow(dispute_input: dict, document_texts: Optional[List[str]
         "investigation_output": None,
         "orchestration_output": None,
         "trust_output":        None,
+        "fraud_output":        None,
         "final_case":           None,
         "execution_trace":      [],
         "current_stage":        "start",
@@ -878,6 +896,8 @@ def run_dispute_workflow(dispute_input: dict, document_texts: Optional[List[str]
             "validation_warnings": [],
             "ai_analysis":         fallback_analysis,
             "investigation_output": None,
+            "trust_output":        None,
+            "fraud_output":        None,
             "final_case":          final_case,
             "execution_trace":     [],
             "current_stage":       "fallback",

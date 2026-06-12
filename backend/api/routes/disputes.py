@@ -342,16 +342,19 @@ def _reanalyse_after_upload(case_id: str) -> None:
                     document_texts.append(f"[{f.name}]\n{text}")
 
     # ── Phase 3: run agents (slow LLM calls, no DB held) ─────────────────────
-    from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db, _save_identity_trust_to_db
-    from agents.identity_trust_agent import run_identity_trust_agent
+    from workflows.dispute_workflow import (
+        _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db,
+        _save_fraud_reasoning_to_db,
+    )
+    from agents.fraud_reasoning_agent import run_fraud_reasoning_agent
     from agents.orchestration_agent import run_orchestration_agent
 
     try:
-        trust_result = run_identity_trust_agent({}, case_id=case_id)
-        if trust_result:
-            _save_identity_trust_to_db(case_id, trust_result)
+        fraud_result = run_fraud_reasoning_agent({}, case_id=case_id)
+        if fraud_result:
+            _save_fraud_reasoning_to_db(case_id, fraud_result)
     except Exception as exc:
-        api_logger.error(f"_reanalyse_after_upload identity_trust failed {case_id}: {exc}", exc_info=True)
+        api_logger.error(f"_reanalyse_after_upload fraud_reasoning failed {case_id}: {exc}", exc_info=True)
 
     try:
         result = run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
@@ -496,6 +499,15 @@ def _list_case_dict(case: dict) -> dict:
         "evidence_match_note":  None,
         "structured_reasoning": None,
         "customer_intent_summary": None,
+        # Trust Agent
+        "trust_intelligence":   None,
+        "user_trust_score":     case.get("user_trust_score") if case.get("user_trust_score") is not None else 1.0,
+        "behavioral_risk_score": case.get("behavioral_risk_score") if case.get("behavioral_risk_score") is not None else 0.0,
+        "identity_status":      case.get("identity_status") if case.get("identity_status") is not None else "PENDING",
+        # Fraud Agent
+        "fraud_reasoning_brief": None,
+        "fraud_probability":     case.get("fraud_probability") if case.get("fraud_probability") is not None else 0.0,
+        "fraud_risk_level":      case.get("fraud_risk_level") if case.get("fraud_risk_level") is not None else "LOW",
     }
 
 
@@ -549,4 +561,11 @@ def _safe_case_dict(case: dict) -> dict:
         "updated_at": case.get("updated_at"),
         "investigation_plan": case.get("investigation_plan"),
         "workflow_plan":      case.get("workflow_plan"),
+        "trust_intelligence": case.get("trust_intelligence"),
+        "user_trust_score": case.get("user_trust_score") if case.get("user_trust_score") is not None else 1.0,
+        "behavioral_risk_score": case.get("behavioral_risk_score") if case.get("behavioral_risk_score") is not None else 0.0,
+        "identity_status": case.get("identity_status") if case.get("identity_status") is not None else "PENDING",
+        "fraud_reasoning_brief": case.get("fraud_reasoning_brief"),
+        "fraud_probability": case.get("fraud_probability") if case.get("fraud_probability") is not None else 0.0,
+        "fraud_risk_level": case.get("fraud_risk_level") if case.get("fraud_risk_level") is not None else "LOW",
     }

@@ -80,6 +80,22 @@ def _apply_column_migrations() -> None:
             conn.commit()
             db_logger.info("Migration applied: dispute_cases.identity_status column added.")
 
+        # Fraud Reasoning Agent columns
+        if "fraud_reasoning_brief" not in existing_cols:
+            conn.execute(text("ALTER TABLE dispute_cases ADD COLUMN fraud_reasoning_brief JSON"))
+            conn.commit()
+            db_logger.info("Migration applied: dispute_cases.fraud_reasoning_brief column added.")
+
+        if "fraud_probability" not in existing_cols:
+            conn.execute(text("ALTER TABLE dispute_cases ADD COLUMN fraud_probability FLOAT DEFAULT 0.0"))
+            conn.commit()
+            db_logger.info("Migration applied: dispute_cases.fraud_probability column added.")
+
+        if "fraud_risk_level" not in existing_cols:
+            conn.execute(text("ALTER TABLE dispute_cases ADD COLUMN fraud_risk_level VARCHAR(32) DEFAULT 'LOW'"))
+            conn.commit()
+            db_logger.info("Migration applied: dispute_cases.fraud_risk_level column added.")
+
         # Performance indexes for list/filter queries
         existing_indexes = {idx["name"] for idx in inspector.get_indexes("dispute_cases")}
         index_defs = [

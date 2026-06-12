@@ -1,10 +1,10 @@
 """
-Identity & Trust Intelligence Agent graph assembly.
+Fraud Reasoning Agent graph assembly.
 """
 from langgraph.graph import StateGraph, END
 
-from agents.identity_trust_agent.state import IdentityTrustAgentState
-from agents.identity_trust_agent.nodes.pipeline import (
+from agents.fraud_reasoning_agent.state import FraudReasoningAgentState
+from agents.fraud_reasoning_agent.nodes.pipeline import (
     validate_node,
     build_context_node,
     call_model,
@@ -12,8 +12,8 @@ from agents.identity_trust_agent.nodes.pipeline import (
 )
 
 
-def build_identity_trust_graph():
-    g = StateGraph(IdentityTrustAgentState)
+def build_fraud_graph():
+    g = StateGraph(FraudReasoningAgentState)
 
     # Register nodes
     g.add_node("validate",      validate_node)
@@ -33,4 +33,4 @@ def build_identity_trust_graph():
     return g.compile()
 
 
-identity_trust_graph = build_identity_trust_graph()
+fraud_graph = build_fraud_graph()

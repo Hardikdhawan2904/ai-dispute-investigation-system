@@ -136,6 +136,15 @@ class DisputeCaseResponse(BaseModel):
     updated_at: Optional[str]
     investigation_plan: Optional[dict] = None
     workflow_plan: Optional[dict] = None
+    # Trust & Identity Agent
+    trust_intelligence: Optional[dict] = None
+    user_trust_score: float = 1.0
+    behavioral_risk_score: float = 0.0
+    identity_status: str = "PENDING"
+    # Fraud Reasoning Agent
+    fraud_reasoning_brief: Optional[dict] = None
+    fraud_probability: float = 0.0
+    fraud_risk_level: str = "LOW"
 
     model_config = {"from_attributes": True}
 

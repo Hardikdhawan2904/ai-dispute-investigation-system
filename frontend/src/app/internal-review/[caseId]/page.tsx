@@ -8,7 +8,7 @@ import {
   ArrowLeft, AlertTriangle, FileText, CheckCircle, Loader2,
   RefreshCw, X, ZoomIn, ChevronDown, ChevronUp,
 } from "lucide-react";
-import { formatCurrency, formatDate, getPriorityColor, getConfidenceLabel } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, getPriorityColor, getConfidenceLabel } from "@/lib/utils";
 import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads } from "@/lib/api";
 import type { CaseUploadFile } from "@/lib/api";
 import type { DisputeCase, AuditLog, WorkflowState, CaseStatus } from "@/types";
@@ -51,19 +51,19 @@ function parseFindings(text: string): { bullets: string[]; conclusion: string } 
 // ── Primitives ────────────────────────────────────────────────────────────────
 
 function Label({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: "0.6rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "#64748B", marginBottom: 4 }}>{children}</div>;
+  return <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">{children}</div>;
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#475569", paddingBottom: "0.5rem", borderBottom: "1px solid #334155", marginBottom: "0.75rem" }}>{children}</div>;
+  return <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-700 mb-3">{children}</div>;
 }
 
 function InfoRow({ label, value, mono = false }: { label: string; value?: string | number | boolean | null; mono?: boolean }) {
   const display = value === true ? "Yes" : value === false ? "No" : (value ?? "—");
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "0.5rem", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
-      <span style={{ fontSize: "0.68rem", color: "#64748B", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
-      <span style={{ fontSize: "0.72rem", color: "#F8FAFC", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, fontFamily: mono ? "ui-monospace, monospace" : undefined }}>{String(display)}</span>
+    <div className="grid grid-cols-[90px_1fr] gap-2 py-1.5 border-b border-[#1E293B]">
+      <span className="text-[11px] text-slate-500 truncate">{label}</span>
+      <span className={cn("text-[11.5px] text-slate-50 truncate min-w-0", mono && "font-mono")}>{String(display)}</span>
     </div>
   );
 }
@@ -71,16 +71,16 @@ function InfoRow({ label, value, mono = false }: { label: string; value?: string
 function Field({ label, value, mono = false }: { label: string; value?: string | number | boolean | null; mono?: boolean }) {
   const display = value === true ? "Yes" : value === false ? "No" : (value ?? "—");
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", padding: "0.45rem 0", borderBottom: "1px solid #1E293B" }}>
-      <span style={{ fontSize: "0.7rem", color: "#64748B", flexShrink: 0, width: 130 }}>{label}</span>
-      <span style={{ fontSize: "0.72rem", color: "#F8FAFC", textAlign: "right", wordBreak: "break-all", fontFamily: mono ? "ui-monospace, monospace" : undefined }}>{String(display)}</span>
+    <div className="data-row">
+      <span className="data-label">{label}</span>
+      <span className={cn("data-value", mono && "font-mono")}>{String(display)}</span>
     </div>
   );
 }
 
-function Panel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+function Panel({ children, style, className }: { children: React.ReactNode; style?: React.CSSProperties; className?: string }) {
   return (
-    <div style={{ backgroundColor: "#1E293B", border: "1px solid #334155", borderRadius: 4, padding: "1rem", ...style }}>
+    <div style={style} className={cn("ops-panel p-4", className)}>
       {children}
     </div>
   );
@@ -90,21 +90,21 @@ function CollapsibleSection({ title, open, onToggle, children }: {
   title: string; open: boolean; onToggle: () => void; children: React.ReactNode;
 }) {
   return (
-    <Panel style={{ padding: "0.75rem 1rem" }}>
+    <Panel className="p-3">
       <button
         onClick={onToggle}
-        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+        className="w-full flex items-center justify-between bg-transparent border-none cursor-pointer p-0"
       >
-        <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: open ? "#94A3B8" : "#64748B" }}>
+        <span className={cn("text-[10.5px] font-bold uppercase tracking-wider", open ? "text-slate-400" : "text-slate-500")}>
           {title}
         </span>
         {open
-          ? <ChevronUp style={{ width: 12, height: 12, color: "#64748B" }} />
-          : <ChevronDown style={{ width: 12, height: 12, color: "#64748B" }} />
+          ? <ChevronUp className="w-3 h-3 text-slate-500" />
+          : <ChevronDown className="w-3 h-3 text-slate-500" />
         }
       </button>
       {open && (
-        <div style={{ marginTop: "0.625rem", paddingTop: "0.625rem", borderTop: "1px solid #1E293B" }}>
+        <div className="mt-2.5 pt-2.5 border-t border-[#1E293B]">
           {children}
         </div>
       )}
@@ -127,7 +127,7 @@ export default function CaseWorkspace() {
   const [elapsed, setElapsed]               = useState(0);
   const [uploads, setUploads]               = useState<CaseUploadFile[]>([]);
   const [lightbox, setLightbox]             = useState<string | null>(null);
-  const [activeTab, setActiveTab]           = useState<"analysis" | "trust" | "investigation" | "evidence" | "audit" | "workflow" | "orchestration">("analysis");
+  const [activeTab, setActiveTab]           = useState<"analysis" | "trust" | "fraud" | "investigation" | "evidence" | "audit" | "workflow" | "orchestration">("analysis");
   const [whyPlanOpen, setWhyPlanOpen]       = useState(false);
   const [liveUpdate, setLiveUpdate]         = useState(false);
   const [sidebarOpen, setSidebarOpen]       = useState<Record<string, boolean>>({
@@ -142,6 +142,16 @@ export default function CaseWorkspace() {
       .catch(() => { toast.error("Case not found"); router.push("/internal-review"); })
       .finally(() => setLoading(false));
   }, [caseId, router]);
+
+  useEffect(() => {
+    if (loading) {
+      document.title = "Loading Case... | BFSI Dispute Resolution Platform";
+    } else if (caseData) {
+      document.title = `Case ${caseData.case_id} - ${caseData.customer_name || 'Investigation'} | BFSI Dispute Resolution Platform`;
+    } else {
+      document.title = "Case Not Found | BFSI Dispute Resolution Platform";
+    }
+  }, [loading, caseData]);
 
   useDisputeSocket((event: DisputeSocketEvent) => {
     if (event.type === "ANALYSIS_COMPLETE" && event.case_id === caseId) {
@@ -205,6 +215,7 @@ export default function CaseWorkspace() {
   const tabs = [
     { key: "analysis",      label: "Case Analysis" },
     { key: "trust",         label: "Trust Intelligence" },
+    { key: "fraud",         label: "Fraud Reasoning" },
     { key: "investigation", label: "Investigation" },
     { key: "orchestration", label: "Orchestration" },
     { key: "evidence",      label: `Evidence (${uploads.length})` },
@@ -791,6 +802,233 @@ export default function CaseWorkspace() {
                           ))
                         ) : (
                           <span style={{ fontSize: "0.65rem", color: "#64748B" }}>No tools used</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </Panel>
+              </div>
+            );
+          })()}
+
+          {/* ── Fraud Reasoning tab ─────────────────────────────────────────── */}
+          {activeTab === "fraud" && (() => {
+            const fraudData = caseData.fraud_reasoning_brief;
+            if (!fraudData) {
+              return (
+                <Panel className="p-12 text-center">
+                  <p className="text-xs text-slate-500">Fraud reasoning brief not yet generated.</p>
+                  <p className="text-[11px] text-slate-600 mt-1">Re-submit or re-analyse to trigger the fraud reasoning agent.</p>
+                </Panel>
+              );
+            }
+
+            const fraudProbPct = Math.round((fraudData.fraud_probability ?? 0) * 100);
+            
+            const riskLevel = fraudData.fraud_risk_level;
+            const riskColor = riskLevel === "CRITICAL" ? "#EF4444" : riskLevel === "HIGH" ? "#F97316" : riskLevel === "MEDIUM" ? "#FBBF24" : "#10B981";
+            const riskBg = riskLevel === "CRITICAL" ? "rgba(239, 68, 68, 0.1)" : riskLevel === "HIGH" ? "rgba(249, 115, 22, 0.1)" : riskLevel === "MEDIUM" ? "rgba(251, 191, 36, 0.1)" : "rgba(16, 185, 129, 0.1)";
+            const riskBorder = riskLevel === "CRITICAL" ? "rgba(239, 68, 68, 0.3)" : riskLevel === "HIGH" ? "rgba(249, 115, 22, 0.3)" : riskLevel === "MEDIUM" ? "rgba(251, 191, 36, 0.3)" : "rgba(16, 185, 129, 0.3)";
+
+            return (
+              <div className="flex flex-col gap-3.5">
+                {/* Header Summary Panel */}
+                <Panel style={{ borderLeft: `4px solid ${riskColor}` }} className="p-5">
+                  <div className="flex justify-between items-start flex-wrap gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-blue-600">Agent 5 Output</span>
+                        <span className="w-1 h-1 rounded-full bg-slate-700" />
+                        <span className="text-[10.5px] text-slate-500">Transaction Fraud Analysis</span>
+                      </div>
+                      <h3 className="text-base font-bold text-slate-50 m-0">Fraud Evaluation Brief</h3>
+                    </div>
+                    
+                    {/* Risk Status Badge */}
+                    <div style={{ backgroundColor: riskBg, borderColor: riskBorder }} className="flex items-center gap-2 px-3 py-1.5 border rounded">
+                      <span title={`Risk level: ${riskLevel}`}>
+                        <AlertTriangle style={{ width: 14, height: 14, color: riskColor }} />
+                      </span>
+                      <span style={{ color: riskColor }} className="text-xs font-bold tracking-wide">
+                        RISK: {riskLevel}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-400 leading-relaxed mt-3 mb-0">
+                    {fraudData.fraud_summary}
+                  </p>
+                </Panel>
+
+                {/* Score Meter */}
+                <Panel>
+                  <SectionTitle>Estimated Fraud Probability</SectionTitle>
+                  <div className="flex justify-between items-baseline mb-1.5">
+                    <span style={{ color: riskColor }} className="text-xs font-semibold">
+                      {riskLevel === "CRITICAL" ? "Critical Fraud Threat Detected" : riskLevel === "HIGH" ? "High Anomaly/Fraud Risk" : riskLevel === "MEDIUM" ? "Moderate Suspicious Behavior" : "Low Risk Indicators"}
+                    </span>
+                    <span style={{ color: riskColor }} className="text-lg font-bold font-mono">
+                      {fraudProbPct}%
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                    <div style={{ width: `${fraudProbPct}%`, backgroundColor: riskColor }} className="h-full rounded-full transition-[width] duration-500 ease-out" />
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1.5 leading-normal">
+                    Calculated deterministically based on statistical spend deviation (+20%), off-hours transaction (+15%), transaction frequency velocity breach (+30%), geovelocity travel speed limits breach (+25%), unrecognized hardware device fingerprint (+30%), and geo-location mismatch (+20%).
+                  </p>
+                </Panel>
+
+                {/* 3-Column Checks Grid */}
+                <div className="grid grid-cols-3 gap-3.5">
+                  {/* Transaction Anomalies */}
+                  <Panel>
+                    <SectionTitle>Anomaly Detection</SectionTitle>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex justify-between items-center py-1.5 border-b border-[#1E293B]">
+                        <span className="text-xs text-slate-500">Off-Hours Timing</span>
+                        {fraudData.anomaly_detection?.time_anomaly ? (
+                          <span className="text-[11px] font-semibold text-amber-400 flex items-center gap-1">
+                            <span title="Time Anomaly Detected">
+                              <AlertTriangle style={{ width: 12, height: 12 }} />
+                            </span> Yes (+15%)
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-semibold text-green-400 flex items-center gap-1">
+                            <span title="Normal Timing">
+                              <CheckCircle style={{ width: 12, height: 12 }} />
+                            </span> Normal
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex justify-between items-center py-1.5">
+                        <span className="text-xs text-slate-500">Velocity Breach</span>
+                        {fraudData.anomaly_detection?.velocity_anomaly ? (
+                          <span className="text-[11px] font-semibold text-red-500 flex items-center gap-1">
+                            <span title="Velocity Anomaly Detected">
+                              <AlertTriangle style={{ width: 12, height: 12 }} />
+                            </span> Breach (+30%)
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-semibold text-green-400 flex items-center gap-1">
+                            <span title="Normal Velocity">
+                              <CheckCircle style={{ width: 12, height: 12 }} />
+                            </span> Normal
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </Panel>
+
+                  {/* Device & Location risk indicators */}
+                  <Panel>
+                    <SectionTitle>Device & Location Risk</SectionTitle>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex justify-between items-center py-1.5 border-b border-[#1E293B]">
+                        <span className="text-xs text-slate-500">Unrecognized Device</span>
+                        {fraudData.device_location_risk?.unrecognized_device ? (
+                          <span className="text-[11px] font-semibold text-red-500 flex items-center gap-1">
+                            <span title="Unrecognized Device Alert">
+                              <AlertTriangle style={{ width: 12, height: 12 }} />
+                            </span> Alert (+30%)
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-semibold text-green-400 flex items-center gap-1">
+                            <span title="Verified Device">
+                              <CheckCircle style={{ width: 12, height: 12 }} />
+                            </span> Verified
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex justify-between items-center py-1.5">
+                        <span className="text-xs text-slate-500">Location Mismatch</span>
+                        {fraudData.device_location_risk?.location_mismatch ? (
+                          <span className="text-[11px] font-semibold text-red-500 flex items-center gap-1">
+                            <span title="Location Mismatch Alert">
+                              <AlertTriangle style={{ width: 12, height: 12 }} />
+                            </span> Mismatch (+20%)
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-semibold text-green-400 flex items-center gap-1">
+                            <span title="Consistent Location">
+                              <CheckCircle style={{ width: 12, height: 12 }} />
+                            </span> Consistent
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </Panel>
+
+                  {/* Historical spend patterns */}
+                  <Panel>
+                    <SectionTitle>Spending Behavior</SectionTitle>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex justify-between items-center py-1.5 border-b border-[#1E293B]">
+                        <span className="text-xs text-slate-500">Average Spend</span>
+                        <span className="text-xs text-slate-50 font-mono">
+                          {fraudData.spending_history_analysis?.average_amount ? formatCurrency(fraudData.spending_history_analysis.average_amount, caseData.currency) : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center py-1.5">
+                        <span className="text-xs text-slate-500">Deviation Factor (Z)</span>
+                        <span className={cn("text-[11px] font-semibold", (fraudData.spending_history_analysis?.deviation_factor ?? 0) >= 3.0 ? "text-red-500" : "text-slate-50")}>
+                          {(fraudData.spending_history_analysis?.deviation_factor ?? 0).toFixed(2)} {(fraudData.spending_history_analysis?.deviation_factor ?? 0) >= 3.0 ? "(Outlier)" : ""}
+                        </span>
+                      </div>
+                    </div>
+                  </Panel>
+                </div>
+
+                {/* Key Reasoning Findings */}
+                <Panel>
+                  <SectionTitle>Fraud Reasoning & Synthesis</SectionTitle>
+                  <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
+                    {fraudData.fraud_reasoning && fraudData.fraud_reasoning.length > 0 ? (
+                      fraudData.fraud_reasoning.map((reason, idx) => (
+                        <li key={idx} className="flex items-start gap-2.5 text-xs text-slate-400 leading-relaxed">
+                          <span style={{ backgroundColor: riskColor }} className="shrink-0 w-1.5 h-1.5 rounded-full mt-1.5" />
+                          {reason}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-[11px] text-slate-500">No fraud reasoning points generated.</li>
+                    )}
+                  </ul>
+                </Panel>
+
+                {/* Agent & Processing Metadata */}
+                <Panel>
+                  <SectionTitle>Fraud Agent Processing Audit</SectionTitle>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label>Agent & Model</Label>
+                      <div className="text-xs text-slate-50">
+                        {fraudData.agent_metadata?.name || "FRIA Agent"} (v{fraudData.agent_metadata?.version || "1.0.0"})
+                      </div>
+                      <div className="text-[10.5px] text-slate-500 font-mono mt-0.5">
+                        Model: {fraudData.agent_metadata?.model || "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Execution Performance</Label>
+                      <div className="text-xs text-slate-50">
+                        Duration: {fraudData.agent_metadata?.duration_ms ? `${(fraudData.agent_metadata.duration_ms / 1000).toFixed(2)}s` : "—"}
+                      </div>
+                      <div className="text-[10.5px] text-slate-500 mt-0.5">
+                        LLM Calls: {fraudData.metrics?.llm_calls || 0} | Tool Calls: {fraudData.metrics?.tool_calls || 0}
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Tools Executed</Label>
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {fraudData.tools_used && fraudData.tools_used.length > 0 ? (
+                          fraudData.tools_used.map(tool => (
+                            <span key={tool} className="text-[9.5px] text-blue-400 bg-blue-400/10 border border-blue-400/20 rounded px-1.5 py-0.5">
+                              {tool}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[10.5px] text-slate-500">No tools used</span>
                         )}
                       </div>
                     </div>
