@@ -1,113 +1,146 @@
-# Agent 4: Workflow Orchestration Agent (WOA)
+# Workflow Orchestration Agent (WOA) — Agent 5
 
-The **Workflow Orchestration Agent (WOA)** coordinates execution paths for downstream specialist nodes, structures case escalations, and calculates workload estimates for human operations teams. It runs as the final step in the multi-agent pipeline, reading accumulated classification and investigation results from the database to map the next resolution steps.
+**Role**: Workflow coordinator, queue director, and specialist agent execution planner  
+**Model**: Groq `llama-3.1-8b-instant` (via ChatGroq)  
+**Entry Point**: `agent` (ReAct loop) → `finalize`  
+**Framework**: LangGraph (StateGraph)  
 
 ---
 
-## ── Metadata & Configuration ──
+## 🎯 Purpose
 
-* **Full Name**: Workflow Orchestration Agent (WOA)
-* **Code Registry**: [orchestration_agent](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/orchestration_agent)
-* **Domain**: BFSI (Banking, Financial Services, and Insurance)
-* **Framework**: LangGraph (StateGraph)
-* **LLM Engine**: ChatGroq (Llama-3.1-8B-Instant, Temperature 0)
+WOA is the brain of the multi-agent system. It runs late in the intake workflow to analyze outputs from preceding agents (understanding, fraud reasoning, and investigation planning) to coordinate downstream specialist executions. The agent executes an autonomous ReAct loop calling **6 deterministic tools** to:
+- Compute case **Orchestration Complexity** (LOW, MEDIUM, HIGH, CRITICAL).
+- Select which **Specialist Agents** must run based on categories, evidence match, and compliance tags.
+- Build an **Ordered Execution Sequence** respecting agent-level dependency constraints.
+- Determine whether **Management Escalation** is required (CRITICAL, HIGH, MEDIUM, or null) and log the specific triggers.
+- Estimate total **Workload Hours** and determine the **Analyst Seniority Level** (JUNIOR, STANDARD, SENIOR, LEAD) required to handle the dispute.
+- Detect the immediate **Next Execution Step** (advancing the case sequentially and flagging dependency blocks).
+
+---
+
+## 📋 Workflow
+
+```
+┌──────────────────────────────────────┐
+│  Receives Agent 1 & Agent 2 Outputs  │
+│  from Database                       │
+└────────────┬─────────────────────────┘
+             │
+       [agent Node] ◄────────────────┐
+  (Groq ReAct loop - LLM reasoning)  │
+             │                       │
+      (Has tool call?)               │
+       /          \                  │
+     (Yes)        (No)               │
+     /              \                │
+[tools Node]   [finalize Node]       │
+(Run database  (Synthesize output,   │
+ lookup tool)   determine next step  │
+     │          and documentation)   │
+     └───────────────┴───────────────┘
+```
+
+WOA executes at the `orchestration` node of the main workflow (`dispute_workflow.py`). It reads persisted DB fields and outputs a structured workflow plan. Downstream routing checks this plan: if `next_agent=EVIDENCE_AGENT`, the workflow branches to the `evidence` node (Agent 4); otherwise, it bypasses evidence verification and completes execution.
 
 ---
 
 ## ── Agent Persona ──
 
 * **Role**: Senior AI Workflow Orchestrator.
-* **Goal**: Evaluate case complexity, determine required specialist agents, generate an ordered execution path, assess escalation requirements, and estimate workloads. WOA acts as the coordinator of downstream specialists—it directs execution but does not investigate directly.
-* **Backstory**: Designed to prevent platform bottlenecks as downstream specialist agents (e.g. Fraud, Merchant, Evidence, and Compliance) were added. WOA determines which specialist agents are relevant, their execution sequence, and when human analyst escalations are required.
+* **Goal**: Coordinate execution across downstream specialists, evaluate complexity, assign SLAs/workloads, and flag escalation requirements.
+* **Backstory**: Built to manage operational hand-offs as the platform grew beyond simple categorization. WOA decides which specialist agents are relevant, their ordered sequence, and when human analyst escalations are required.
 * **Constraints**:
-  - Never reclassify disputes (classification belongs to Agent 2).
-  - Never build primary investigation plans (that belongs to Agent 3).
-  - Never make final approval or transaction refund decisions.
-  - Return ONLY valid, parseable JSON with no conversational prose.
+  - **Never reclassify** dispute categories (classification belongs to Agent 1).
+  - **Never build** primary investigation plans (that belongs to Agent 2).
+  - **Never make** final approval or transaction refund decisions.
+  - Return **ONLY** a valid parseable JSON dictionary matching the specified output schema — no markdown, no conversational prose.
 
 ---
 
 ## ── LangGraph Pipeline Flow ──
 
-WOA executes an autonomous ReAct loop to call tools based on findings, building up its state iteratively:
-
-```mermaid
-graph LR
-    A[entry_point: agent] --> B[tools]
-    B --> A
-    A --> C[finalize/END]
-```
-
-1. **`agent` Node**: Reads state messages, evaluates Case ID details, and determines which orchestration tools to call next.
-2. **`tools` Node**: Executes helper algorithms (defined below) to calculate complexity, determine required agents, and map sequences.
-3. **`finalize` (Implicit in final agent step)**: Extracts structured JSON plan, mapping tool decisions and specialist agent queues before exiting.
+WOA's StateGraph consists of:
+1. **`agent`**: Invokes Groq `llama-3.1-8b-instant` to check inputs and dynamically call orchestration tools.
+2. **`tools`**: Runs the requested database lookup and math assessment tools (`ToolNode`).
+3. **`finalize`**: Formats the final JSON plan, applies final overrides (e.g. metadata timestamps), and saves the workflow plan.
 
 ---
 
 ## ── State Schema ──
 
-The agent maintains state through `OrchestrationAgentState` defined in [state.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/orchestration_agent/state.py):
-
-* `messages`: Annotated list accumulating chat and tool call history.
-* `case_input`: Combined intake, classification, and investigation data loaded from the database.
-* `tool_results`: Dictionary mapping raw calculation records returned by tools.
+The agent manages state via `OrchestrationAgentState` defined in [state.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/orchestration_agent/state.py):
+* `messages`: Message list accumulating ReAct tool call/response history.
+* `case_id`: Current Case ID.
+* `case_input`: Aggregated case input fields loaded from the database.
+* `tool_results`: Caches raw tool reports.
 * `final_output`: Synthesized orchestration plan JSON payload.
-* `error`: Optional string tracking error details.
-* `tools_used`: List tracking executed tool names.
-* `agent_metadata`: Dictionary tracking agent metadata.
-* `metrics`: Invocation duration, retries, and LLM call counts.
+* `error`: Tracks execution errors.
+* `tools_used`: Tracks executed tools.
+* `agent_metadata`: Includes name, version, model, and duration.
+* `metrics`: Tracks LLM calls, tool calls, and duration.
 
 ---
 
 ## ── Orchestration Tools ──
 
-All tools are located in [tools.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/orchestration_agent/tools.py):
+WOA has access to **6 database-backed tools** defined in [tools.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/orchestration_agent/tools.py) that compute metrics and read case details:
 
 ### 1. `evaluate_case_complexity`
-* **Purpose**: Evaluates Case ID information and computes overall complexity based on value thresholds, risk levels, and prior classifications.
-* **Inputs**:
-  - `case_id` (string)
-* **Output**: Complexity level verdict (`LOW` | `MEDIUM` | `HIGH` | `CRITICAL`) and logical reasoning.
+- **Purpose**: Computes orchestration complexity (`LOW` | `MEDIUM` | `HIGH` | `CRITICAL`) based on transaction amount, fraud flags, risk tags, and Agent 2's complexity score.
+- **Inputs**: `case_id`
+- **Output**: Complexity level and list of contributing factors.
 
 ### 2. `determine_required_agents`
-* **Purpose**: Identifies which specialist agents must execute for this case based on dispute category, fraud indicators, and risk tags.
-* **Inputs**:
-  - `case_id` (string)
-* **Output**: List of required specialist agent identifiers.
+- **Purpose**: Identifies which specialist agents must execute based on routing rules:
+  - `FRAUD_AGENT`: Unauthorized Transaction, Friendly Fraud, or fraud suspicion.
+  - `EVIDENCE_AGENT`: Document gaps, `evidence_match=false`, ATM Cash Issues, or Friendly Fraud.
+  - `MERCHANT_AGENT`: Merchant Disputes, Refund Not Received, Product Not Received, Subscription Abuse, or Duplicate Transaction.
+  - `COMPLIANCE_AGENT`: High-risk compliance tags (e.g. velocity breaches, blacklist matches).
+- **Inputs**: `case_id`
+- **Output**: List of required agent identifiers and routing reasons.
 
 ### 3. `recommend_workflow_path`
-* **Purpose**: Recommends an ordered execution sequence for the required specialist agents, respecting dependency constraints.
-* **Inputs**:
-  - `case_id` (string)
-* **Output**: Ordered sequence of agent execution paths.
+- **Purpose**: Determines the optimal execution order for required specialists.
+- **Dependency Rules**:
+  - `FRAUD_AGENT` always runs first (informs other agents).
+  - `EVIDENCE_AGENT` runs before `MERCHANT_AGENT` and `COMPLIANCE_AGENT` (provides evidence verification).
+  - Canonical order: `FRAUD_AGENT` → `EVIDENCE_AGENT` → `MERCHANT_AGENT` → `COMPLIANCE_AGENT`.
+- **Inputs**: `case_id`
+- **Output**: Ordered sequence of agent paths and active dependencies.
 
 ### 4. `assess_escalation_need`
-* **Purpose**: Evaluates whether the case requires escalation, and at what tier, based on regulatory tags, complexity levels, and transaction values.
-* **Inputs**:
-  - `case_id` (string)
-* **Output**: Escalation flag and escalation level (`CRITICAL` | `HIGH` | `MEDIUM` | `null`).
+- **Purpose**: Determines if the case must be escalated to management.
+- **Rules**:
+  - `CRITICAL`: Fraud + amount > ₹50,000, OR Agent 2 complexity is CRITICAL.
+  - `HIGH`: Fraud alone, OR amount > ₹5,00,000, OR blacklist/velocity risk tags.
+  - `MEDIUM`: Amount > ₹50,000, OR Agent 2 complexity is HIGH.
+- **Inputs**: `case_id`
+- **Output**: Escalation required boolean, level, and triggers list.
 
 ### 5. `estimate_workload`
-* **Purpose**: Estimates operational analyst review time in hours and recommends required analyst seniority level.
-* **Inputs**:
-  - `case_id` (string)
-* **Output**: Recommended analyst level (`LEAD` | `SENIOR` | `STANDARD` | `JUNIOR`) and estimated investigation hours.
+- **Purpose**: Estimates operational analyst hours and recommends analyst seniority.
+- **Rules**:
+  - Base hours by complexity: `LOW` = 1h, `MEDIUM` = 2h, `HIGH` = 4h, `CRITICAL` = 8h.
+  - Adds 1 hour for each required specialist agent.
+  - Analyst level: `LOW` → JUNIOR; `MEDIUM` → STANDARD; `HIGH` → SENIOR; `CRITICAL` → LEAD.
+- **Inputs**: `case_id`
+- **Output**: Estimated hours, analyst level, and breakdown.
 
 ### 6. `determine_next_execution_step`
-* **Purpose**: Identifies the immediate next agent to execute by reading the current case state and checking for uncompleted dependencies.
-* **Inputs**:
-  - `case_id` (string)
-* **Output**: Next agent identifier (or `null` if complete) and dependency blocks.
+- **Purpose**: Checks the planned workflow path against completed agents in the database to identify the immediate next step. Checks for unmet dependency locks (e.g. EVIDENCE_AGENT blocked waiting for FRAUD_AGENT).
+- **Inputs**: `case_id`
+- **Output**: Next agent string (or `null` if complete), list of remaining agents, list of blocking dependencies, and explanation.
 
 ---
 
 ## ── Downstream Specialist Registry ──
 
 WOA orchestrates routing across the following specialist nodes:
-* **`FRAUD_AGENT`**: Evaluates unauthorized transactions, identity theft risk, and friendly fraud triggers.
-* **`MERCHANT_AGENT`**: Handles refund disputes, double charges, undelivered products, and subscription issues.
-* **`EVIDENCE_AGENT`**: Requests, checks, and validates outstanding customer documents or merchant representations.
-* **`COMPLIANCE_AGENT`**: Evaluates regulatory compliance, RBI timelines, velocity breaches, and merchant blacklist anomalies.
+* **`FRAUD_AGENT`**: Evaluates unauthorized transactions, identity theft risk, and friendly fraud.
+* **`MERCHANT_AGENT`**: Handles refunds, duplicate charges, undelivered products, and subscription issues.
+* **`EVIDENCE_AGENT`**: Requests, checks, and validates outstanding customer documents.
+* **`COMPLIANCE_AGENT`**: Evaluates regulatory guidelines, RBI timelines, and blacklisted merchants.
 
 ---
 
@@ -115,4 +148,7 @@ WOA orchestrates routing across the following specialist nodes:
 
 * **Function**: `run_orchestration_agent(case_id: str) -> dict`
 * **Module**: [__init__.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/orchestration_agent/__init__.py)
-* **Callers**: Called inside the `orchestration_node` in `dispute_workflow.py`, or directly from API endpoints in `ops_cases.py` and `disputes.py`.
+* **Callers**:
+  - `workflows/dispute_workflow.py` → `orchestration_node`
+  - `api/routes/ops_cases.py` → manual analyst re-orchestration trigger
+  - `api/routes/disputes.py` → re-analysis trigger after customer document upload

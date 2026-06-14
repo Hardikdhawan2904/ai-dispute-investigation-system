@@ -1871,7 +1871,7 @@ export default function CaseWorkspace() {
           <Panel>
             <SectionTitle>Case Status</SectionTitle>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-              <select className="bfsi-select" value={caseData.status} onChange={(e) => handleStatusUpdate(e.target.value)} disabled={updatingStatus} style={{ fontSize: "0.75rem" }}>
+              <select className="bfsi-select" value={caseData.status} onChange={(e) => handleStatusUpdate(e.target.value)} disabled={updatingStatus} aria-label="Case Status" title="Select case status">
                 {CASE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
               {updatingStatus && (
@@ -1965,7 +1965,13 @@ export default function CaseWorkspace() {
       {/* Lightbox */}
       {lightbox && (
         <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 50, backgroundColor: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-          <button onClick={() => setLightbox(null)} style={{ position: "absolute", top: "1rem", right: "1rem", background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }}>
+          <button
+            type="button"
+            onClick={() => setLightbox(null)}
+            aria-label="Close preview"
+            title="Close preview"
+            style={{ position: "absolute", top: "1rem", right: "1rem", background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }}
+          >
             <X style={{ width: 24, height: 24 }} />
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
