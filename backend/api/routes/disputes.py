@@ -7,10 +7,13 @@ from pathlib import Path
 from typing import List, Optional
 from api.executor import analysis_executor
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from sqlalchemy import desc as _desc
 from sqlalchemy.orm import Session
 
 from database.database import get_db
+from database.models import AuditLog
 from services.dispute_service import DisputeService
+from services.document_rules import resolve_investigation_status
 from schemas.dispute_schemas import (
     DisputeSubmissionRequest,
     DisputeCaseResponse,
@@ -245,8 +248,6 @@ def get_all_audit_logs(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    from database.models import AuditLog
-    from sqlalchemy import desc as _desc
     logs = db.query(AuditLog).order_by(_desc(AuditLog.created_at)).limit(limit).all()
     return {"audit_logs": [log.to_dict() for log in logs]}
 
@@ -290,7 +291,6 @@ async def upload_case_documents(
 
     if saved:
         # Re-evaluate status now that new files are on disk
-        from services.document_rules import resolve_investigation_status
         case.status = resolve_investigation_status(case, case_id)
 
         db.add(AuditLog(
@@ -392,7 +392,6 @@ def _reanalyse_after_upload(case_id: str) -> None:
 
         from services.queue_assignment_service import assign_queue
         from services.sla_service import compute_sla_deadline
-        from services.document_rules import resolve_investigation_status
         case.status = resolve_investigation_status(case, case_id)
         priority_score, priority_label = compute_priority(case.to_dict())
         case.priority_score = priority_score

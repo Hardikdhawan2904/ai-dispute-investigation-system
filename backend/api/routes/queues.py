@@ -1,7 +1,6 @@
 """Queue management endpoints."""
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from database.database import get_db
 from database.models import DisputeCase

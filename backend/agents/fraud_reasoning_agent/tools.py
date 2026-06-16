@@ -1,6 +1,7 @@
 """
 Fraud Reasoning Agent tools — 3 tools that query database tables.
 """
+from collections import Counter
 from contextvars import ContextVar
 from datetime import datetime, timezone, timedelta
 import math
@@ -267,9 +268,6 @@ def analyze_spending_behavior(customer_id: str, amount: float) -> str:
         return f"SPENDING BEHAVIOR REPORT\n  Error: Tool execution failed — {exc}\n  Spending Deviation: ANOMALOUS"
     finally:
         db.close()
-
-
-from collections import Counter
 
 
 # ── Tool 4 — KYC Profile verification ─────────────────────────────────────────

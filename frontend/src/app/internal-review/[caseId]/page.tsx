@@ -84,15 +84,6 @@ function InfoRow({ label, value, mono = false }: { label: string; value?: string
   );
 }
 
-function Field({ label, value, mono = false }: { label: string; value?: string | number | boolean | null; mono?: boolean }) {
-  const display = value === true ? "Yes" : value === false ? "No" : (value ?? "—");
-  return (
-    <div className="data-row">
-      <span className="data-label">{label}</span>
-      <span className={cn("data-value", mono && "font-mono")}>{String(display)}</span>
-    </div>
-  );
-}
 
 function Panel({ children, style, className }: { children: React.ReactNode; style?: React.CSSProperties; className?: string }) {
   return (

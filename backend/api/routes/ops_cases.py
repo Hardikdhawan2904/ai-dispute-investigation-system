@@ -6,6 +6,7 @@ risk explanations, and advanced search.
 """
 import asyncio
 import pathlib
+import re
 from typing import Optional
 from api.executor import analysis_executor
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -30,6 +31,7 @@ from services import (
     risk_explanation_service,
     case_search_service,
 )
+from services.document_rules import resolve_investigation_status
 from groq import RateLimitError as GroqRateLimitError
 from tenacity import RetryError
 
@@ -154,7 +156,6 @@ async def reanalyse_case(case_id: str):
     """Re-run full Agent 1 + Agent 2 pipeline on an existing case.
     Runs the LLM call in a thread-pool executor so the async event loop
     stays free to serve other requests (e.g. listCases) during inference."""
-    import re
     from database.database import SessionLocal
 
     # Verify case exists — Agent 1 will read full data from DB directly
@@ -233,7 +234,6 @@ async def reanalyse_case(case_id: str):
             if not case:
                 return None
 
-            from services.document_rules import resolve_investigation_status
             case.status = resolve_investigation_status(case, case_id)
 
             priority_score, priority_label = priority_engine.compute_priority(case.to_dict())
@@ -397,7 +397,6 @@ async def analyse_uploads(case_id: str):
             if not case:
                 return None
 
-            from services.document_rules import resolve_investigation_status
             case.status = resolve_investigation_status(case, case_id)
 
             # Recompute priority, queue, SLA on the fresh DB state

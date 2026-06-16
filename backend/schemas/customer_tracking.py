@@ -10,6 +10,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from database.models import DisputeCase, AuditLog
+from schemas.customer_schemas import CUSTOMER_STATUS_MAP
 from services.document_rules import get_customer_required_documents
 
 _UPLOADS_ROOT = os.path.join(
@@ -38,17 +39,6 @@ def _utc_iso(dt: datetime | None) -> str | None:
     return dt.isoformat()
 
 
-# ── Status mapping — internal → customer-visible ───────────────────────────────
-
-CUSTOMER_STATUS_MAP: dict[str, str] = {
-    "Dispute Raised":      "Dispute Submitted",
-    "Under Investigation": "Under Review",
-    "Pending Documents":   "Documents Requested",
-    "Escalated":           "Investigation In Progress",
-    "Resolved":            "Resolved",
-    "Rejected":            "Resolved",
-    "Closed":              "Resolved",
-}
 
 _ESTIMATED_RESOLUTION: dict[str, str] = {
     "Dispute Raised":      "Within 7 business days",

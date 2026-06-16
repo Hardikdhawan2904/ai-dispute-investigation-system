@@ -136,7 +136,6 @@ interface FTextareaProps {
   placeholder?: string;
   rows?: number;
   maxLength?: number;
-  minLength?: number;
 }
 
 export function FTextarea({
@@ -319,9 +318,7 @@ export function FMaskedDigits({
 interface SectionCardProps {
   title?: string;
   subtitle?: string;
-  icon?: React.ReactNode;
   children: React.ReactNode;
-  accent?: boolean;
   className?: string;
 }
 

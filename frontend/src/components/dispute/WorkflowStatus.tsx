@@ -53,7 +53,6 @@ export default function WorkflowStatus({ status, workflowReady }: WorkflowStatus
 
           // Handle terminal statuses
           const isRejected = status === "Rejected" && i === 4;
-          const isClosed = status === "Closed" && i === 4;
 
           return (
             <div key={stage.key} className="flex gap-4 pb-4 last:pb-0">
