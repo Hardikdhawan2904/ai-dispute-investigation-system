@@ -350,13 +350,6 @@ def _reanalyse_after_upload(case_id: str) -> None:
     from agents.orchestration_agent import run_orchestration_agent
 
     try:
-        fraud_result = run_fraud_reasoning_agent({}, case_id=case_id)
-        if fraud_result:
-            _save_fraud_reasoning_to_db(case_id, fraud_result)
-    except Exception as exc:
-        api_logger.error(f"_reanalyse_after_upload fraud_reasoning failed {case_id}: {exc}", exc_info=True)
-
-    try:
         result = run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
     except Exception as exc:
         api_logger.error(f"_reanalyse_after_upload agent1 failed {case_id}: {exc}", exc_info=True)
@@ -379,6 +372,14 @@ def _reanalyse_after_upload(case_id: str) -> None:
         wf_plan = run_orchestration_agent(case_id)
         if wf_plan:
             _save_agent3_to_db(case_id, wf_plan)
+            # WOA is the single source of truth — only run FRIA if WOA included it
+            if "FRAUD_AGENT" in (wf_plan.get("workflow_path") or []):
+                try:
+                    fraud_result = run_fraud_reasoning_agent({}, case_id=case_id)
+                    if fraud_result:
+                        _save_fraud_reasoning_to_db(case_id, fraud_result, wf_plan)
+                except Exception as exc:
+                    api_logger.error(f"_reanalyse_after_upload fraud_reasoning failed {case_id}: {exc}", exc_info=True)
     except Exception:
         pass
 

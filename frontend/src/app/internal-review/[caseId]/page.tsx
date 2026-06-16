@@ -143,7 +143,8 @@ export default function CaseWorkspace() {
   const [elapsed, setElapsed]               = useState(0);
   const [uploads, setUploads]               = useState<CaseUploadFile[]>([]);
   const [lightbox, setLightbox]             = useState<string | null>(null);
-  const [activeTab, setActiveTab]           = useState<"analysis" | "trust" | "fraud" | "investigation" | "evidence_review" | "evidence" | "audit" | "workflow" | "orchestration">("analysis");
+  const [activeTab, setActiveTab]           = useState<"analysis" | "fraud_review" | "investigation" | "evidence_review" | "evidence" | "audit" | "orchestration" | "advanced">("analysis");
+  const [showAdvanced, setShowAdvanced]     = useState(false);
   const [runningEIA, setRunningEIA]         = useState(false);
   const [whyPlanOpen, setWhyPlanOpen]       = useState(false);
   const [liveUpdate, setLiveUpdate]         = useState(false);
@@ -169,6 +170,14 @@ export default function CaseWorkspace() {
       document.title = "Case Not Found | BFSI Dispute Resolution Platform";
     }
   }, [loading, caseData]);
+
+  // If re-analysis removes FRAUD_AGENT from the path, navigate away from the fraud tab
+  useEffect(() => {
+    if (activeTab === "fraud_review" && caseData) {
+      const path: string[] = (caseData.workflow_plan as any)?.workflow_path ?? [];
+      if (!path.includes("FRAUD_AGENT")) setActiveTab("analysis");
+    }
+  }, [caseData, activeTab]);
 
   useDisputeSocket((event: DisputeSocketEvent) => {
     if (event.type === "ANALYSIS_COMPLETE" && event.case_id === caseId) {
@@ -245,16 +254,18 @@ export default function CaseWorkspace() {
 
   const evidenceAssessment = caseData.evidence_assessment as EvidenceAssessment | null | undefined;
 
+  // WOA is the single source of truth — show Fraud Review only when WOA included FRAUD_AGENT
+  const showFraudTab = (wfPlan?.workflow_path ?? []).includes("FRAUD_AGENT");
+
   const tabs = [
-    { key: "analysis",       label: "Case Analysis" },
-    { key: "trust",          label: "Trust Intelligence" },
-    { key: "fraud",          label: "Fraud Reasoning" },
-    { key: "investigation",  label: "Investigation" },
+    { key: "analysis",        label: "Case Analysis" },
+    { key: "investigation",   label: "Investigation" },
+    ...(showFraudTab ? [{ key: "fraud_review", label: "Fraud Review" }] : []),
     { key: "evidence_review", label: "Evidence Review" },
-    { key: "orchestration",  label: "Orchestration" },
-    { key: "evidence",       label: `Evidence (${uploads.length})` },
+    { key: "orchestration",   label: "Case Coordination" },
+    { key: "evidence",        label: `Evidence (${uploads.length})` },
     { key: "audit",          label: "Audit Trail" },
-    { key: "workflow",       label: "Workflow" },
+    { key: "advanced",       label: "Advanced Diagnostics" },
   ] as const;
 
   return (
@@ -360,7 +371,7 @@ export default function CaseWorkspace() {
           {/* Tab navigation */}
           <div style={{ display: "flex", borderBottom: "1px solid #334155", marginBottom: "1rem", overflowX: "auto" }}>
             {tabs.map(({ key, label }) => (
-              <button key={key} onClick={() => setActiveTab(key)}
+              <button key={key} onClick={() => setActiveTab(key as Parameters<typeof setActiveTab>[0])}
                 style={{ fontSize: "0.75rem", fontWeight: activeTab === key ? 600 : 400, padding: "0.5rem 1rem", borderTop: "none", borderLeft: "none", borderRight: "none", borderBottom: activeTab === key ? "2px solid #2563EB" : "2px solid transparent", marginBottom: -1, color: activeTab === key ? "#F8FAFC" : "#64748B", background: "none", cursor: "pointer", whiteSpace: "nowrap", transition: "color 0.15s" }}>
                 {label}
               </button>
@@ -555,148 +566,143 @@ export default function CaseWorkspace() {
             </div>
           )}
 
-          {/* ── Trust Intelligence tab ─────────────────────────────────────── */}
-          {activeTab === "trust" && (() => {
+          {/* ── Fraud Review tab (merged Fraud + Trust) ────────────────────── */}
+          {activeTab === "fraud_review" && (() => {
+            const fraudData = caseData.fraud_reasoning_brief;
             const trustData = caseData.trust_intelligence;
-            if (!trustData) {
+
+            if (!fraudData && !trustData) {
               return (
                 <Panel style={{ padding: "3rem", textAlign: "center" }}>
-                  <p style={{ fontSize: "0.8rem", color: "#64748B" }}>Trust intelligence brief not yet generated.</p>
-                  <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 4 }}>Re-submit or re-analyse to trigger the trust intelligence agent.</p>
+                  <p style={{ fontSize: "0.8rem", color: "#64748B" }}>Fraud review not yet generated.</p>
+                  <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 4 }}>Re-submit or re-analyse to trigger the fraud review agent.</p>
                 </Panel>
               );
             }
 
-            const trustScorePct = Math.round((trustData.user_trust_score ?? 0) * 100);
-            const riskScorePct  = Math.round((trustData.behavioral_risk_score ?? 0) * 100);
+            const fd = fraudData ?? {};
+            const td = trustData ?? {};
+
+            const fraudProbPct  = Math.round(((fd as any).fraud_probability ?? 0) * 100);
+            const trustScorePct = Math.round(((td as any).user_trust_score  ?? 0) * 100);
+            const behavRiskPct  = Math.round(((td as any).behavioral_risk_score ?? 0) * 100);
+
+            const riskLevel  = (fd as any).fraud_risk_level ?? "LOW";
+            const riskColor  = riskLevel === "CRITICAL" ? "#EF4444" : riskLevel === "HIGH" ? "#F97316" : riskLevel === "MEDIUM" ? "#FBBF24" : "#10B981";
+            const riskBg     = riskLevel === "CRITICAL" ? "rgba(239,68,68,0.1)" : riskLevel === "HIGH" ? "rgba(249,115,22,0.1)" : riskLevel === "MEDIUM" ? "rgba(251,191,36,0.1)" : "rgba(16,185,129,0.1)";
+            const riskBorder = riskLevel === "CRITICAL" ? "rgba(239,68,68,0.3)" : riskLevel === "HIGH" ? "rgba(249,115,22,0.3)" : riskLevel === "MEDIUM" ? "rgba(251,191,36,0.3)" : "rgba(16,185,129,0.3)";
 
             const trustColor = trustScorePct >= 80 ? "#4ADE80" : trustScorePct >= 50 ? "#FCD34D" : "#FCA5A5";
-            const riskColor  = riskScorePct >= 70 ? "#FCA5A5" : riskScorePct >= 40 ? "#FCD34D" : "#4ADE80";
+            const behavColor = behavRiskPct  >= 70 ? "#FCA5A5" : behavRiskPct  >= 40 ? "#FCD34D" : "#4ADE80";
 
-            const idStatus = trustData.identity_verification;
-            const idStatusColor = idStatus === "VERIFIED" ? "#4ADE80" : idStatus === "SUSPICIOUS" ? "#FCD34D" : "#FCA5A5";
-            const idStatusBg = idStatus === "VERIFIED" ? "rgba(74, 222, 128, 0.1)" : idStatus === "SUSPICIOUS" ? "rgba(252, 211, 77, 0.1)" : "rgba(252, 165, 165, 0.1)";
-            const idStatusBorder = idStatus === "VERIFIED" ? "rgba(74, 222, 128, 0.3)" : idStatus === "SUSPICIOUS" ? "rgba(252, 211, 77, 0.3)" : "rgba(252, 165, 165, 0.3)";
+            const idStatus      = (td as any).identity_verification ?? (fd as any).identity_verification ?? "PENDING";
+            const idColor       = idStatus === "VERIFIED" ? "#4ADE80" : idStatus === "SUSPICIOUS" ? "#FCD34D" : "#FCA5A5";
+            const idBg          = idStatus === "VERIFIED" ? "rgba(74,222,128,0.1)" : idStatus === "SUSPICIOUS" ? "rgba(252,211,77,0.1)" : "rgba(252,165,165,0.1)";
+            const idBorder      = idStatus === "VERIFIED" ? "rgba(74,222,128,0.3)" : idStatus === "SUSPICIOUS" ? "rgba(252,211,77,0.3)" : "rgba(252,165,165,0.3)";
+
+            const kycData    = (td as any).kyc_checks    ?? (fd as any).kyc_checks    ?? {};
+            const devData    = (td as any).device_fingerprint ?? (fd as any).device_fingerprint ?? {};
+            const behavData  = (td as any).dispute_behavior   ?? (fd as any).dispute_behavior   ?? {};
 
             return (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
-                {/* Header Summary Panel */}
-                <Panel style={{ borderLeft: `4px solid ${idStatusColor}`, padding: "1.25rem" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: 2 }}>
-                        <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2563EB" }}>Agent 4 Output</span>
-                        <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#334155" }} />
-                        <span style={{ fontSize: "0.65rem", color: "#64748B" }}>Identity & Trust Intelligence</span>
-                      </div>
-                      <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#F8FAFC", margin: 0 }}>Trust Intelligence Brief</h3>
-                    </div>
-                    
-                    {/* Identity Status Badge */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0.75rem", backgroundColor: idStatusBg, border: `1px solid ${idStatusBorder}`, borderRadius: 4 }}>
-                      {idStatus === "VERIFIED" ? (
-                        <CheckCircle style={{ width: 14, height: 14, color: idStatusColor }} />
-                      ) : (
-                        <AlertTriangle style={{ width: 14, height: 14, color: idStatusColor }} />
-                      )}
-                      <span style={{ fontSize: "0.72rem", fontWeight: 700, color: idStatusColor, letterSpacing: "0.05em" }}>
-                        IDENTITY: {idStatus}
-                      </span>
+              <div className="flex flex-col gap-3.5">
+
+                {/* ── Header: Fraud Summary ─────────────────────────────── */}
+                <Panel style={{ borderLeft: `4px solid ${riskColor}`, padding: "1.25rem" }}>
+                  <div className="flex justify-between items-start flex-wrap gap-4 mb-3">
+                    <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#F8FAFC", margin: 0 }}>Fraud Review</h3>
+                    <div style={{ backgroundColor: riskBg, border: `1px solid ${riskBorder}` }} className="flex items-center gap-2 px-3 py-1.5 rounded">
+                      <AlertTriangle style={{ width: 13, height: 13, color: riskColor }} />
+                      <span style={{ color: riskColor }} className="text-xs font-bold tracking-wide">FRAUD RISK: {riskLevel}</span>
                     </div>
                   </div>
-
-                  <p style={{ fontSize: "0.75rem", color: "#94A3B8", lineHeight: 1.6, marginTop: "0.75rem", marginBottom: 0 }}>
-                    {trustData.trust_summary}
+                  <p style={{ fontSize: "0.75rem", color: "#94A3B8", lineHeight: 1.6, margin: 0 }}>
+                    {(fd as any).fraud_summary || "No fraud summary available."}
                   </p>
                 </Panel>
 
-                {/* Score Meters */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.875rem" }}>
+                {/* ── Score Row ─────────────────────────────────────────── */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.875rem" }}>
+                  {/* Fraud Probability */}
                   <Panel>
-                    <SectionTitle>Customer Trust Score</SectionTitle>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                      <span style={{ fontSize: "0.75rem", fontWeight: 600, color: trustColor }}>
-                        {trustScorePct >= 80 ? "High Trust Strength" : trustScorePct >= 50 ? "Moderate Trust Strength" : "Low Trust / Elevated Risk"}
-                      </span>
-                      <span style={{ fontSize: "1.1rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: trustColor }}>
-                        {trustScorePct}%
-                      </span>
+                    <Label>Fraud Probability</Label>
+                    <div style={{ fontSize: "1.5rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: riskColor, lineHeight: 1 }}>{fraudProbPct}%</div>
+                    <div style={{ height: 4, backgroundColor: "#334155", borderRadius: 2, overflow: "hidden", marginTop: 6 }}>
+                      <div style={{ height: "100%", width: `${fraudProbPct}%`, backgroundColor: riskColor, borderRadius: 2 }} />
                     </div>
-                    <div style={{ height: 6, backgroundColor: "#334155", borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${trustScorePct}%`, backgroundColor: trustColor, borderRadius: 3, transition: "width 0.5s ease-out" }} />
-                    </div>
-                    <p style={{ fontSize: "0.625rem", color: "#64748B", marginTop: 6, lineHeight: 1.4 }}>
-                      Represents customer profile alignment, contact information match, device history, and prior transaction dispute rates.
-                    </p>
                   </Panel>
-
+                  {/* Trust Score */}
                   <Panel>
-                    <SectionTitle>Behavioral Risk Score</SectionTitle>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                      <span style={{ fontSize: "0.75rem", fontWeight: 600, color: riskColor }}>
-                        {riskScorePct >= 70 ? "High Threat Indicator" : riskScorePct >= 40 ? "Moderate Behavior Risk" : "Low Behavior Risk"}
-                      </span>
-                      <span style={{ fontSize: "1.1rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: riskColor }}>
-                        {riskScorePct}%
-                      </span>
+                    <Label>Trust Score</Label>
+                    <div style={{ fontSize: "1.5rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: trustColor, lineHeight: 1 }}>{trustScorePct}%</div>
+                    <div style={{ height: 4, backgroundColor: "#334155", borderRadius: 2, overflow: "hidden", marginTop: 6 }}>
+                      <div style={{ height: "100%", width: `${trustScorePct}%`, backgroundColor: trustColor, borderRadius: 2 }} />
                     </div>
-                    <div style={{ height: 6, backgroundColor: "#334155", borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${riskScorePct}%`, backgroundColor: riskColor, borderRadius: 3, transition: "width 0.5s ease-out" }} />
+                  </Panel>
+                  {/* Behavioral Risk */}
+                  <Panel>
+                    <Label>Behavioral Risk</Label>
+                    <div style={{ fontSize: "1.5rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: behavColor, lineHeight: 1 }}>
+                      {behavRiskPct >= 70 ? "HIGH" : behavRiskPct >= 40 ? "MEDIUM" : "LOW"}
                     </div>
-                    <p style={{ fontSize: "0.625rem", color: "#64748B", marginTop: 6, lineHeight: 1.4 }}>
-                      Probability of friendly fraud, duplicate claim activity, device mismatch, velocity breaches, or suspicious account activities.
-                    </p>
+                    <div style={{ height: 4, backgroundColor: "#334155", borderRadius: 2, overflow: "hidden", marginTop: 6 }}>
+                      <div style={{ height: "100%", width: `${behavRiskPct}%`, backgroundColor: behavColor, borderRadius: 2 }} />
+                    </div>
+                  </Panel>
+                  {/* Identity Status */}
+                  <Panel>
+                    <Label>Identity Status</Label>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: 2 }}>
+                      <div style={{ padding: "0.25rem 0.625rem", backgroundColor: idBg, border: `1px solid ${idBorder}`, borderRadius: 3, display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                        {idStatus === "VERIFIED"
+                          ? <CheckCircle style={{ width: 12, height: 12, color: idColor }} />
+                          : <AlertTriangle style={{ width: 12, height: 12, color: idColor }} />}
+                        <span style={{ fontSize: "0.72rem", fontWeight: 700, color: idColor }}>{idStatus}</span>
+                      </div>
+                    </div>
                   </Panel>
                 </div>
 
-                {/* 3-Column Checks Grid */}
+                {/* ── Identity Verification + Device + Behavioral ───────── */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.875rem" }}>
-                  {/* KYC Verification Checks */}
+
+                  {/* KYC Match */}
                   <Panel>
-                    <SectionTitle>KYC Verification</SectionTitle>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
-                        <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Name Match</span>
-                        {trustData.kyc_checks?.name_match ? (
-                          <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#4ADE80", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                            <CheckCircle style={{ width: 12, height: 12 }} /> Match
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#FCA5A5", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                            <AlertTriangle style={{ width: 12, height: 12 }} /> Mismatch
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
-                        <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Contact Match</span>
-                        {trustData.kyc_checks?.contact_match ? (
-                          <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#4ADE80", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                            <CheckCircle style={{ width: 12, height: 12 }} /> Match
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#FCA5A5", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                            <AlertTriangle style={{ width: 12, height: 12 }} /> Mismatch
-                          </span>
-                        )}
-                      </div>
+                    <SectionTitle>Identity Verification</SectionTitle>
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      {[
+                        { label: "KYC Match — Name",    ok: kycData.name_match },
+                        { label: "KYC Match — Contact", ok: kycData.contact_match },
+                      ].map(({ label, ok }) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
+                          <span style={{ fontSize: "0.7rem", color: "#64748B" }}>{label}</span>
+                          {ok ? (
+                            <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#4ADE80", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                              <CheckCircle style={{ width: 12, height: 12 }} /> Match
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#FCA5A5", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                              <AlertTriangle style={{ width: 12, height: 12 }} /> Mismatch
+                            </span>
+                          )}
+                        </div>
+                      ))}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0" }}>
                         <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Customer Since</span>
-                        <span style={{ fontSize: "0.72rem", color: "#F8FAFC", fontFamily: "ui-monospace, monospace" }}>
-                          {trustData.kyc_checks?.join_date || "—"}
-                        </span>
+                        <span style={{ fontSize: "0.72rem", color: "#F8FAFC", fontFamily: "ui-monospace, monospace" }}>{kycData.join_date || "—"}</span>
                       </div>
                     </div>
                   </Panel>
 
-                  {/* Device Fingerprint Checks */}
+                  {/* Device Fingerprint + Location */}
                   <Panel>
-                    <SectionTitle>Device Fingerprint</SectionTitle>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                    <SectionTitle>Device &amp; Location</SectionTitle>
+                    <div style={{ display: "flex", flexDirection: "column" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
-                        <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Recognized Device</span>
-                        {trustData.device_fingerprint?.recognized_device ? (
+                        <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Device Fingerprint</span>
+                        {devData.recognized_device ? (
                           <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#4ADE80", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                            <CheckCircle style={{ width: 12, height: 12 }} /> Yes
+                            <CheckCircle style={{ width: 12, height: 12 }} /> Recognized
                           </span>
                         ) : (
                           <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#FCD34D", display: "flex", alignItems: "center", gap: "0.25rem" }}>
@@ -705,47 +711,44 @@ export default function CaseWorkspace() {
                         )}
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
-                        <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Location Consistent</span>
-                        {trustData.device_fingerprint?.location_consistent ? (
+                        <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Location Familiarity</span>
+                        {devData.location_consistent ? (
                           <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#4ADE80", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                            <CheckCircle style={{ width: 12, height: 12 }} /> Yes
+                            <CheckCircle style={{ width: 12, height: 12 }} /> Familiar
                           </span>
                         ) : (
                           <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#FCA5A5", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                            <AlertTriangle style={{ width: 12, height: 12 }} /> Mismatch
+                            <AlertTriangle style={{ width: 12, height: 12 }} /> Unfamiliar
                           </span>
                         )}
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0" }}>
                         <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Device Risk</span>
                         <span style={{
-                          fontSize: "0.65rem",
-                          fontWeight: 700,
-                          padding: "0.1rem 0.4rem",
-                          borderRadius: 3,
-                          backgroundColor: trustData.device_fingerprint?.device_risk === "HIGH" ? "rgba(252,165,165,0.1)" : trustData.device_fingerprint?.device_risk === "MEDIUM" ? "rgba(252,211,77,0.1)" : "rgba(74,222,128,0.1)",
-                          color: trustData.device_fingerprint?.device_risk === "HIGH" ? "#FCA5A5" : trustData.device_fingerprint?.device_risk === "MEDIUM" ? "#FCD34D" : "#4ADE80",
-                          border: `1px solid ${trustData.device_fingerprint?.device_risk === "HIGH" ? "rgba(252,165,165,0.3)" : trustData.device_fingerprint?.device_risk === "MEDIUM" ? "rgba(252,211,77,0.3)" : "rgba(74,222,128,0.3)"}`
+                          fontSize: "0.65rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: 3,
+                          backgroundColor: devData.device_risk === "HIGH" ? "rgba(252,165,165,0.1)" : devData.device_risk === "MEDIUM" ? "rgba(252,211,77,0.1)" : "rgba(74,222,128,0.1)",
+                          color: devData.device_risk === "HIGH" ? "#FCA5A5" : devData.device_risk === "MEDIUM" ? "#FCD34D" : "#4ADE80",
+                          border: `1px solid ${devData.device_risk === "HIGH" ? "rgba(252,165,165,0.3)" : devData.device_risk === "MEDIUM" ? "rgba(252,211,77,0.3)" : "rgba(74,222,128,0.3)"}`
                         }}>
-                          {trustData.device_fingerprint?.device_risk || "LOW"}
+                          {devData.device_risk || "LOW"}
                         </span>
                       </div>
                     </div>
                   </Panel>
 
-                  {/* Historical Dispute Behavior */}
+                  {/* Behavioral Analysis */}
                   <Panel>
-                    <SectionTitle>Dispute Behavior</SectionTitle>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                    <SectionTitle>Behavioral Analysis</SectionTitle>
+                    <div style={{ display: "flex", flexDirection: "column" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
                         <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Prior Disputes</span>
-                        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: (trustData.dispute_behavior?.prior_dispute_count ?? 0) >= 3 ? "#FCA5A5" : "#F8FAFC" }}>
-                          {trustData.dispute_behavior?.prior_dispute_count ?? 0}
+                        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: (behavData.prior_dispute_count ?? 0) >= 3 ? "#FCA5A5" : "#F8FAFC" }}>
+                          {behavData.prior_dispute_count ?? 0}
                         </span>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
-                        <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Velocity Breach</span>
-                        {trustData.dispute_behavior?.velocity_breach_detected ? (
+                        <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Velocity Breaches</span>
+                        {behavData.velocity_breach_detected ? (
                           <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#FCA5A5", display: "flex", alignItems: "center", gap: "0.25rem" }}>
                             <AlertTriangle style={{ width: 12, height: 12 }} /> Detected
                           </span>
@@ -756,305 +759,37 @@ export default function CaseWorkspace() {
                         )}
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0" }}>
-                        <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Friendly Fraud Risk</span>
+                        <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Friendly Fraud Indicators</span>
                         <span style={{
-                          fontSize: "0.65rem",
-                          fontWeight: 700,
-                          padding: "0.1rem 0.4rem",
-                          borderRadius: 3,
-                          backgroundColor: trustData.dispute_behavior?.friendly_fraud_risk === "HIGH" ? "rgba(252,165,165,0.1)" : trustData.dispute_behavior?.friendly_fraud_risk === "MEDIUM" ? "rgba(252,211,77,0.1)" : "rgba(74,222,128,0.1)",
-                          color: trustData.dispute_behavior?.friendly_fraud_risk === "HIGH" ? "#FCA5A5" : trustData.dispute_behavior?.friendly_fraud_risk === "MEDIUM" ? "#FCD34D" : "#4ADE80",
-                          border: `1px solid ${trustData.dispute_behavior?.friendly_fraud_risk === "HIGH" ? "rgba(252,165,165,0.3)" : trustData.dispute_behavior?.friendly_fraud_risk === "MEDIUM" ? "rgba(252,211,77,0.3)" : "rgba(74,222,128,0.3)"}`
+                          fontSize: "0.65rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: 3,
+                          backgroundColor: behavData.friendly_fraud_risk === "HIGH" ? "rgba(252,165,165,0.1)" : behavData.friendly_fraud_risk === "MEDIUM" ? "rgba(252,211,77,0.1)" : "rgba(74,222,128,0.1)",
+                          color: behavData.friendly_fraud_risk === "HIGH" ? "#FCA5A5" : behavData.friendly_fraud_risk === "MEDIUM" ? "#FCD34D" : "#4ADE80",
+                          border: `1px solid ${behavData.friendly_fraud_risk === "HIGH" ? "rgba(252,165,165,0.3)" : behavData.friendly_fraud_risk === "MEDIUM" ? "rgba(252,211,77,0.3)" : "rgba(74,222,128,0.3)"}`
                         }}>
-                          {trustData.dispute_behavior?.friendly_fraud_risk || "LOW"}
+                          {behavData.friendly_fraud_risk || "LOW"}
                         </span>
                       </div>
                     </div>
                   </Panel>
                 </div>
 
-                {/* Key Reasoning Findings */}
+                {/* ── Fraud Findings (FRIA Narrative) ──────────────────── */}
                 <Panel>
-                  <SectionTitle>Key Reasoning & Evidence Synthesis</SectionTitle>
+                  <SectionTitle>Fraud Findings</SectionTitle>
                   <ul style={{ display: "flex", flexDirection: "column", gap: "0.4rem", margin: 0, padding: 0, listStyle: "none" }}>
-                    {trustData.trust_reasoning && trustData.trust_reasoning.length > 0 ? (
-                      trustData.trust_reasoning.map((reason, idx) => (
+                    {(fd as any).fraud_reasoning && (fd as any).fraud_reasoning.length > 0 ? (
+                      (fd as any).fraud_reasoning.map((reason: string, idx: number) => (
                         <li key={idx} style={{ display: "flex", alignItems: "flex-start", gap: "0.625rem", fontSize: "0.75rem", color: "#94A3B8", lineHeight: 1.55 }}>
-                          <span style={{ flexShrink: 0, width: 5, height: 5, borderRadius: "50%", backgroundColor: "#2563EB", marginTop: 7 }} />
+                          <span style={{ flexShrink: 0, width: 5, height: 5, borderRadius: "50%", backgroundColor: riskColor, marginTop: 7 }} />
                           {reason}
                         </li>
                       ))
                     ) : (
-                      <li style={{ fontSize: "0.72rem", color: "#64748B" }}>No trust details generated.</li>
+                      <li style={{ fontSize: "0.72rem", color: "#64748B" }}>No fraud findings generated.</li>
                     )}
                   </ul>
                 </Panel>
 
-                {/* Agent & Processing Metadata */}
-                <Panel>
-                  <SectionTitle>Trust Agent Processing Audit</SectionTitle>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem" }}>
-                    <div>
-                      <Label>Agent & Model</Label>
-                      <div style={{ fontSize: "0.72rem", color: "#F8FAFC" }}>
-                        {trustData.agent_metadata?.name || "ITIA Agent"} (v{trustData.agent_metadata?.version || "1.0"})
-                      </div>
-                      <div style={{ fontSize: "0.65rem", color: "#64748B", fontFamily: "ui-monospace, monospace", marginTop: 2 }}>
-                        Model: {trustData.agent_metadata?.model || "—"}
-                      </div>
-                    </div>
-                    <div>
-                      <Label>Execution Performance</Label>
-                      <div style={{ fontSize: "0.72rem", color: "#F8FAFC" }}>
-                        Duration: {trustData.agent_metadata?.duration_ms ? `${(trustData.agent_metadata.duration_ms / 1000).toFixed(2)}s` : "—"}
-                      </div>
-                      <div style={{ fontSize: "0.65rem", color: "#64748B", marginTop: 2 }}>
-                        LLM Calls: {trustData.metrics?.llm_calls || 0} | Tool Calls: {trustData.metrics?.tool_calls || 0}
-                      </div>
-                    </div>
-                    <div>
-                      <Label>Tools Executed</Label>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", marginTop: 2 }}>
-                        {trustData.tools_used && trustData.tools_used.length > 0 ? (
-                          trustData.tools_used.map(tool => (
-                            <span key={tool} style={{ fontSize: "0.6rem", color: "#60A5FA", backgroundColor: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.2)", borderRadius: 3, padding: "0.05rem 0.3rem" }}>
-                              {tool}
-                            </span>
-                          ))
-                        ) : (
-                          <span style={{ fontSize: "0.65rem", color: "#64748B" }}>No tools used</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </Panel>
-              </div>
-            );
-          })()}
-
-          {/* ── Fraud Reasoning tab ─────────────────────────────────────────── */}
-          {activeTab === "fraud" && (() => {
-            const fraudData = caseData.fraud_reasoning_brief;
-            if (!fraudData) {
-              return (
-                <Panel className="p-12 text-center">
-                  <p className="text-xs text-slate-500">Fraud reasoning brief not yet generated.</p>
-                  <p className="text-[11px] text-slate-600 mt-1">Re-submit or re-analyse to trigger the fraud reasoning agent.</p>
-                </Panel>
-              );
-            }
-
-            const fraudProbPct = Math.round((fraudData.fraud_probability ?? 0) * 100);
-            
-            const riskLevel = fraudData.fraud_risk_level;
-            const riskColor = riskLevel === "CRITICAL" ? "#EF4444" : riskLevel === "HIGH" ? "#F97316" : riskLevel === "MEDIUM" ? "#FBBF24" : "#10B981";
-            const riskBg = riskLevel === "CRITICAL" ? "rgba(239, 68, 68, 0.1)" : riskLevel === "HIGH" ? "rgba(249, 115, 22, 0.1)" : riskLevel === "MEDIUM" ? "rgba(251, 191, 36, 0.1)" : "rgba(16, 185, 129, 0.1)";
-            const riskBorder = riskLevel === "CRITICAL" ? "rgba(239, 68, 68, 0.3)" : riskLevel === "HIGH" ? "rgba(249, 115, 22, 0.3)" : riskLevel === "MEDIUM" ? "rgba(251, 191, 36, 0.3)" : "rgba(16, 185, 129, 0.3)";
-
-            return (
-              <div className="flex flex-col gap-3.5">
-                {/* Header Summary Panel */}
-                <Panel style={{ borderLeft: `4px solid ${riskColor}` }} className="p-5">
-                  <div className="flex justify-between items-start flex-wrap gap-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-blue-600">Agent 5 Output</span>
-                        <span className="w-1 h-1 rounded-full bg-slate-700" />
-                        <span className="text-[10.5px] text-slate-500">Transaction Fraud Analysis</span>
-                      </div>
-                      <h3 className="text-base font-bold text-slate-50 m-0">Fraud Evaluation Brief</h3>
-                    </div>
-                    
-                    {/* Risk Status Badge */}
-                    <div style={{ backgroundColor: riskBg, borderColor: riskBorder }} className="flex items-center gap-2 px-3 py-1.5 border rounded">
-                      <span title={`Risk level: ${riskLevel}`}>
-                        <AlertTriangle style={{ width: 14, height: 14, color: riskColor }} />
-                      </span>
-                      <span style={{ color: riskColor }} className="text-xs font-bold tracking-wide">
-                        RISK: {riskLevel}
-                      </span>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-slate-400 leading-relaxed mt-3 mb-0">
-                    {fraudData.fraud_summary}
-                  </p>
-                </Panel>
-
-                {/* Score Meter */}
-                <Panel>
-                  <SectionTitle>Estimated Fraud Probability</SectionTitle>
-                  <div className="flex justify-between items-baseline mb-1.5">
-                    <span style={{ color: riskColor }} className="text-xs font-semibold">
-                      {riskLevel === "CRITICAL" ? "Critical Fraud Threat Detected" : riskLevel === "HIGH" ? "High Anomaly/Fraud Risk" : riskLevel === "MEDIUM" ? "Moderate Suspicious Behavior" : "Low Risk Indicators"}
-                    </span>
-                    <span style={{ color: riskColor }} className="text-lg font-bold font-mono">
-                      {fraudProbPct}%
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                    <div style={{ width: `${fraudProbPct}%`, backgroundColor: riskColor }} className="h-full rounded-full transition-[width] duration-500 ease-out" />
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-1.5 leading-normal">
-                    Calculated deterministically based on statistical spend deviation (+20%), off-hours transaction (+15%), transaction frequency velocity breach (+30%), geovelocity travel speed limits breach (+25%), unrecognized hardware device fingerprint (+30%), and geo-location mismatch (+20%).
-                  </p>
-                </Panel>
-
-                {/* 3-Column Checks Grid */}
-                <div className="grid grid-cols-3 gap-3.5">
-                  {/* Transaction Anomalies */}
-                  <Panel>
-                    <SectionTitle>Anomaly Detection</SectionTitle>
-                    <div className="flex flex-col gap-1">
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1E293B]">
-                        <span className="text-xs text-slate-500">Off-Hours Timing</span>
-                        {fraudData.anomaly_detection?.time_anomaly ? (
-                          <span className="text-[11px] font-semibold text-amber-400 flex items-center gap-1">
-                            <span title="Time Anomaly Detected">
-                              <AlertTriangle style={{ width: 12, height: 12 }} />
-                            </span> Yes (+15%)
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-semibold text-green-400 flex items-center gap-1">
-                            <span title="Normal Timing">
-                              <CheckCircle style={{ width: 12, height: 12 }} />
-                            </span> Normal
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex justify-between items-center py-1.5">
-                        <span className="text-xs text-slate-500">Velocity Breach</span>
-                        {fraudData.anomaly_detection?.velocity_anomaly ? (
-                          <span className="text-[11px] font-semibold text-red-500 flex items-center gap-1">
-                            <span title="Velocity Anomaly Detected">
-                              <AlertTriangle style={{ width: 12, height: 12 }} />
-                            </span> Breach (+30%)
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-semibold text-green-400 flex items-center gap-1">
-                            <span title="Normal Velocity">
-                              <CheckCircle style={{ width: 12, height: 12 }} />
-                            </span> Normal
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </Panel>
-
-                  {/* Device & Location risk indicators */}
-                  <Panel>
-                    <SectionTitle>Device & Location Risk</SectionTitle>
-                    <div className="flex flex-col gap-1">
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1E293B]">
-                        <span className="text-xs text-slate-500">Unrecognized Device</span>
-                        {fraudData.device_location_risk?.unrecognized_device ? (
-                          <span className="text-[11px] font-semibold text-red-500 flex items-center gap-1">
-                            <span title="Unrecognized Device Alert">
-                              <AlertTriangle style={{ width: 12, height: 12 }} />
-                            </span> Alert (+30%)
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-semibold text-green-400 flex items-center gap-1">
-                            <span title="Verified Device">
-                              <CheckCircle style={{ width: 12, height: 12 }} />
-                            </span> Verified
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex justify-between items-center py-1.5">
-                        <span className="text-xs text-slate-500">Location Mismatch</span>
-                        {fraudData.device_location_risk?.location_mismatch ? (
-                          <span className="text-[11px] font-semibold text-red-500 flex items-center gap-1">
-                            <span title="Location Mismatch Alert">
-                              <AlertTriangle style={{ width: 12, height: 12 }} />
-                            </span> Mismatch (+20%)
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-semibold text-green-400 flex items-center gap-1">
-                            <span title="Consistent Location">
-                              <CheckCircle style={{ width: 12, height: 12 }} />
-                            </span> Consistent
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </Panel>
-
-                  {/* Historical spend patterns */}
-                  <Panel>
-                    <SectionTitle>Spending Behavior</SectionTitle>
-                    <div className="flex flex-col gap-1">
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1E293B]">
-                        <span className="text-xs text-slate-500">Average Spend</span>
-                        <span className="text-xs text-slate-50 font-mono">
-                          {fraudData.spending_history_analysis?.average_amount ? formatCurrency(fraudData.spending_history_analysis.average_amount, caseData.currency) : "—"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center py-1.5">
-                        <span className="text-xs text-slate-500">Deviation Factor (Z)</span>
-                        <span className={cn("text-[11px] font-semibold", (fraudData.spending_history_analysis?.deviation_factor ?? 0) >= 3.0 ? "text-red-500" : "text-slate-50")}>
-                          {(fraudData.spending_history_analysis?.deviation_factor ?? 0).toFixed(2)} {(fraudData.spending_history_analysis?.deviation_factor ?? 0) >= 3.0 ? "(Outlier)" : ""}
-                        </span>
-                      </div>
-                    </div>
-                  </Panel>
-                </div>
-
-                {/* Key Reasoning Findings */}
-                <Panel>
-                  <SectionTitle>Fraud Reasoning & Synthesis</SectionTitle>
-                  <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
-                    {fraudData.fraud_reasoning && fraudData.fraud_reasoning.length > 0 ? (
-                      fraudData.fraud_reasoning.map((reason, idx) => (
-                        <li key={idx} className="flex items-start gap-2.5 text-xs text-slate-400 leading-relaxed">
-                          <span style={{ backgroundColor: riskColor }} className="shrink-0 w-1.5 h-1.5 rounded-full mt-1.5" />
-                          {reason}
-                        </li>
-                      ))
-                    ) : (
-                      <li className="text-[11px] text-slate-500">No fraud reasoning points generated.</li>
-                    )}
-                  </ul>
-                </Panel>
-
-                {/* Agent & Processing Metadata */}
-                <Panel>
-                  <SectionTitle>Fraud Agent Processing Audit</SectionTitle>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <Label>Agent & Model</Label>
-                      <div className="text-xs text-slate-50">
-                        {fraudData.agent_metadata?.name || "FRIA Agent"} (v{fraudData.agent_metadata?.version || "1.0.0"})
-                      </div>
-                      <div className="text-[10.5px] text-slate-500 font-mono mt-0.5">
-                        Model: {fraudData.agent_metadata?.model || "—"}
-                      </div>
-                    </div>
-                    <div>
-                      <Label>Execution Performance</Label>
-                      <div className="text-xs text-slate-50">
-                        Duration: {fraudData.agent_metadata?.duration_ms ? `${(fraudData.agent_metadata.duration_ms / 1000).toFixed(2)}s` : "—"}
-                      </div>
-                      <div className="text-[10.5px] text-slate-500 mt-0.5">
-                        LLM Calls: {fraudData.metrics?.llm_calls || 0} | Tool Calls: {fraudData.metrics?.tool_calls || 0}
-                      </div>
-                    </div>
-                    <div>
-                      <Label>Tools Executed</Label>
-                      <div className="flex flex-wrap gap-1 mt-0.5">
-                        {fraudData.tools_used && fraudData.tools_used.length > 0 ? (
-                          fraudData.tools_used.map(tool => (
-                            <span key={tool} className="text-[9.5px] text-blue-400 bg-blue-400/10 border border-blue-400/20 rounded px-1.5 py-0.5">
-                              {tool}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-[10.5px] text-slate-500">No tools used</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </Panel>
               </div>
             );
           })()}
@@ -1345,11 +1080,23 @@ export default function CaseWorkspace() {
                     })()}
                   </Panel>
                   <Panel>
-                    <Label>Investigation</Label>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color: ea.investigation_blocked ? "#FCA5A5" : "#4ADE80" }}>
-                      {ea.investigation_blocked ? "Blocked" : "Can Proceed"}
-                    </div>
-                    <div style={{ fontSize: "0.65rem", color: "#64748B", marginTop: 2 }}>
+                    <Label>Review Status</Label>
+                    {(() => {
+                      const missingCustomerDocs = (ea.missing_documents ?? []).filter((d: string) => !BANK_OBTAINABLE.has(d));
+                      const hasCustomerDocGap = missingCustomerDocs.length > 0;
+                      const statusColor = ea.investigation_blocked ? "#FCA5A5" : hasCustomerDocGap ? "#FCD34D" : "#4ADE80";
+                      const statusText = ea.investigation_blocked
+                        ? "Blocked — Pending Documents"
+                        : hasCustomerDocGap
+                          ? "Additional Customer Documents Required"
+                          : "Ready to Proceed";
+                      return (
+                        <div style={{ fontSize: "0.78rem", fontWeight: 700, color: statusColor, lineHeight: 1.3 }}>
+                          {statusText}
+                        </div>
+                      );
+                    })()}
+                    <div style={{ fontSize: "0.65rem", color: "#64748B", marginTop: 4 }}>
                       {(ea.missing_documents ?? []).filter((d: string) => !BANK_OBTAINABLE.has(d)).length > 0
                         ? `${(ea.missing_documents ?? []).filter((d: string) => !BANK_OBTAINABLE.has(d)).length} customer doc(s) missing`
                         : "All customer docs present"}
@@ -1385,6 +1132,59 @@ export default function CaseWorkspace() {
                     </p>
                   )}
                 </Panel>
+
+                {/* ── Section 2b: Document Evidence Provenance ── */}
+                {(() => {
+                  const meta = caseData.agent_metadata;
+                  const evaluatedFiles = meta?.evaluated_files ?? [];
+                  const sourceSummary = meta?.evidence_source_summary ?? [];
+                  const trace = meta?.evidence_trace;
+                  if (evaluatedFiles.length === 0 && !trace) return null;
+                  const verdictColor = trace?.verdict === "MATCH" ? "#4ADE80" : trace?.verdict === "PARTIAL_MATCH" ? "#FCD34D" : trace?.verdict === "MISMATCH" ? "#FCA5A5" : "#64748B";
+                  return (
+                    <Panel>
+                      <SectionTitle>Document Evidence Provenance</SectionTitle>
+                      {/* Verdict badge row */}
+                      {trace && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem", padding: "0.5rem 0.75rem", backgroundColor: "#111827", border: "1px solid #1E293B", borderRadius: 4 }}>
+                          <span style={{ fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.05em", color: "#475569", textTransform: "uppercase" }}>Agent 1 Verdict</span>
+                          <span style={{ fontSize: "0.72rem", fontWeight: 700, color: verdictColor, fontFamily: "ui-monospace, monospace" }}>{trace.verdict}</span>
+                          {trace.evidence_match === true && <span style={{ fontSize: "0.65rem", color: "#4ADE80" }}>— Documents support the claim</span>}
+                          {trace.evidence_match === false && <span style={{ fontSize: "0.65rem", color: "#FCA5A5" }}>— Documents contradict the claim</span>}
+                          {trace.evidence_match === null && <span style={{ fontSize: "0.65rem", color: "#64748B" }}>— Match not assessed</span>}
+                        </div>
+                      )}
+                      {/* Evaluated files table */}
+                      {evaluatedFiles.length > 0 && (
+                        <div style={{ marginBottom: "0.75rem" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 60px", gap: "0 0.5rem", borderBottom: "1px solid #1E293B", paddingBottom: "0.35rem", marginBottom: "0.35rem" }}>
+                            <span style={{ fontSize: "0.6rem", fontWeight: 700, color: "#475569", textTransform: "uppercase" }}>File</span>
+                            <span style={{ fontSize: "0.6rem", fontWeight: 700, color: "#475569", textTransform: "uppercase" }}>Document Type</span>
+                            <span style={{ fontSize: "0.6rem", fontWeight: 700, color: "#475569", textTransform: "uppercase", textAlign: "right" }}>Confidence</span>
+                          </div>
+                          {evaluatedFiles.map((f, i) => (
+                            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 140px 60px", gap: "0 0.5rem", padding: "0.3rem 0", borderBottom: "1px solid #0F172A" }}>
+                              <span style={{ fontSize: "0.7rem", color: "#CBD5E1", fontFamily: "ui-monospace, monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={f.filename}>{f.filename}</span>
+                              <span style={{ fontSize: "0.65rem", color: "#64748B" }}>{f.document_type.replace(/_/g, " ")}</span>
+                              <span style={{ fontSize: "0.7rem", color: f.confidence >= 0.80 ? "#4ADE80" : f.confidence >= 0.60 ? "#FCD34D" : "#FCA5A5", fontFamily: "ui-monospace, monospace", textAlign: "right", fontWeight: 700 }}>{Math.round(f.confidence * 100)}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* Source summary */}
+                      {sourceSummary.length > 0 && (
+                        <ul style={{ display: "flex", flexDirection: "column", gap: "0.3rem", margin: 0, padding: 0, listStyle: "none" }}>
+                          {sourceSummary.map((s, i) => (
+                            <li key={i} style={{ display: "flex", gap: "0.5rem", fontSize: "0.71rem", color: "#94A3B8", lineHeight: 1.5 }}>
+                              <span style={{ flexShrink: 0, color: "#334155", marginTop: 3 }}>›</span>
+                              {s}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </Panel>
+                  );
+                })()}
 
                 {/* ── Section 3: Missing Documents (customer-obtainable only) ── */}
                 {(() => {
@@ -1846,35 +1646,51 @@ export default function CaseWorkspace() {
             </Panel>
           )}
 
-          {/* ── Workflow tab ──────────────────────────────────────────────── */}
-          {activeTab === "workflow" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.875rem" }}>
-              <Panel>
-                <SectionTitle>Case Stage</SectionTitle>
-                <WorkflowStatus status={caseData.status as CaseStatus} workflowReady={caseData.workflow_ready} />
+          {/* ── Advanced Diagnostics tab ──────────────────────────────────── */}
+          {activeTab === "advanced" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+              <Panel style={{ padding: "0.75rem 1rem", backgroundColor: "#0F172A", border: "1px solid #334155" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Internal diagnostic data — not for standard case review.</span>
+                  <button
+                    onClick={() => setShowAdvanced(v => !v)}
+                    style={{ fontSize: "0.7rem", color: "#2563EB", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                  >
+                    {showAdvanced ? "Hide Details" : "Show Details"}
+                  </button>
+                </div>
               </Panel>
-              <Panel>
-                <SectionTitle>Pipeline Execution</SectionTitle>
-                {workflowStates.length === 0 ? (
-                  <p style={{ fontSize: "0.8rem", color: "#64748B" }}>No execution data available.</p>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
-                    {workflowStates.map((ws) => (
-                      <div key={ws.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.5rem 0.625rem", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                          {ws.success
-                            ? <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#15803D", flexShrink: 0 }} />
-                            : <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#B91C1C", flexShrink: 0 }} />}
-                          <span style={{ fontSize: "0.7rem", fontFamily: "ui-monospace, monospace", color: "#94A3B8" }}>{ws.node_name}</span>
-                        </div>
-                        {ws.execution_time_ms != null && (
-                          <span style={{ fontSize: "0.65rem", color: "#64748B", fontFamily: "ui-monospace, monospace" }}>{ws.execution_time_ms.toFixed(0)}ms</span>
-                        )}
+
+              {showAdvanced && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.875rem" }}>
+                  <Panel>
+                    <SectionTitle>Case Stage</SectionTitle>
+                    <WorkflowStatus status={caseData.status as CaseStatus} workflowReady={caseData.workflow_ready} />
+                  </Panel>
+                  <Panel>
+                    <SectionTitle>Pipeline Execution</SectionTitle>
+                    {workflowStates.length === 0 ? (
+                      <p style={{ fontSize: "0.8rem", color: "#64748B" }}>No execution data available.</p>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
+                        {workflowStates.map((ws) => (
+                          <div key={ws.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.5rem 0.625rem", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                              {ws.success
+                                ? <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#15803D", flexShrink: 0 }} />
+                                : <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#B91C1C", flexShrink: 0 }} />}
+                              <span style={{ fontSize: "0.7rem", fontFamily: "ui-monospace, monospace", color: "#94A3B8" }}>{ws.node_name}</span>
+                            </div>
+                            {ws.execution_time_ms != null && (
+                              <span style={{ fontSize: "0.65rem", color: "#64748B", fontFamily: "ui-monospace, monospace" }}>{ws.execution_time_ms.toFixed(0)}ms</span>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </Panel>
+                    )}
+                  </Panel>
+                </div>
+              )}
             </div>
           )}
         </div>

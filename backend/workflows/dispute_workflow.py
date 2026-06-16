@@ -359,6 +359,16 @@ def _save_agent3_to_db(case_id: str, workflow_plan: dict) -> None:
                 workflow_plan = merged
             case.workflow_plan  = workflow_plan
             case.current_stage  = "agent3_complete"
+            # WOA is the single source of truth. If FRAUD_AGENT is not in the workflow
+            # path, clear any stale fraud data so analysts never see outdated results.
+            if "FRAUD_AGENT" not in (workflow_plan.get("workflow_path") or []):
+                case.fraud_reasoning_brief = None
+                case.fraud_probability     = 0.0
+                case.fraud_risk_level      = "LOW"
+                case.trust_intelligence    = None
+                case.user_trust_score      = 1.0
+                case.behavioral_risk_score = 0.0
+                case.identity_status       = "PENDING"
             db.commit()
     except Exception as exc:
         workflow_logger.warning(f"Intermediate Agent 3 DB save failed for {case_id}: {exc}")

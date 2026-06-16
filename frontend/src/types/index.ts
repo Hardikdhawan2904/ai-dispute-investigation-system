@@ -283,6 +283,33 @@ export interface DisputeCase {
   // Agent 1 fallback resilience
   fallback_mode?: boolean;
   failure_reason?: string | null;
+  // Agent 1 evidence provenance (stored inside agent_metadata)
+  agent_metadata?: {
+    name?: string;
+    version?: string;
+    model?: string;
+    timestamp?: string;
+    duration_ms?: number;
+    evaluated_files?: Array<{
+      filename: string;
+      document_type: string;
+      used_by_agent1: boolean;
+      confidence: number;
+    }>;
+    evidence_trace?: {
+      evidence_match: boolean | null;
+      verdict: string;
+      source_files: string[];
+    };
+    evidence_source_summary?: string[];
+    [key: string]: unknown;
+  };
+  // Agent 1 audit fields
+  evidence_match?: boolean | null;
+  evidence_match_note?: string;
+  confidence_factors?: string[];
+  tools_used?: string[];
+  metrics?: Record<string, unknown>;
   created_at: string;
   updated_at?: string;
 }

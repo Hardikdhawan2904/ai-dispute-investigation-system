@@ -282,6 +282,62 @@ def finalize_node(state: DisputeAgentState) -> dict:
                         _fraud_signal_level = val
             break  # HumanMessage is the first non-system message
 
+    # ── Server-stamp evidence provenance (evaluated_files / trace / summary) ──
+    # Stored inside agent_metadata — no DB migration required.
+    _verdict_confidence = {
+        "MATCH": 0.92, "PARTIAL_MATCH": 0.75,
+        "MISMATCH": 0.35, "CANNOT_VERIFY": 0.50, "NO_DOCUMENTS": 0.0,
+    }
+    _file_confidence = _verdict_confidence.get(_evidence_verdict, 0.50)
+
+    def _infer_doc_type(fn: str) -> str:
+        f = fn.lower()
+        if ("bank" in f and "statement" in f) or "statement" in f: return "BANK_STATEMENT"
+        if "refund" in f or "email" in f or "mail" in f:           return "MERCHANT_COMMUNICATION"
+        if "receipt" in f:                                          return "PAYMENT_RECEIPT"
+        if "invoice" in f:                                          return "INVOICE"
+        if "screenshot" in f or "screen" in f:                     return "TRANSACTION_SCREENSHOT"
+        if "otp" in f:                                              return "OTP_RECORD"
+        if "id" in f or "passport" in f or "aadhaar" in f:         return "IDENTITY_DOCUMENT"
+        if "photo" in f or "img" in f or "image" in f:             return "PHOTO_EVIDENCE"
+        if "upi" in f:                                              return "UPI_RECORD"
+        return "SUPPORTING_DOCUMENT"
+
+    _doc_texts = state.get("document_texts") or []
+    _evaluated_files = []
+    for _block in _doc_texts:
+        if not _block.strip():
+            continue
+        _first = _block.split("\n", 1)[0].strip()
+        _fname = _first[1:-1] if (_first.startswith("[") and _first.endswith("]")) else "document"
+        _evaluated_files.append({
+            "filename":       _fname,
+            "document_type":  _infer_doc_type(_fname),
+            "used_by_agent1": True,
+            "confidence":     _file_confidence,
+        })
+
+    _ev_note = str(parsed.get("evidence_match_note") or "").strip()
+    if _ev_note:
+        _evidence_source_summary = [_ev_note]
+    elif _evidence_verdict == "MATCH":
+        _evidence_source_summary = [f"{len(_evaluated_files)} submitted file(s) support the claimed dispute."]
+    elif _evidence_verdict == "PARTIAL_MATCH":
+        _evidence_source_summary = ["Submitted documents partially support the claim — additional verification may be required."]
+    elif _evidence_verdict == "MISMATCH":
+        _evidence_source_summary = ["Submitted documents DO NOT support the claim — transaction details conflict with the dispute."]
+    else:
+        _evidence_source_summary = ["No documents were submitted — evidence match not assessed."]
+
+    agent_metadata["evaluated_files"]         = _evaluated_files
+    agent_metadata["evidence_trace"]          = {
+        "evidence_match":  parsed.get("evidence_match"),
+        "verdict":         _evidence_verdict,
+        "source_files":    [f["filename"] for f in _evaluated_files],
+    }
+    agent_metadata["evidence_source_summary"] = _evidence_source_summary
+    parsed["agent_metadata"] = agent_metadata
+
     # ── Server-side confidence score (aligned with Tool 4 formula) ───────────
     comment    = str(d.get("customer_comment") or "")
     comment_lc = comment.lower()
