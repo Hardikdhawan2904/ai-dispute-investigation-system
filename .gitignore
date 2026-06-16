@@ -54,5 +54,4 @@ backend/chroma_db/
 logs/
 backend/logs/
 
-.claude/
 
