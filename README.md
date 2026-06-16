@@ -6,48 +6,42 @@ Enterprise-grade, multi-agent platform for banking transaction dispute resolutio
 
 ## Architecture
 
-```
-Customer Submission
-        │
-        ▼
-┌──────────────────────┐
-│   FastAPI + LangGraph │  intake → validation → document_check
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│  Agent 1 · ARIA      │  Dispute classification, fraud suspicion,
-│  Dispute Understanding│  evidence match, confidence scoring
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│  Agent 2 · IIA       │  Customer history, merchant risk,
-│  Investigation Intel  │  duplicate detection, investigation plan
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│  Agent 5 · WOA       │  Single source of truth for routing.
-│  Workflow Orchestration│  Decides which specialist agents run.
-└──────────┬───────────┘
-      ┌────┴────┐
-      ▼         ▼
-┌──────────┐ ┌──────────┐
-│ Agent 3  │ │ Agent 4  │
-│  FRIA    │ │   EIA    │
-│  Fraud   │ │ Evidence │
-│ Reasoning│ │  Intel   │
-└────┬─────┘ └────┬─────┘
-     └─────┬──────┘
-           ▼
-    Structured Output
-           │
-           ▼
-     PostgreSQL DB
-           │
-           ▼
-   Ops Review Portal
+```mermaid
+graph TD
+    A([Customer Submission]) --> B[FastAPI Backend]
+    B --> C[Intake & Validation]
+    C --> D{Document Check}
+
+    D -- Sufficient --> E["Agent 1 · ARIA\nDispute Understanding Agent"]
+    D -- Insufficient --> Z([Halt: Pending Documents])
+
+    E --> F[Reasoning Node\nTag Enrichment]
+    F --> G["Agent 2 · IIA\nInvestigation Intelligence Agent"]
+    G --> H["Agent 5 · WOA\nWorkflow Orchestration Agent\n─────────────────────────\nSingle source of truth for routing"]
+
+    H -- "workflow_path includes\nFRAUD_AGENT" --> I["Agent 3 · FRIA\nFraud Reasoning Agent\n─────────────────────────\n6 tools in parallel"]
+    H -- "workflow_path includes\nEVIDENCE_AGENT" --> J["Agent 4 · EIA\nEvidence Intelligence Agent\n─────────────────────────\n5 tools"]
+    H -- "No agents remaining" --> K[Structured Output Node]
+
+    I --> H
+    J --> H
+    K --> L[(PostgreSQL Database)]
+    L --> M([Ops Review Portal])
+
+    style A fill:#1E293B,stroke:#334155,color:#F8FAFC
+    style Z fill:#1E293B,stroke:#334155,color:#F8FAFC
+    style M fill:#1E293B,stroke:#334155,color:#F8FAFC
+    style B fill:#0F172A,stroke:#2563EB,color:#93C5FD
+    style C fill:#0F172A,stroke:#334155,color:#94A3B8
+    style D fill:#0F172A,stroke:#D97706,color:#FCD34D
+    style E fill:#0F172A,stroke:#2563EB,color:#93C5FD
+    style F fill:#0F172A,stroke:#334155,color:#94A3B8
+    style G fill:#0F172A,stroke:#2563EB,color:#93C5FD
+    style H fill:#0F172A,stroke:#7C3AED,color:#C4B5FD
+    style I fill:#0F172A,stroke:#DC2626,color:#FCA5A5
+    style J fill:#0F172A,stroke:#059669,color:#6EE7B7
+    style K fill:#0F172A,stroke:#334155,color:#94A3B8
+    style L fill:#0F172A,stroke:#0EA5E9,color:#7DD3FC
 ```
 
 **WOA is the single source of truth.** It decides which specialist agents run based on dispute category, fraud signals, and evidence gaps. Specialist agents only execute when WOA explicitly routes to them.
