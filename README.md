@@ -1,207 +1,355 @@
-# Intelligent Transaction Dispute Resolution Platform
+# AI Dispute Resolution System
 
-An enterprise-grade, multi-agent BFSI (Banking, Financial Services, and Insurance) transaction dispute resolution platform. The platform automates transaction intake, user identity and trust profiling, dispute classification, automated evidence validation, structured investigation planning, and workflow orchestration.
-
-Backed by **FastAPI**, **LangGraph**, **Groq (Llama 3.1)**, **PostgreSQL (SQLAlchemy)**, and a **Next.js 14 (App Router)** frontend.
+Enterprise-grade, multi-agent platform for banking transaction dispute resolution. Built for BFSI operations teams — automates dispute intake, fraud detection, evidence verification, investigation planning, and case routing through a cooperative pipeline of 5 specialized AI agents.
 
 ---
 
-## ── Multi-Agent Architecture Overview ──
+## Architecture
 
-The system comprises **5 specialized, cooperative agents** that execute in a compiled LangGraph workflow to evaluate, classify, investigate, and route case resolutions. The agents execute in the following sequence:
-
-```mermaid
-graph TD
-    A[Customer Submission] --> B[FastAPI Backend]
-    B --> C[intake & validation Nodes]
-    C --> D[document_check Gate]
-    
-    D -- Sufficient --> F["Agent 1: Dispute Understanding (ARIA)"]
-    D -- Insufficient --> H[Halt: Pending Documents]
-    
-    F --> G[reasoning Node: Tag Enrichment]
-    G --> I["Agent 2: Investigation Agent (IIA)"]
-    I --> J["Agent 5: Workflow Orchestration Agent (WOA)"]
-    
-    J -- Next step = FRA --> E["Agent 3: Fraud Reasoning Agent (FRIA)"]
-    J -- Next step = EIA --> K["Agent 4: Evidence Agent (EIA)"]
-    J -- Else / Completed --> L[structured_output Node]
-    
-    E --> J
-    K --> J
-    L --> M[(PostgreSQL Database)]
-    M --> N[Ops Portal / Human Review Queue]
+```
+Customer Submission
+        │
+        ▼
+┌──────────────────────┐
+│   FastAPI + LangGraph │  intake → validation → document_check
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│  Agent 1 · ARIA      │  Dispute classification, fraud suspicion,
+│  Dispute Understanding│  evidence match, confidence scoring
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│  Agent 2 · IIA       │  Customer history, merchant risk,
+│  Investigation Intel  │  duplicate detection, investigation plan
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│  Agent 5 · WOA       │  Single source of truth for routing.
+│  Workflow Orchestration│  Decides which specialist agents run.
+└──────────┬───────────┘
+      ┌────┴────┐
+      ▼         ▼
+┌──────────┐ ┌──────────┐
+│ Agent 3  │ │ Agent 4  │
+│  FRIA    │ │   EIA    │
+│  Fraud   │ │ Evidence │
+│ Reasoning│ │  Intel   │
+└────┬─────┘ └────┬─────┘
+     └─────┬──────┘
+           ▼
+    Structured Output
+           │
+           ▼
+     PostgreSQL DB
+           │
+           ▼
+   Ops Review Portal
 ```
 
-### 1. Agent 1: Dispute Understanding Agent (ARIA)
-* **Code Registry**: [dispute_agent](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/dispute_agent)
-* **Purpose**: Analyzes the claim details and uploaded documents (extracted via OCR) to categorize the dispute, assess fraud suspicion, extract customer intent, and evaluate initial document corroboration.
-* **Understanding Tools (in-memory computation)**:
-  - `assess_transaction_context`: Evaluates transaction value tiers (RBI circular 2017 thresholds), off-hours risk, card-not-present (CNP) channels, and international patterns.
-  - `score_fraud_indicators`: Tallies active fraud patterns (OTP sharing, remote access, phishing links, card/device loss).
-  - `verify_evidence_match`: Verifies if OCR texts corroborate merchant name and claimed amounts.
-  - `compute_confidence_score`: Calculates final classification certainty score (0.10 to 1.00).
-* **Key Outputs**:
-  - `dispute_category` (One of 9 canonical BFSI categories, e.g., `Unauthorized Transaction`, `Duplicate Transaction`, `Refund Not Received`)
-  - `fraud_suspicion` (Boolean flag)
-  - `priority` (`CRITICAL` | `HIGH` | `MEDIUM` | `LOW`)
-  - `confidence_score` (Float `0.10` to `1.00`)
-  - `risk_tags` (e.g., `VELOCITY_BREACH`, `POSSIBLE_FRAUD`, `CARD_NOT_PRESENT`)
-
-### 2. Agent 2: Investigation Intelligence Agent (IIA)
-* **Code Registry**: [investigation_agent](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/investigation_agent)
-* **Purpose**: Pre-runs database-backed historical intelligence checks on the customer, merchant, and duplicate cases, then designs a structured investigation plan tailored to the category and risk signals.
-* **Database-Backed Tools**:
-  - `lookup_customer_history`: Examines historical dispute volume, chargeback ratios, and frequency trends.
-  - `check_merchant_risk`: Resolves merchant category risk profiles, chargeback ratios, and complaints.
-  - `find_duplicate_transaction`: Audits active disputes for identical merchant/amount/date overlaps within a 72-hour window.
-  - `lookup_related_cases`: Resolves historical case outcomes for similar dispute types.
-* **Key Outputs**:
-  - `recommended_queue` (`CRITICAL_QUEUE` | `FRAUD_QUEUE` | `HIGH_VALUE_QUEUE` | `MERCHANT_QUEUE` | `ATM_QUEUE` | `STANDARD_QUEUE`)
-  - `investigation_complexity` (`LOW` | `MEDIUM` | `HIGH` | `CRITICAL`)
-  - `required_documents` (list of outstanding customer evidence needed)
-  - `recommended_steps` (ordered resolution plan checklist for ops analysts)
-  - `investigation_summary` (comprehensive plan outline)
-
-### 3. Agent 3: Fraud Reasoning Agent (FRIA)
-* **Code Registry**: [fraud_reasoning_agent](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/fraud_reasoning_agent)
-* **Purpose**: Audits transaction parameters for security risk anomalies. Validates geographical travel velocity, z-score spending deviations, customer identity/KYC records, device fingerprints, and prior friendly fraud tendencies.
-* **Database-Backed Tools**:
-  - `detect_transaction_anomalies`: Analyzes transaction off-hours flags and short-term transaction velocity.
-  - `evaluate_location_velocity`: Scans historical transactions to check for geovelocity deviations (impossible travel distance under 4 hours).
-  - `analyze_spending_behavior`: Computes statistical deviation (Z-score) of the transaction amount.
-  - `verify_kyc_match`: Compares dispute details againstCore Customer CIF records.
-  - `evaluate_device_fingerprint`: Audits login logs to check device ID familiarity and location consistency.
-  - `analyze_behavioral_patterns`: Scans customer dispute ratios and resolution profiles to calculate friendly fraud indicators.
-* **Key Outputs**:
-  - `fraud_probability` (Float `0.0` to `1.0` - probability of active fraud)
-  - `fraud_risk_level` (`LOW` | `MEDIUM` | `HIGH` | `CRITICAL`)
-  - `user_trust_score` (Float `0.0` to `1.0` - user trust calibration)
-  - `behavioral_risk_score` (Float `0.0` to `1.0`)
-  - `identity_verification` (`VERIFIED` | `SUSPICIOUS` | `FAILED`)
-
-### 4. Agent 4: Evidence Intelligence Agent (EIA)
-* **Code Registry**: [evidence_agent](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/evidence_agent)
-* **Purpose**: Audits evidence completeness and transaction consistency across customer-submitted files vs bank-obtainable logs. Recommends document request actions if missing evidence blocks the investigation.
-* **Database-Backed Tools**:
-  - `evaluate_evidence_completeness`: Computes completeness percentage against customer-obtainable documents.
-  - `identify_missing_evidence`: Checks unfulfilled document requests and checks if gaps block investigation.
-  - `validate_evidence_consistency`: Cross-checks amount, merchant, and dates against original transaction records.
-  - `assess_evidence_strength`: Weighs completeness, AI verdicts, and data quality (HIGH, MEDIUM, LOW).
-  - `determine_next_document_request`: Dynamically recommends the next document type to formally request from the customer.
-* **Key Outputs**:
-  - `evidence_completeness` (Integer 0-100)
-  - `evidence_strength` (`HIGH` | `MEDIUM` | `LOW`)
-  - `evidence_consistent` (Boolean)
-  - `missing_documents` (List of required documents not yet submitted)
-  - `recommended_document_requests` (List of outstanding document types to request)
-  - `investigation_blocked` (Boolean)
-
-### 5. Agent 5: Workflow Orchestration Agent (WOA)
-* **Code Registry**: [orchestration_agent](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/orchestration_agent)
-* **Purpose**: Acts as the workflow controller. Coordinates execution pathing across downstream specialist nodes, handles management escalations, and estimates operational workloads/analyst seniority requirements.
-* **Orchestration Tools**:
-  - `evaluate_case_complexity`: Computes routing complexity based on transaction value, risk tags, and Agent 2 results.
-  - `determine_required_agents`: Evaluates which specialist nodes (Fraud, Merchant, Evidence, Compliance) must run.
-  - `recommend_workflow_path`: Maps sequence for specialist agents.
-  - `assess_escalation_need`: Determines if supervisor approvals are required.
-  - `estimate_workload`: Recommends analyst levels (`LEAD` | `SENIOR` | `STANDARD` | `JUNIOR`) and hours required.
-  - `determine_next_execution_step`: Compares completed agents to execution path to identify the next specialist node.
-* **Key Outputs**:
-  - `workflow_complexity` (`LOW` | `MEDIUM` | `HIGH` | `CRITICAL`)
-  - `required_agents` (e.g., `["FRAUD_AGENT", "EVIDENCE_AGENT"]`)
-  - `workflow_path` (execution sequence, e.g., `["FRAUD_AGENT", "EVIDENCE_AGENT"]`)
-  - `next_agent` (immediate next specialist node to execute)
-  - `escalation_required` (Boolean)
-  - `analyst_level` (`LEAD` | `SENIOR` | `STANDARD` | `JUNIOR`)
-  - `estimated_investigation_hours` (integer)
+**WOA is the single source of truth.** It decides which specialist agents run based on dispute category, fraud signals, and evidence gaps. Specialist agents only execute when WOA explicitly routes to them.
 
 ---
 
-## ── Technical Stack ──
+## Agents
 
-### Backend (Python 3.11)
-* **Framework**: FastAPI
-* **Orchestration**: LangGraph, LangChain
-* **LLM Engine**: ChatGroq (Llama-3.1-8B-Instant)
-* **Database & ORM**: PostgreSQL / SQLite, SQLAlchemy
-* **Document Extraction**: PyMuPDF, pytesseract (OCR)
-* **Resilience**: Tenacity (Exponential backoff retries for LLM rate limits)
+### Agent 1 — ARIA (Dispute Understanding Agent)
 
-### Frontend (Next.js 14)
-* **Framework**: React 18 & TypeScript (Next.js App Router)
-* **Form Management**: React Hook Form, Zod
-* **Styling**: Vanilla CSS Design Tokens (for layouts, cards, grids) & Tailwind CSS
-* **Icons**: Lucide React
+Reads the dispute form, transaction metadata, and OCR-extracted document text. Produces the primary classification that all downstream agents build upon.
+
+**Tools (pre-computed, deterministic):**
+- `assess_transaction_context` — RBI liability tiers, off-hours risk, CNP channels
+- `score_fraud_indicators` — OTP sharing, SIM swap, phishing, remote access, device loss
+- `verify_evidence_match` — OCR document text vs claimed merchant and amount
+
+**Outputs:** `dispute_category`, `fraud_suspicion`, `confidence_score`, `risk_tags`, `evidence_match`, `evaluated_files`, `evidence_trace`
+
+**Evidence Provenance:** Agent 1 server-stamps every document it evaluates — filename, inferred document type, confidence score, and a verdict trace — so analysts know exactly which files the AI used.
 
 ---
 
-## ── Local Development Setup ──
+### Agent 2 — IIA (Investigation Intelligence Agent)
 
-All backend configurations and database secrets are loaded dynamically from environment variables.
+Runs 4 database-backed tools against live customer, merchant, and case history before designing an investigation plan.
 
-### 1. Database Migrations & Seeding
-1. **Activate Python Virtual Environment**:
-   ```bash
-   cd backend
-   python -m venv venv
-   # Windows:
-   .\venv\Scripts\activate
-   # macOS/Linux:
-   source venv/bin/activate
-   
-   pip install -r requirements.txt
-   ```
+**Tools:**
+- `lookup_customer_history` — dispute frequency, chargeback ratios, risk profile
+- `check_merchant_risk` — category risk, complaint counts, blacklist status
+- `find_duplicate_transaction` — identical merchant/amount/date within 72-hour window
+- `lookup_related_cases` — outcomes of similar historical disputes
 
-2. **Configure Environment Variables**:
-   Create a `.env` file in the `backend/` directory using the provided template:
-   ```bash
-   cp .env.example .env
-   # Update the values, specifically GROQ_API_KEY
-   ```
+**Outputs:** `investigation_plan`, `required_documents`, `recommended_queue`, `investigation_complexity`, `recommended_steps`
 
-3. **Initialize Database Columns**:
-   Runs the database tables creation and applies schemas:
-   ```bash
-   python -c "from database.database import init_db; init_db()"
-   ```
+---
 
-4. **Seed Customer & Transaction Registries**:
-   Populates customer details, transaction history, merchants, and prior logs:
-   ```bash
-   python scripts/seed_postgresql_fixed.py
-   ```
+### Agent 3 — FRIA (Fraud Reasoning Agent)
 
-5. **Seed Active Ops Cases**:
-   Populates active case workflows, workflow plans, audit logs, and trust intelligence cards on the internal review dashboard:
-   ```bash
-   python scripts/seed_dispute_cases.py
-   ```
+Only runs when WOA includes `FRAUD_AGENT` in the workflow path. Runs 6 tools in parallel via `ThreadPoolExecutor`. All numeric scores are server-side deterministic — the LLM synthesises narrative, not numbers.
 
-### 2. Running the Backend Server
+**Tools (parallel execution):**
+- `detect_transaction_anomalies` — off-hours flag, short-term velocity
+- `evaluate_location_velocity` — geovelocity breach (impossible travel < 4 hours)
+- `analyze_spending_behavior` — Z-score deviation from customer's spending baseline
+- `verify_kyc_match` — CIF record comparison, name/contact alignment
+- `evaluate_device_fingerprint` — device ID familiarity, location consistency
+- `analyze_behavioral_patterns` — friendly fraud indicator from dispute history
+
+**Outputs:** `fraud_probability`, `fraud_risk_level`, `user_trust_score`, `behavioral_risk_score`, `identity_verification`
+
+**Server-side recalibration:** `fraud_probability` is always computed deterministically from tool flags — not from LLM output:
+```
+amount_anomaly    → +0.20
+time_anomaly      → +0.15
+velocity_anomaly  → +0.30
+geovelocity_breach → +0.25
+unrecognized_device → +0.30
+location_mismatch → +0.20
+```
+
+---
+
+### Agent 4 — EIA (Evidence Intelligence Agent)
+
+Audits evidence completeness and transaction consistency. Separates customer-obtainable documents from bank-obtainable documents — only customer gaps affect completeness score and `investigation_blocked`.
+
+**Tools:**
+- `evaluate_evidence_completeness` — required docs vs fulfilled requests + upload credits
+- `identify_missing_evidence` — unfulfilled customer document gaps
+- `validate_evidence_consistency` — amount/merchant/date vs original transaction record
+- `assess_evidence_strength` — weighted score: Agent 1 verdict + completeness + Agent 2 data quality
+- `determine_next_document_request` — next document to formally request (deduplicates pending requests)
+
+**Outputs:** `evidence_completeness`, `evidence_strength`, `missing_documents`, `bank_pending_documents`, `investigation_blocked`, `recommended_document_requests`
+
+---
+
+### Agent 5 — WOA (Workflow Orchestration Agent)
+
+Acts as the workflow controller. Runs after Agent 2, before any specialist agents. Its `workflow_path` is the authoritative execution plan — no other agent can modify it.
+
+**Routing logic:**
+- Adds `FRAUD_AGENT` if `fraud_suspicion = true` OR category is fraud-related
+- Adds `EVIDENCE_AGENT` if document gaps exist
+- Adds `MERCHANT_AGENT` if merchant dispute category
+
+**Tools (deterministic — no LLM):**
+- `evaluate_case_complexity` — value tiers, risk tags, Agent 2 complexity
+- `determine_required_agents` — specialist routing decision
+- `recommend_workflow_path` — ordered execution sequence
+- `assess_escalation_need` — supervisor approval triggers
+- `estimate_workload` — analyst seniority level + hours estimate
+- `determine_next_execution_step` — tracks completed vs remaining agents
+
+**Outputs:** `workflow_path`, `required_agents`, `next_agent`, `workflow_complexity`, `escalation_required`, `analyst_level`, `sla_hours`
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend framework | FastAPI |
+| Agent orchestration | LangGraph + LangChain |
+| LLM engine | Groq — `llama-3.1-8b-instant` |
+| Database | PostgreSQL / SQLite, SQLAlchemy ORM |
+| Document extraction | PyMuPDF, pytesseract (OCR) |
+| LLM resilience | Tenacity (exponential backoff, 3 retries) |
+| Frontend | Next.js 14 App Router, React 18, TypeScript |
+| Forms | React Hook Form + Zod |
+| Styling | Tailwind CSS |
+| Real-time | WebSocket (case status push) |
+| Priority engine | Deterministic post-workflow computation |
+
+---
+
+## Key Design Decisions
+
+**WOA is the single source of truth.**  
+No specialist agent can change the workflow path. When WOA re-evaluates a case and excludes `FRAUD_AGENT`, all stale fraud/trust scores are immediately cleared from the database. The Fraud Review tab in the UI is hidden unless WOA included `FRAUD_AGENT` in the current `workflow_path`.
+
+**LLM produces narrative — deterministic code produces numbers.**  
+Confidence scores, fraud probability, evidence completeness, priority, and SLA deadlines are all computed server-side. The LLM is trusted for classification and reasoning text only.
+
+**Evidence provenance is first-class.**  
+Every document Agent 1 evaluates is tracked: filename, inferred type, confidence level, and the verdict that tied those files to the `evidence_match` decision. Analysts see exactly what the AI read.
+
+**Priority is computed post-workflow, never by the LLM.**  
+`priority_engine.py` runs after all agents complete and derives `CRITICAL / HIGH / MEDIUM / LOW` from a weighted formula across amount, fraud signals, complexity, and SLA state.
+
+**PII is masked before it reaches the LLM.**  
+Customer names, IDs, and free-text comments are masked via `utils/pii_masking.py` before being included in any prompt.
+
+---
+
+## Project Structure
+
+```
+ai-dispute-resolution-system/
+├── backend/
+│   ├── agents/
+│   │   ├── dispute_agent/          # Agent 1 — ARIA
+│   │   ├── investigation_agent/    # Agent 2 — IIA
+│   │   ├── fraud_reasoning_agent/  # Agent 3 — FRIA
+│   │   ├── evidence_agent/         # Agent 4 — EIA
+│   │   └── orchestration_agent/    # Agent 5 — WOA
+│   ├── api/
+│   │   ├── main.py                 # FastAPI entry point
+│   │   └── routes/                 # disputes, auth, ops, queues, analytics
+│   ├── database/
+│   │   ├── database.py             # SQLAlchemy engine + session
+│   │   └── models.py               # ORM models
+│   ├── prompts/                    # System prompts per agent
+│   ├── schemas/                    # Pydantic request/response models
+│   ├── services/                   # Priority, SLA, queue, document rules
+│   ├── workflows/
+│   │   └── dispute_workflow.py     # LangGraph compiled graph
+│   ├── scripts/                    # DB seed scripts
+│   └── utils/                      # Helpers, logger, PII masking, OCR
+└── frontend/
+    ├── src/
+    │   ├── app/
+    │   │   ├── submit-dispute/     # Customer submission portal
+    │   │   └── internal-review/    # Ops analyst workspace
+    │   ├── components/             # Shared UI components
+    │   ├── hooks/                  # WebSocket, data fetching
+    │   ├── lib/                    # API client, utilities
+    │   └── types/                  # TypeScript interfaces
+    └── public/
+```
+
+---
+
+## Setup
+
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL (or SQLite for local development)
+- Groq API key — [console.groq.com](https://console.groq.com)
+
+### Backend
+
 ```bash
-# From the backend/ directory
+cd backend
+python -m venv venv
+
+# Windows
+.\venv\Scripts\activate
+# macOS / Linux
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+Create `backend/.env`:
+```env
+GROQ_API_KEY=your_groq_api_key_here
+DATABASE_URL=sqlite:///./disputes.db
+LLM_MODEL=llama-3.1-8b-instant
+```
+
+Initialize and seed the database:
+```bash
+# Create tables
+python -c "from database.database import init_db; init_db()"
+
+# Seed customers, transactions, merchants
+python scripts/seed_postgresql_fixed.py
+
+# Seed active dispute cases for the ops dashboard
+python scripts/seed_dispute_cases.py
+```
+
+Start the server:
+```bash
 uvicorn api.main:app --reload
 ```
-* **Base URL**: [http://localhost:8000](http://localhost:8000)
-* **API Swagger Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-### 3. Running the Frontend Server
+API available at `http://localhost:8000` — Swagger docs at `http://localhost:8000/docs`
+
+### Frontend
+
 ```bash
-# From the frontend/ directory
+cd frontend
 npm install
 npm run dev
 ```
-* **Base URL**: [http://localhost:3000](http://localhost:3000)
+
+Frontend available at `http://localhost:3000`
 
 ---
 
-## ── Portal Routing & Interaction ──
+## Portals
 
-* **Dispute Submission Portal**: [http://localhost:3000/submit-dispute](http://localhost:3000/submit-dispute)
-  - Auto-fill Customer Registry: Enter **`CUST-00001`** in the Customer ID input.
-  - Auto-fill Transaction Details: Enter **`TXN-00000001`** in the Transaction ID input.
-* **Ops Review Queue Dashboard**: [http://localhost:3000/internal-review](http://localhost:3000/internal-review)
-  - Displays seeded cases, triage queue groupings, and status filters.
-  - Click on any case (e.g., `CASE-000001`) to open the workspace.
-  - Click the **Trust Intelligence** tab (second tab) to review KYC validations, geographic transaction locations, recognized device history, and prior dispute frequency profiles.
+| Portal | URL | Description |
+|---|---|---|
+| Customer Dispute Submission | `http://localhost:3000/submit-dispute` | Customer-facing dispute form |
+| Ops Review Dashboard | `http://localhost:3000/internal-review` | Internal analyst queue |
+| Case Workspace | `http://localhost:3000/internal-review/{case_id}` | Full case investigation view |
+| API Docs | `http://localhost:8000/docs` | Swagger UI |
+
+**Quick test:**
+- Customer ID: `CUST-00001`
+- Transaction ID: `TXN-00000001`
+
+---
+
+## Ops Workspace Tabs
+
+| Tab | Visible when | Content |
+|---|---|---|
+| Case Analysis | Always | Dispute classification, confidence, risk tags |
+| Investigation | Always | Agent 2 plan, required documents, complexity |
+| Fraud Review | WOA included FRAUD_AGENT | Fraud probability, trust score, identity, behavioral risk |
+| Evidence Review | Always | Completeness, consistency, missing docs, provenance |
+| Case Coordination | Always | WOA workflow path, agent progression, SLA |
+| Evidence | Always | Uploaded files |
+| Audit Trail | Always | Full immutable event log |
+| Advanced Diagnostics | Always (hidden by default) | LangGraph execution trace |
+
+---
+
+## API Reference
+
+```
+POST   /api/disputes/submit-public          Submit a new dispute
+GET    /api/disputes/cases                  List all cases (filterable)
+GET    /api/disputes/cases/{case_id}        Get full case detail
+PUT    /api/disputes/cases/{case_id}/status Update case status
+POST   /api/disputes/cases/{case_id}/documents  Upload evidence files
+GET    /api/disputes/stats                  Dashboard stats
+GET    /api/disputes/audit-logs             Global audit log
+GET    /api/disputes/document-requirements  Required docs for a dispute type
+WS     /ws                                  Real-time case updates
+```
+
+---
+
+## Dispute Categories
+
+| Category | Typical Routing |
+|---|---|
+| Unauthorized Transaction | FRAUD_AGENT → EVIDENCE_AGENT |
+| Friendly Fraud | FRAUD_AGENT → EVIDENCE_AGENT |
+| Duplicate Transaction | EVIDENCE_AGENT |
+| Refund Not Received | EVIDENCE_AGENT → MERCHANT_AGENT |
+| Merchant Dispute | EVIDENCE_AGENT → MERCHANT_AGENT |
+| ATM / Cash Dispute | EVIDENCE_AGENT |
+| Chargeback | EVIDENCE_AGENT |
+| Subscription Fraud | FRAUD_AGENT → EVIDENCE_AGENT |
+| Other | EVIDENCE_AGENT |
+
+---
+
+## RBI Liability Tiers
+
+| Amount | Handling |
+|---|---|
+| ₹0 – ₹10,000 | Standard processing |
+| ₹10,000 – ₹50,000 | Heightened scrutiny |
+| ₹50,000 – ₹2,00,000 | Senior officer escalation |
+| ₹2,00,000 – ₹10,00,000 | Mandatory investigation |
+| > ₹10,00,000 | Executive-level review |
