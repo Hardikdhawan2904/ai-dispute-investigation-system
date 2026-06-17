@@ -1082,7 +1082,9 @@ export default function CaseWorkspace() {
                       const customerMissingCount = (ea.missing_documents ?? []).filter(
                         (d: string) => !BANK_OBTAINABLE.has(d)
                       ).length;
-                      const needsReview = ea.manual_evidence_review || customerMissingCount > 0;
+                      const needsReview = ea.manual_evidence_review
+                        || customerMissingCount > 0
+                        || caseData.requires_manual_review;
                       return (
                         <div style={{ fontSize: "0.85rem", fontWeight: 700, color: needsReview ? "#FCA5A5" : "#4ADE80" }}>
                           {needsReview ? "Required" : "Not Required"}
@@ -1362,15 +1364,22 @@ export default function CaseWorkspace() {
 
             const complexColor  = complexityColor[wfPlan.workflow_complexity] ?? "#94A3B8";
             const escalColor    = wfPlan.escalation_level ? (escalationColor[wfPlan.escalation_level] ?? "#FCD34D") : null;
-            const statusLabel   = operationalStatus[wfPlan.workflow_status] ?? wfPlan.workflow_status;
-            const statusColor   = wfPlan.workflow_status === "COMPLETED"   ? "#4ADE80"
+            const _wfNeedsManual = caseData.requires_manual_review || wfPlan.manual_review_required;
+            const _rawStatusLabel = operationalStatus[wfPlan.workflow_status] ?? wfPlan.workflow_status;
+            const statusLabel   = (wfPlan.workflow_status === "COMPLETED" && _wfNeedsManual)
+              ? "Pending Manual Review"
+              : _rawStatusLabel;
+            const statusColor   = (wfPlan.workflow_status === "COMPLETED" && _wfNeedsManual) ? "#FCD34D"
+                                : wfPlan.workflow_status === "COMPLETED"   ? "#4ADE80"
                                 : wfPlan.workflow_status === "ESCALATED"   ? "#FCA5A5"
                                 : wfPlan.workflow_status === "IN_PROGRESS" ? "#FCD34D"
                                 : wfPlan.workflow_status === "WAITING"     ? "#FB923C"
                                 : "#60A5FA";
 
             const nextReview    = wfPlan.next_agent ? (reviewLabels[wfPlan.next_agent] ?? { label: wfPlan.next_agent, color: "#94A3B8", action: "Review this case" }) : null;
-            const nextAction    = nextReview?.action ?? "No further reviews required — case is ready for resolution.";
+            const _needsManual  = caseData.requires_manual_review || wfPlan.manual_review_required;
+            const nextAction    = nextReview?.action
+              ?? (_needsManual ? "Manual analyst review required before this case can be resolved." : "No further reviews required — case is ready for resolution.");
             const requiredReviews = (wfPlan.required_agents ?? []).map(a => reviewLabels[a] ?? { label: a, color: "#94A3B8", action: "" });
 
             // Translate technical reasoning into analyst-friendly language
@@ -1402,24 +1411,31 @@ export default function CaseWorkspace() {
                 {/* Fallback info — reworded as operational note, not technical error */}
 
                 {/* ── Row 1: Four metric cards ── */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem" }}>
-                  <Panel>
-                    <Label>Case Complexity</Label>
-                    <div style={{ fontSize: "1rem", fontWeight: 700, color: complexColor }}>{wfPlan.workflow_complexity}</div>
-                  </Panel>
-                  <Panel>
-                    <Label>Escalation</Label>
-                    {wfPlan.escalation_required
-                      ? <div style={{ fontSize: "0.9rem", fontWeight: 700, color: escalColor ?? "#FCD34D" }}>{wfPlan.escalation_level} — Required</div>
-                      : <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#4ADE80" }}>Not Required</div>}
-                  </Panel>
-                  <Panel>
-                    <Label>Human Review</Label>
-                    {wfPlan.manual_review_required
-                      ? <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#FCA5A5" }}>Required</div>
-                      : <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#4ADE80" }}>Not Required</div>}
-                  </Panel>
-                </div>
+                {(() => {
+                  const needsManualReview = caseData.requires_manual_review || wfPlan.manual_review_required;
+                  const isCritical = caseData.priority === "CRITICAL";
+                  const needsEscalation = wfPlan.escalation_required || isCritical;
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem" }}>
+                      <Panel>
+                        <Label>Case Complexity</Label>
+                        <div style={{ fontSize: "1rem", fontWeight: 700, color: complexColor }}>{wfPlan.workflow_complexity ?? caseData.priority}</div>
+                      </Panel>
+                      <Panel>
+                        <Label>Escalation</Label>
+                        {needsEscalation
+                          ? <div style={{ fontSize: "0.9rem", fontWeight: 700, color: escalColor ?? "#FCD34D" }}>{wfPlan.escalation_level ?? (isCritical ? "CRITICAL" : "STANDARD")} — Required</div>
+                          : <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#4ADE80" }}>Not Required</div>}
+                      </Panel>
+                      <Panel>
+                        <Label>Human Review</Label>
+                        {needsManualReview
+                          ? <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#FCA5A5" }}>Required</div>
+                          : <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#4ADE80" }}>Not Required</div>}
+                      </Panel>
+                    </div>
+                  );
+                })()}
 
                 {/* ── Row 2: Review Summary — primary card ── */}
                 <Panel style={{ border: "1px solid #334155" }}>
@@ -1446,8 +1462,8 @@ export default function CaseWorkspace() {
                     <div>
                       <Label>Escalation</Label>
                       <div style={{ fontSize: "0.72rem", marginTop: 4 }}>
-                        {wfPlan.escalation_required
-                          ? <span style={{ color: escalColor ?? "#FCD34D", fontWeight: 600 }}>{wfPlan.escalation_level} — Senior review required</span>
+                        {(wfPlan.escalation_required || caseData.priority === "CRITICAL")
+                          ? <span style={{ color: escalColor ?? "#FCD34D", fontWeight: 600 }}>{wfPlan.escalation_level ?? (caseData.priority === "CRITICAL" ? "CRITICAL" : "STANDARD")} — Senior review required</span>
                           : <span style={{ color: "#4ADE80" }}>Not required</span>}
                       </div>
                     </div>
