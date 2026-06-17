@@ -162,11 +162,12 @@ export default function CaseWorkspace() {
     }
   }, [loading, caseData]);
 
-  // If re-analysis removes FRAUD_AGENT from the path, navigate away from the fraud tab
+  // Navigate away from fraud tab only if no fraud data exists at all
   useEffect(() => {
     if (activeTab === "fraud_review" && caseData) {
       const path: string[] = (caseData.workflow_plan as any)?.workflow_path ?? [];
-      if (!path.includes("FRAUD_AGENT")) setActiveTab("analysis");
+      const hasFraudData = path.includes("FRAUD_AGENT") || caseData.fraud_probability != null || caseData.fraud_suspicion === true;
+      if (!hasFraudData) setActiveTab("analysis");
     }
   }, [caseData, activeTab]);
 
@@ -231,8 +232,10 @@ export default function CaseWorkspace() {
 
   const evidenceAssessment = caseData.evidence_assessment as EvidenceAssessment | null | undefined;
 
-  // WOA is the single source of truth — show Fraud Review only when WOA included FRAUD_AGENT
-  const showFraudTab = (wfPlan?.workflow_path ?? []).includes("FRAUD_AGENT");
+  // Show Fraud Review when WOA included FRAUD_AGENT, or when fraud data exists (e.g. reanalysis ran fraud agent outside WOA path)
+  const showFraudTab = (wfPlan?.workflow_path ?? []).includes("FRAUD_AGENT")
+    || caseData.fraud_probability != null
+    || caseData.fraud_suspicion === true;
 
   const tabs = [
     { key: "analysis",        label: "Case Analysis" },
