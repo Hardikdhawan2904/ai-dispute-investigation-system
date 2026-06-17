@@ -1098,11 +1098,18 @@ export default function CaseWorkspace() {
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                         <span style={{ fontSize: "0.7rem", color: strengthTextColor, fontWeight: 600 }}>{effectiveStrength}</span>
                         <span style={{ fontSize: "0.7rem", color: strengthTextColor, fontFamily: "ui-monospace, monospace", fontWeight: 700 }}>
-                          {Math.round((ea.evidence_strength_score ?? 0) * 100)}%
+                          {(() => {
+                            const raw = Math.round((ea.evidence_strength_score ?? 0) * 100);
+                            return effectiveStrength === "MEDIUM" ? Math.min(raw, 69) : effectiveStrength === "LOW" ? Math.min(raw, 44) : raw;
+                          })()}%
                         </span>
                       </div>
                       <div style={{ height: 6, backgroundColor: "rgba(0,0,0,0.08)", borderRadius: 3 }}>
-                        <div style={{ height: "100%", width: `${Math.round((ea.evidence_strength_score ?? 0) * 100)}%`, backgroundColor: strengthColor, borderRadius: 3, transition: "width 0.4s" }} />
+                        {(() => {
+                          const raw = Math.round((ea.evidence_strength_score ?? 0) * 100);
+                          const capped = effectiveStrength === "MEDIUM" ? Math.min(raw, 69) : effectiveStrength === "LOW" ? Math.min(raw, 44) : raw;
+                          return <div style={{ height: "100%", width: `${capped}%`, backgroundColor: strengthColor, borderRadius: 3, transition: "width 0.4s" }} />;
+                        })()}
                       </div>
                     </div>
                   </div>
