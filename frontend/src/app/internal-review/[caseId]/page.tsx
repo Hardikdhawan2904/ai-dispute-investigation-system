@@ -1365,7 +1365,14 @@ export default function CaseWorkspace() {
               CRITICAL: "#FCA5A5", HIGH: "#FCD34D", MEDIUM: "#FDE68A",
             };
 
-            const complexColor  = complexityColor[wfPlan.workflow_complexity] ?? "#94A3B8";
+            // Fallback complexity from case priority when WOA didn't set it
+            const complexityValue: string = wfPlan.workflow_complexity
+              ?? (caseData.priority === "CRITICAL" ? "CRITICAL"
+                : caseData.priority === "HIGH"     ? "HIGH"
+                : caseData.priority === "MEDIUM"   ? "MEDIUM"
+                : caseData.priority === "LOW"      ? "LOW"
+                : "MEDIUM");
+            const complexColor  = complexityColor[complexityValue] ?? "#94A3B8";
             const escalColor    = wfPlan.escalation_level ? (escalationColor[wfPlan.escalation_level] ?? "#FCD34D") : null;
             const statusLabel   = operationalStatus[wfPlan.workflow_status] ?? wfPlan.workflow_status;
             const statusColor   = wfPlan.workflow_status === "COMPLETED"   ? "#4ADE80"
@@ -1376,7 +1383,6 @@ export default function CaseWorkspace() {
 
             const nextReview    = wfPlan.next_agent ? (reviewLabels[wfPlan.next_agent] ?? { label: wfPlan.next_agent, color: "#94A3B8", action: "Review this case" }) : null;
             const nextAction    = nextReview?.action ?? "No further reviews required — case is ready for resolution.";
-            const requiredReviews = (wfPlan.required_agents ?? []).map((a: string) => reviewLabels[a] ?? { label: a, color: "#94A3B8", action: "" });
 
             // Reconstruct workflow_path when null — build from completed + next + remaining
             // Also inject FRAUD_AGENT into completed when fraud data exists but path is missing
@@ -1393,6 +1399,12 @@ export default function CaseWorkspace() {
                   ...(_nextAgent && !_effectiveCompleted.includes(_nextAgent) ? [_nextAgent] : []),
                   ..._remainingAgents.filter((a: string) => a !== _nextAgent && !_effectiveCompleted.includes(a)),
                 ];
+
+            // Fall back to effectiveWorkflowPath when required_agents wasn't set by WOA
+            const _requiredAgents: string[] = (wfPlan.required_agents ?? []).length > 0
+              ? wfPlan.required_agents
+              : effectiveWorkflowPath;
+            const requiredReviews = _requiredAgents.map((a: string) => reviewLabels[a] ?? { label: a, color: "#94A3B8", action: "" });
 
             // Translate technical reasoning into analyst-friendly language
             const sanitiseReason = (r: string): string => {
@@ -1426,7 +1438,7 @@ export default function CaseWorkspace() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.5rem" }}>
                   <Panel>
                     <Label>Case Complexity</Label>
-                    <div style={{ fontSize: "1rem", fontWeight: 700, color: complexColor }}>{wfPlan.workflow_complexity}</div>
+                    <div style={{ fontSize: "1rem", fontWeight: 700, color: complexColor }}>{complexityValue}</div>
                   </Panel>
                   <Panel>
                     <Label>Escalation</Label>
