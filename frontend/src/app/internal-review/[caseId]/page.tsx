@@ -1036,7 +1036,7 @@ export default function CaseWorkspace() {
                     </div>
                   </Panel>
                   <Panel>
-                    <Label>Consistency</Label>
+                    <Label>Status</Label>
                     {(() => {
                       const realIssues = (ea.consistency_issues ?? []).filter(
                         (i: string) => !i.toLowerCase().includes("not found")
