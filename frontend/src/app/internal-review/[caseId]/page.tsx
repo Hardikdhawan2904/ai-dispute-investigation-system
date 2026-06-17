@@ -996,13 +996,20 @@ export default function CaseWorkspace() {
               );
             }
 
-            // Cap strength at MEDIUM when customer docs are still missing (matches backend logic)
+            // Downgrade strength when customer docs are still missing (matches backend logic)
             const customerMissingForStrength = (ea.missing_documents ?? []).filter(
               (d: string) => !BANK_OBTAINABLE.has(d)
             ).length;
             const effectiveStrength = (ea.evidence_strength === "HIGH" && customerMissingForStrength > 0)
               ? "MEDIUM"
               : ea.evidence_strength;
+
+            // Compute effective score: penalise 0.08 per missing customer doc so the
+            // number stays consistent with the downgraded label (no artificial truncation).
+            const rawScore = ea.evidence_strength_score ?? 0;
+            const effectiveScore = customerMissingForStrength > 0
+              ? Math.max(0, rawScore - customerMissingForStrength * 0.08)
+              : rawScore;
 
             const strengthColor = effectiveStrength === "HIGH" ? "#4ADE80" : effectiveStrength === "MEDIUM" ? "#FCD34D" : "#FCA5A5";
             const strengthBg    = effectiveStrength === "HIGH" ? "#F0FDF4" : effectiveStrength === "MEDIUM" ? "#FFFBEB" : "#FEF2F2";
@@ -1098,18 +1105,11 @@ export default function CaseWorkspace() {
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                         <span style={{ fontSize: "0.7rem", color: strengthTextColor, fontWeight: 600 }}>{effectiveStrength}</span>
                         <span style={{ fontSize: "0.7rem", color: strengthTextColor, fontFamily: "ui-monospace, monospace", fontWeight: 700 }}>
-                          {(() => {
-                            const raw = Math.round((ea.evidence_strength_score ?? 0) * 100);
-                            return effectiveStrength === "MEDIUM" ? Math.min(raw, 69) : effectiveStrength === "LOW" ? Math.min(raw, 44) : raw;
-                          })()}%
+                          {Math.round(effectiveScore * 100)}%
                         </span>
                       </div>
                       <div style={{ height: 6, backgroundColor: "rgba(0,0,0,0.08)", borderRadius: 3 }}>
-                        {(() => {
-                          const raw = Math.round((ea.evidence_strength_score ?? 0) * 100);
-                          const capped = effectiveStrength === "MEDIUM" ? Math.min(raw, 69) : effectiveStrength === "LOW" ? Math.min(raw, 44) : raw;
-                          return <div style={{ height: "100%", width: `${capped}%`, backgroundColor: strengthColor, borderRadius: 3, transition: "width 0.4s" }} />;
-                        })()}
+                        <div style={{ height: "100%", width: `${Math.round(effectiveScore * 100)}%`, backgroundColor: strengthColor, borderRadius: 3, transition: "width 0.4s" }} />
                       </div>
                     </div>
                   </div>
