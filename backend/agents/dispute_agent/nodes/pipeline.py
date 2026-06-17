@@ -398,6 +398,34 @@ def finalize_node(state: DisputeAgentState) -> dict:
 
     parsed["confidence_score"] = round(max(0.10, min(1.00, conf)), 2)
 
+    # Server-stamp confidence_factors — mirrors the formula above so display is always accurate
+    _cf = []
+    if all(d.get(f) for f in _REQUIRED_FIELDS):
+        _cf.append("+0.10 all required fields present")
+    else:
+        _cf.append("-0.10 one or more required fields missing")
+    if len(comment) >= 80:
+        _cf.append("+0.10 comment is detailed")
+    elif len(comment) < 30:
+        _cf.append("-0.10 comment too brief")
+    if _evidence_verdict == "MATCH":
+        _cf.append("+0.25 documents verified — evidence supports the claim")
+    elif _evidence_verdict == "PARTIAL_MATCH":
+        _cf.append("+0.10 documents partially support the claim")
+    elif _evidence_verdict == "MISMATCH":
+        _cf.append("-0.25 submitted documents contradict the claim")
+    elif _evidence_verdict in ("NO_DOCUMENTS", "CANNOT_VERIFY"):
+        _cf.append("+0.00 no documents submitted or OCR unavailable")
+    if fraud_flag and category in _FRAUD_CATEGORIES:
+        if _fraud_signal_level in ("CRITICAL", "HIGH"):
+            _cf.append("+0.15 high fraud signals consistent with fraud category")
+        elif _fraud_signal_level == "MEDIUM":
+            _cf.append("+0.08 moderate fraud signals aligned with category")
+    elif fraud_flag and category not in _FRAUD_CATEGORIES:
+        if _fraud_signal_level in ("CRITICAL", "HIGH"):
+            _cf.append("-0.12 high fraud signals inconsistent with stated category")
+    parsed["confidence_factors"] = _cf
+
     # ── Server-side risk tag enforcement ──────────────────────────────────────
     amount      = float(d.get("amount") or 0)
     tx_type     = (d.get("transaction_type") or "").upper()

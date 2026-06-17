@@ -1722,8 +1722,7 @@ export default function CaseWorkspace() {
             </div>
             {(() => {
               const factors = ((caseData as any).confidence_factors ?? [])
-                .filter((f: string) => !/unavailable|failure|error|unknown/i.test(f))
-                .slice(0, 4);
+                .filter((f: string) => !/unavailable|failure|error|unknown/i.test(f));
               return factors.length > 0 ? (
                 <ul style={{ display: "flex", flexDirection: "column", gap: "0.3rem", margin: 0, padding: 0, listStyle: "none" }}>
                   {factors.map((f: string, i: number) => (
