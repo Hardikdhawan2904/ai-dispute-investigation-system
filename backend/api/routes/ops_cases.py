@@ -175,16 +175,6 @@ async def reanalyse_case(case_id: str):
                     document_texts.append(f"[{f.name}]\n{text}")
 
     def _run_analysis():
-        from agents.fraud_reasoning_agent import run_fraud_reasoning_agent
-        from workflows.dispute_workflow import _save_fraud_reasoning_to_db
-        try:
-            fraud_res = run_fraud_reasoning_agent({}, case_id=case_id)
-            if fraud_res:
-                _save_fraud_reasoning_to_db(case_id, fraud_res)
-        except Exception as exc:
-            from utils.logger import api_logger
-            api_logger.warning(f"Reanalyse fraud agent failed for {case_id}: {exc}")
-
         # Agent 1 reads its input from DB by case_id — no manual dict needed
         return run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
 
@@ -203,8 +193,13 @@ async def reanalyse_case(case_id: str):
 
     def _save_result():
         from database.database import SessionLocal as _SL
-        from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db
+        from workflows.dispute_workflow import (
+            _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db,
+            _save_fraud_reasoning_to_db, _save_evidence_to_db,
+        )
         from agents.orchestration_agent import run_orchestration_agent
+        from agents.fraud_reasoning_agent import run_fraud_reasoning_agent
+        from agents.evidence_agent import run_evidence_agent
         from services.queue_assignment_service import assign_queue
         from services.sla_service import compute_sla_deadline
 
@@ -219,11 +214,27 @@ async def reanalyse_case(case_id: str):
         except Exception:
             pass
 
-        # Agent 3 reads Agent 1 + Agent 2 results from DB
+        # Agent 3 (WOA) decides which specialist agents run
+        wf_plan = None
         try:
             wf_plan = run_orchestration_agent(case_id)
             if wf_plan:
                 _save_agent3_to_db(case_id, wf_plan)
+                workflow_path = wf_plan.get("workflow_path") or []
+                if "FRAUD_AGENT" in workflow_path:
+                    try:
+                        fraud_res = run_fraud_reasoning_agent({}, case_id=case_id)
+                        if fraud_res:
+                            _save_fraud_reasoning_to_db(case_id, fraud_res, wf_plan)
+                    except Exception:
+                        pass
+                if "EVIDENCE_AGENT" in workflow_path:
+                    try:
+                        evidence_res = run_evidence_agent(case_id)
+                        if evidence_res:
+                            _save_evidence_to_db(case_id, evidence_res, wf_plan)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -341,16 +352,6 @@ async def analyse_uploads(case_id: str):
         return {"case_id": case_id, "analysed": 0, "files": files}
 
     def _run_analysis():
-        from agents.fraud_reasoning_agent import run_fraud_reasoning_agent
-        from workflows.dispute_workflow import _save_fraud_reasoning_to_db
-        try:
-            fraud_res = run_fraud_reasoning_agent({}, case_id=case_id)
-            if fraud_res:
-                _save_fraud_reasoning_to_db(case_id, fraud_res)
-        except Exception as exc:
-            from utils.logger import api_logger
-            api_logger.warning(f"Analyse uploads fraud agent failed for {case_id}: {exc}")
-
         # Agent 1 reads its input from DB by case_id
         return run_dispute_agent({}, case_id=case_id, document_texts=document_texts)
 
@@ -363,9 +364,14 @@ async def analyse_uploads(case_id: str):
 
     def _save_result():
         from database.database import SessionLocal as _SL
-        from workflows.dispute_workflow import _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db
+        from workflows.dispute_workflow import (
+            _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db,
+            _save_fraud_reasoning_to_db, _save_evidence_to_db,
+        )
         from agents.investigation_agent import run_investigation_agent as _run_inv
         from agents.orchestration_agent import run_orchestration_agent as _run_woa
+        from agents.fraud_reasoning_agent import run_fraud_reasoning_agent as _run_fraud
+        from agents.evidence_agent import run_evidence_agent as _run_evidence
         from services.priority_engine import compute_priority as _cp
         from services.queue_assignment_service import assign_queue as _aq
         from services.sla_service import compute_sla_deadline as _sla
@@ -382,11 +388,27 @@ async def analyse_uploads(case_id: str):
         except Exception:
             pass
 
-        # Agent 3 reads Agent 1 + Agent 2 results from DB
+        # Agent 3 (WOA) decides which specialist agents run
+        wf_plan = None
         try:
             wf_plan = _run_woa(case_id)
             if wf_plan:
                 _save_agent3_to_db(case_id, wf_plan)
+                workflow_path = wf_plan.get("workflow_path") or []
+                if "FRAUD_AGENT" in workflow_path:
+                    try:
+                        fraud_res = _run_fraud({}, case_id=case_id)
+                        if fraud_res:
+                            _save_fraud_reasoning_to_db(case_id, fraud_res, wf_plan)
+                    except Exception:
+                        pass
+                if "EVIDENCE_AGENT" in workflow_path:
+                    try:
+                        evidence_res = _run_evidence(case_id)
+                        if evidence_res:
+                            _save_evidence_to_db(case_id, evidence_res, wf_plan)
+                    except Exception:
+                        pass
         except Exception:
             pass
 

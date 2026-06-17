@@ -9,7 +9,7 @@ import {
   RefreshCw, X, ZoomIn, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, getPriorityColor, getConfidenceLabel } from "@/lib/utils";
-import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads, runEvidenceAgent, createDocumentRequest } from "@/lib/api";
+import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads, createDocumentRequest } from "@/lib/api";
 import type { CaseUploadFile } from "@/lib/api";
 import type { DisputeCase, AuditLog, WorkflowState, CaseStatus, EvidenceAssessment } from "@/types";
 import RiskTags from "@/components/dispute/RiskTags";
@@ -136,7 +136,6 @@ export default function CaseWorkspace() {
   const [lightbox, setLightbox]             = useState<string | null>(null);
   const [activeTab, setActiveTab]           = useState<"analysis" | "fraud_review" | "investigation" | "evidence_review" | "evidence" | "audit" | "orchestration" | "advanced">("analysis");
   const [showAdvanced, setShowAdvanced]     = useState(false);
-  const [runningEIA, setRunningEIA]         = useState(false);
   const [whyPlanOpen, setWhyPlanOpen]       = useState(false);
   const [liveUpdate, setLiveUpdate]         = useState(false);
   const [sidebarOpen, setSidebarOpen]       = useState<Record<string, boolean>>({
@@ -192,20 +191,6 @@ export default function CaseWorkspace() {
     } catch (err: unknown) {
       toast.error((err instanceof Error ? err.message : null) || "Re-analysis failed");
     } finally { clearInterval(timer); setReanalysing(false); }
-  }
-
-  async function handleRunEvidenceReview() {
-    if (!caseData || runningEIA) return;
-    setRunningEIA(true);
-    try {
-      const res = await runEvidenceAgent(caseData.case_id);
-      setCaseData(c => c ? { ...c, evidence_assessment: res.evidence_assessment } : c);
-      toast.success("Evidence review completed");
-    } catch (err: unknown) {
-      toast.error((err instanceof Error ? err.message : null) || "Evidence review failed");
-    } finally {
-      setRunningEIA(false);
-    }
   }
 
   async function handleStatusUpdate(newStatus: string) {
@@ -1003,25 +988,26 @@ export default function CaseWorkspace() {
           {activeTab === "evidence_review" && (() => {
             const ea = evidenceAssessment;
 
-            if (!ea) return (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            if (!ea) {
+              const eiaInPath = (wfPlan?.workflow_path ?? []).includes("EVIDENCE_AGENT");
+              return (
                 <Panel style={{ padding: "2rem", textAlign: "center" }}>
-                  <p style={{ fontSize: "0.8rem", color: "#64748B", marginBottom: "0.5rem" }}>Evidence review not yet conducted.</p>
-                  <p style={{ fontSize: "0.72rem", color: "#475569", marginBottom: "1rem" }}>
-                    Evidence review is conducted automatically when case coordination determines it is required.
-                    You can also trigger it manually below.
-                  </p>
-                  <button
-                    onClick={handleRunEvidenceReview}
-                    disabled={runningEIA}
-                    style={{ fontSize: "0.75rem", fontWeight: 600, padding: "0.5rem 1.25rem", backgroundColor: runningEIA ? "#334155" : "#2563EB", color: "#F8FAFC", border: "none", borderRadius: 4, cursor: runningEIA ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
-                  >
-                    {runningEIA && <Loader2 className="w-3 h-3 animate-spin" />}
-                    {runningEIA ? "Running Evidence Review…" : "Run Evidence Review"}
-                  </button>
+                  {eiaInPath ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" style={{ color: "#2563EB", margin: "0 auto 0.75rem" }} />
+                      <p style={{ fontSize: "0.8rem", color: "#64748B", marginBottom: "0.25rem" }}>Evidence review in progress.</p>
+                      <p style={{ fontSize: "0.72rem", color: "#475569" }}>Results will appear here once the pipeline completes.</p>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle style={{ width: 18, height: 18, color: "#4ADE80", margin: "0 auto 0.75rem" }} />
+                      <p style={{ fontSize: "0.8rem", color: "#64748B", marginBottom: "0.25rem" }}>Evidence review not required for this case.</p>
+                      <p style={{ fontSize: "0.72rem", color: "#475569" }}>Case Coordination determined that a full evidence review was not needed based on the dispute type and submitted documents.</p>
+                    </>
+                  )}
                 </Panel>
-              </div>
-            );
+              );
+            }
 
             const strengthColor = ea.evidence_strength === "HIGH" ? "#4ADE80" : ea.evidence_strength === "MEDIUM" ? "#FCD34D" : "#FCA5A5";
             const strengthBg    = ea.evidence_strength === "HIGH" ? "#F0FDF4" : ea.evidence_strength === "MEDIUM" ? "#FFFBEB" : "#FEF2F2";
@@ -1317,18 +1303,6 @@ export default function CaseWorkspace() {
                   </Panel>
                 )}
 
-
-                {/* Re-run button */}
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                  <button
-                    onClick={handleRunEvidenceReview}
-                    disabled={runningEIA}
-                    style={{ fontSize: "0.7rem", fontWeight: 600, padding: "0.4rem 1rem", backgroundColor: runningEIA ? "#334155" : "#1E293B", color: "#94A3B8", border: "1px solid #334155", borderRadius: 4, cursor: runningEIA ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
-                  >
-                    {runningEIA && <Loader2 className="w-3 h-3 animate-spin" />}
-                    {runningEIA ? "Running Evidence Review…" : "Re-run Evidence Review"}
-                  </button>
-                </div>
 
               </div>
             );

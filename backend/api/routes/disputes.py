@@ -344,9 +344,10 @@ def _reanalyse_after_upload(case_id: str) -> None:
     # ── Phase 3: run agents (slow LLM calls, no DB held) ─────────────────────
     from workflows.dispute_workflow import (
         _save_agent1_to_db, _save_agent2_to_db, _save_agent3_to_db,
-        _save_fraud_reasoning_to_db,
+        _save_fraud_reasoning_to_db, _save_evidence_to_db,
     )
     from agents.fraud_reasoning_agent import run_fraud_reasoning_agent
+    from agents.evidence_agent import run_evidence_agent
     from agents.orchestration_agent import run_orchestration_agent
 
     try:
@@ -367,19 +368,26 @@ def _reanalyse_after_upload(case_id: str) -> None:
     except Exception:
         pass
 
-    # Agent 3 reads Agent 1 + Agent 2 results from DB
+    # Agent 3 (WOA) decides which specialist agents run — it is the single source of truth
     try:
         wf_plan = run_orchestration_agent(case_id)
         if wf_plan:
             _save_agent3_to_db(case_id, wf_plan)
-            # WOA is the single source of truth — only run FRIA if WOA included it
-            if "FRAUD_AGENT" in (wf_plan.get("workflow_path") or []):
+            workflow_path = wf_plan.get("workflow_path") or []
+            if "FRAUD_AGENT" in workflow_path:
                 try:
                     fraud_result = run_fraud_reasoning_agent({}, case_id=case_id)
                     if fraud_result:
                         _save_fraud_reasoning_to_db(case_id, fraud_result, wf_plan)
                 except Exception as exc:
                     api_logger.error(f"_reanalyse_after_upload fraud_reasoning failed {case_id}: {exc}", exc_info=True)
+            if "EVIDENCE_AGENT" in workflow_path:
+                try:
+                    evidence_result = run_evidence_agent(case_id)
+                    if evidence_result:
+                        _save_evidence_to_db(case_id, evidence_result, wf_plan)
+                except Exception as exc:
+                    api_logger.error(f"_reanalyse_after_upload evidence_agent failed {case_id}: {exc}", exc_info=True)
     except Exception:
         pass
 
