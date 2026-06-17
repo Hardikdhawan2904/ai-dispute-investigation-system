@@ -1376,7 +1376,23 @@ export default function CaseWorkspace() {
 
             const nextReview    = wfPlan.next_agent ? (reviewLabels[wfPlan.next_agent] ?? { label: wfPlan.next_agent, color: "#94A3B8", action: "Review this case" }) : null;
             const nextAction    = nextReview?.action ?? "No further reviews required — case is ready for resolution.";
-            const requiredReviews = (wfPlan.required_agents ?? []).map(a => reviewLabels[a] ?? { label: a, color: "#94A3B8", action: "" });
+            const requiredReviews = (wfPlan.required_agents ?? []).map((a: string) => reviewLabels[a] ?? { label: a, color: "#94A3B8", action: "" });
+
+            // Reconstruct workflow_path when null — build from completed + next + remaining
+            // Also inject FRAUD_AGENT into completed when fraud data exists but path is missing
+            const _completedAgents: string[] = wfPlan.completed_agents ?? [];
+            const _remainingAgents: string[] = wfPlan.remaining_agents ?? [];
+            const _nextAgent: string | null   = wfPlan.next_agent ?? null;
+            const _hasFraudData = caseData.fraud_probability != null || caseData.fraud_suspicion;
+            const _effectiveCompleted = _hasFraudData && !_completedAgents.includes("FRAUD_AGENT")
+              ? ["FRAUD_AGENT", ..._completedAgents]
+              : _completedAgents;
+            const effectiveWorkflowPath: string[] = wfPlan.workflow_path
+              ?? [
+                  ..._effectiveCompleted,
+                  ...(_nextAgent && !_effectiveCompleted.includes(_nextAgent) ? [_nextAgent] : []),
+                  ..._remainingAgents.filter((a: string) => a !== _nextAgent && !_effectiveCompleted.includes(a)),
+                ];
 
             // Translate technical reasoning into analyst-friendly language
             const sanitiseReason = (r: string): string => {
@@ -1496,17 +1512,17 @@ export default function CaseWorkspace() {
                   {/* Case Progression */}
                   <Panel>
                     <SectionTitle>Case Progression</SectionTitle>
-                    {(wfPlan.workflow_path ?? []).length === 0 ? (
+                    {effectiveWorkflowPath.length === 0 ? (
                       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                         <CheckCircle style={{ width: 14, height: 14, color: "#4ADE80", flexShrink: 0 }} />
                         <span style={{ fontSize: "0.72rem", color: "#4ADE80" }}>No specialist reviews required for this case.</span>
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
-                        {wfPlan.workflow_path.map((agent, idx) => {
+                        {effectiveWorkflowPath.map((agent: string, idx: number) => {
                           const info   = reviewLabels[agent] ?? { label: agent, color: "#94A3B8", action: "" };
-                          const isDone = wfPlan.completed_agents?.includes(agent);
-                          const isNow  = agent === wfPlan.next_agent;
+                          const isDone = _effectiveCompleted.includes(agent);
+                          const isNow  = agent === _nextAgent;
                           return (
                             <div key={agent} style={{ display: "flex", alignItems: "center", gap: "0.625rem", padding: "0.4rem 0.625rem", backgroundColor: isNow ? "#1E3A5F" : isDone ? "#0D2414" : "#0F172A", borderRadius: 3, border: `1px solid ${isNow ? "#2563EB" : isDone ? "#166534" : "#1E293B"}` }}>
                               <span style={{ fontSize: "0.6rem", fontWeight: 700, color: "#475569", width: 14, textAlign: "center", flexShrink: 0 }}>{idx + 1}</span>
