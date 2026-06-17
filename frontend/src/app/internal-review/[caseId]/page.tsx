@@ -996,10 +996,18 @@ export default function CaseWorkspace() {
               );
             }
 
-            const strengthColor = ea.evidence_strength === "HIGH" ? "#4ADE80" : ea.evidence_strength === "MEDIUM" ? "#FCD34D" : "#FCA5A5";
-            const strengthBg    = ea.evidence_strength === "HIGH" ? "#F0FDF4" : ea.evidence_strength === "MEDIUM" ? "#FFFBEB" : "#FEF2F2";
-            const strengthBorder = ea.evidence_strength === "HIGH" ? "#BBF7D0" : ea.evidence_strength === "MEDIUM" ? "#FDE68A" : "#FECACA";
-            const strengthTextColor = ea.evidence_strength === "HIGH" ? "#166534" : ea.evidence_strength === "MEDIUM" ? "#92400E" : "#991B1B";
+            // Cap strength at MEDIUM when customer docs are still missing (matches backend logic)
+            const customerMissingForStrength = (ea.missing_documents ?? []).filter(
+              (d: string) => !BANK_OBTAINABLE.has(d)
+            ).length;
+            const effectiveStrength = (ea.evidence_strength === "HIGH" && customerMissingForStrength > 0)
+              ? "MEDIUM"
+              : ea.evidence_strength;
+
+            const strengthColor = effectiveStrength === "HIGH" ? "#4ADE80" : effectiveStrength === "MEDIUM" ? "#FCD34D" : "#FCA5A5";
+            const strengthBg    = effectiveStrength === "HIGH" ? "#F0FDF4" : effectiveStrength === "MEDIUM" ? "#FFFBEB" : "#FEF2F2";
+            const strengthBorder = effectiveStrength === "HIGH" ? "#BBF7D0" : effectiveStrength === "MEDIUM" ? "#FDE68A" : "#FECACA";
+            const strengthTextColor = effectiveStrength === "HIGH" ? "#166534" : effectiveStrength === "MEDIUM" ? "#92400E" : "#991B1B";
             const completenessColor = (ea.evidence_completeness ?? 0) >= 80 ? "#15803D" : (ea.evidence_completeness ?? 0) >= 50 ? "#B45309" : "#B91C1C";
 
             return (
@@ -1088,7 +1096,7 @@ export default function CaseWorkspace() {
                   <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                        <span style={{ fontSize: "0.7rem", color: strengthTextColor, fontWeight: 600 }}>{ea.evidence_strength}</span>
+                        <span style={{ fontSize: "0.7rem", color: strengthTextColor, fontWeight: 600 }}>{effectiveStrength}</span>
                         <span style={{ fontSize: "0.7rem", color: strengthTextColor, fontFamily: "ui-monospace, monospace", fontWeight: 700 }}>
                           {Math.round((ea.evidence_strength_score ?? 0) * 100)}%
                         </span>
