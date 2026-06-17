@@ -1004,12 +1004,7 @@ export default function CaseWorkspace() {
               ? "MEDIUM"
               : ea.evidence_strength;
 
-            // Compute effective score: penalise 0.08 per missing customer doc so the
-            // number stays consistent with the downgraded label (no artificial truncation).
-            const rawScore = ea.evidence_strength_score ?? 0;
-            const effectiveScore = customerMissingForStrength > 0
-              ? Math.max(0, rawScore - customerMissingForStrength * 0.08)
-              : rawScore;
+            const effectiveScore = ea.evidence_strength_score ?? 0;
 
             const strengthColor = effectiveStrength === "HIGH" ? "#4ADE80" : effectiveStrength === "MEDIUM" ? "#FCD34D" : "#FCA5A5";
             const strengthBg    = effectiveStrength === "HIGH" ? "#F0FDF4" : effectiveStrength === "MEDIUM" ? "#FFFBEB" : "#FEF2F2";

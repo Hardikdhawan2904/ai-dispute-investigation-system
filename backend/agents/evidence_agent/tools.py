@@ -356,57 +356,64 @@ def assess_evidence_strength(case_id: str) -> str:
             doc_lower = doc.lower()
             return any(doc_lower in ft or ft in doc_lower for ft in fulfilled_types)
 
-        # Score signals (each contributes to strength)
-        score    = 0.5  # baseline
+        # ── Redesigned scoring formula ────────────────────────────────────────
+        # Score = verdict_base + completeness_adj + data_quality_adj
+        #
+        # verdict_base   — what the evidence says about the claim (0.05–0.65)
+        # completeness   — how many required docs are present    (±0.25)
+        # data_quality   — Agent 2 data reliability signal       (±0.075)
+        #
+        # Completeness and verdict have equal max impact so missing docs
+        # can never be hidden by a strong verdict alone.
         factors  = []
         ev_match = c["evidence_match"]
 
-        # Signal 1 — Agent 1 evidence verdict (highest weight)
+        # Signal 1 — verdict base (anchors the score range)
+        _VERDICT_BASE = {
+            True:  0.65,   # MATCH         → 0.40–0.90 depending on completeness
+            False: 0.05,   # MISMATCH      → always LOW regardless of docs
+            None:  0.30,   # CANNOT_VERIFY / NO_DOCUMENTS → 0.05–0.55
+        }
+        verdict_base = _VERDICT_BASE.get(ev_match, 0.30)
+        score = verdict_base
         if ev_match is True:
-            score += 0.25
-            factors.append("Agent 1 evidence verdict: documents SUPPORT the claim (+0.25)")
+            factors.append(f"Evidence verdict MATCH — documents support the claim (base {verdict_base:.2f})")
         elif ev_match is False:
-            score -= 0.20
-            factors.append("Agent 1 evidence verdict: documents DO NOT support the claim (-0.20)")
+            factors.append(f"Evidence verdict MISMATCH — documents contradict the claim (base {verdict_base:.2f})")
         else:
-            factors.append("Agent 1 evidence verdict: not assessed (no documents submitted)")
+            factors.append(f"Evidence verdict unassessed — no documents or OCR unavailable (base {verdict_base:.2f})")
 
-        # Signal 2 — document completeness (customer docs only — bank docs excluded)
+        # Signal 2 — document completeness ±0.25 (equal weight to verdict)
         if customer_docs:
-            req_without   = [d for d in customer_docs if not _is_fulfilled_by_request(d)]
+            req_without    = [d for d in customer_docs if not _is_fulfilled_by_request(d)]
             upload_credits = min(upload_count, len(req_without)) if ev_match is True else 0
             fulfilled_cnt  = (len(customer_docs) - len(req_without)) + upload_credits
             missing_count  = len(customer_docs) - fulfilled_cnt
             completeness   = fulfilled_cnt / len(customer_docs)
-            completeness_adj = (completeness - 0.5) * 0.20  # ±0.10 max
+            # (completeness - 0.5) * 0.50 → range: -0.25 (0% docs) to +0.25 (100% docs)
+            completeness_adj = (completeness - 0.5) * 0.50
             score += completeness_adj
-            suffix = f" ({len(bank_docs)} bank-obtainable docs excluded)"
+            suffix = f"({len(bank_docs)} bank-obtainable excluded)"
             if missing_count == 0:
-                factors.append(f"All {len(customer_docs)} customer documents present (+{completeness_adj:+.2f}){suffix}")
+                factors.append(f"All {len(customer_docs)} customer docs present {suffix} ({completeness_adj:+.2f})")
             elif upload_credits > 0:
                 factors.append(
-                    f"{fulfilled_cnt}/{len(customer_docs)} customer documents present "
-                    f"({upload_credits} via uploads, {missing_count} still missing) ({completeness_adj:+.2f})"
+                    f"{fulfilled_cnt}/{len(customer_docs)} customer docs present "
+                    f"({upload_credits} via upload, {missing_count} still missing) ({completeness_adj:+.2f})"
                 )
             else:
-                factors.append(f"{missing_count}/{len(customer_docs)} customer documents missing ({completeness_adj:+.2f})")
+                factors.append(
+                    f"{missing_count}/{len(customer_docs)} customer docs missing {suffix} ({completeness_adj:+.2f})"
+                )
         else:
-            factors.append("No customer-obtainable document requirements — evidence completeness not scored")
+            factors.append("No customer-side doc requirements — completeness not scored")
 
-        # Signal 3 — uploaded files (when no formal requests exist)
-        effective_fulfilled = len(fulfilled) + (upload_count if len(fulfilled) == 0 else 0)
-        if effective_fulfilled >= 2:
-            score += 0.05
-            factors.append(f"{effective_fulfilled} evidence file(s) present (+0.05)")
-        elif effective_fulfilled == 1:
-            score += 0.02
-            factors.append(f"1 evidence file present (+0.02)")
-
-        # Signal 4 — Agent 2 data quality
+        # Signal 3 — Agent 2 data quality fine-tune (±0.075 max)
         if isinstance(dq_score, (int, float)):
-            dq_adj = (float(dq_score) - 0.75) * 0.10
+            dq_adj = (float(dq_score) - 0.75) * 0.30
+            dq_adj = max(-0.075, min(0.075, dq_adj))
             score += dq_adj
-            factors.append(f"Agent 2 data quality score: {dq_score:.2f} (adjustment: {dq_adj:+.2f})")
+            factors.append(f"Agent 2 data quality {dq_score:.2f} ({dq_adj:+.3f})")
 
         score = max(0.0, min(1.0, score))
 
