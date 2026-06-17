@@ -1068,9 +1068,17 @@ export default function CaseWorkspace() {
                   </Panel>
                   <Panel>
                     <Label>Human Review</Label>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color: ea.manual_evidence_review ? "#FCA5A5" : "#4ADE80" }}>
-                      {ea.manual_evidence_review ? "Required" : "Not Required"}
-                    </div>
+                    {(() => {
+                      const customerMissingCount = (ea.missing_documents ?? []).filter(
+                        (d: string) => !BANK_OBTAINABLE.has(d)
+                      ).length;
+                      const needsReview = ea.manual_evidence_review || customerMissingCount > 0;
+                      return (
+                        <div style={{ fontSize: "0.85rem", fontWeight: 700, color: needsReview ? "#FCA5A5" : "#4ADE80" }}>
+                          {needsReview ? "Required" : "Not Required"}
+                        </div>
+                      );
+                    })()}
                   </Panel>
                 </div>
 
@@ -1094,10 +1102,9 @@ export default function CaseWorkspace() {
                     const customerMissingCount = (ea.missing_documents ?? []).filter(
                       (d: string) => !BANK_OBTAINABLE.has(d)
                     ).length;
-                    const rec =
-                      ea.evidence_strength === "LOW" && customerMissingCount > 0
-                        ? "Additional documentation required before investigation can proceed."
-                        : ea.review_recommendation;
+                    const rec = customerMissingCount > 0
+                      ? "Additional documentation required before investigation can proceed."
+                      : ea.review_recommendation;
                     return rec ? (
                       <p style={{ fontSize: "0.75rem", color: strengthTextColor, marginTop: "0.75rem", fontWeight: 500, lineHeight: 1.5 }}>
                         {rec}

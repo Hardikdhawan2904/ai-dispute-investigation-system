@@ -339,6 +339,16 @@ def finalize_node(state: EvidenceAgentState) -> dict:
     # completeness, strength, or investigation_blocked.
     parsed["bank_pending_documents"] = bank_docs
 
+    # Cap strength at MEDIUM when customer docs are still outstanding —
+    # HIGH strength with missing docs is contradictory from an analyst perspective.
+    _customer_docs_missing = [
+        d for d in missing_docs
+        if d not in (parsed.get("bank_pending_documents") or [])
+    ]
+    if _customer_docs_missing and strength == "HIGH":
+        strength = "MEDIUM"
+        parsed["evidence_strength"] = "MEDIUM"
+
     parsed["investigation_blocked"] = (
         (ev_match is False and len(missing_docs) > 0)
         or (strength == "LOW" and len(missing_docs) > 0 and upload_count == 0)
@@ -346,16 +356,14 @@ def finalize_node(state: EvidenceAgentState) -> dict:
     )
 
     parsed["manual_evidence_review"] = (
-        parsed["investigation_blocked"] or strength == "LOW"
+        parsed["investigation_blocked"]
+        or strength == "LOW"
+        or len(_customer_docs_missing) > 0
     )
 
-    _customer_docs_missing = [
-        d for d in missing_docs
-        if d not in (parsed.get("bank_pending_documents") or [])
-    ]
     parsed["review_recommendation"] = (
         "Additional documentation required before investigation can proceed."
-        if (parsed["investigation_blocked"] or (strength == "LOW" and len(_customer_docs_missing) > 0))
+        if (parsed["investigation_blocked"] or len(_customer_docs_missing) > 0)
         else "Evidence is sufficient to continue the investigation."
     )
 
