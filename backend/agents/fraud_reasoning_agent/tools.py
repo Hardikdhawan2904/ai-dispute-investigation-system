@@ -89,6 +89,67 @@ def detect_transaction_anomalies(customer_id: str, transaction_time: str, transa
         db.close()
 
 
+# ── Location normalization helpers ────────────────────────────────────────────
+
+# Indian state names and abbreviations — stripped when extracting the city token.
+_STATE_TOKENS = {
+    "maharashtra", "mh", "delhi", "dl", "ncr", "karnataka", "ka",
+    "tamil nadu", "tn", "gujarat", "gj", "uttar pradesh", "up",
+    "rajasthan", "rj", "west bengal", "wb", "andhra pradesh", "ap",
+    "telangana", "ts", "kerala", "kl", "punjab", "pb", "haryana", "hr",
+    "madhya pradesh", "mp", "odisha", "od", "or", "bihar", "br",
+    "jharkhand", "jh", "assam", "as", "himachal pradesh", "hp",
+    "uttarakhand", "uk", "goa", "ga", "chandigarh", "ch",
+    "jammu", "kashmir", "jk", "chhattisgarh", "cg", "india",
+}
+
+_UNKNOWN_TOKENS = {"unknown", "n/a", "na", "none", "null", "", "-"}
+
+
+def _extract_city(location: str) -> str:
+    """
+    Return the canonical city token from a free-text location string.
+
+    Examples
+    --------
+    "Mumbai"              → "mumbai"
+    "Mumbai, MH"          → "mumbai"
+    "Andheri, Mumbai"     → "mumbai"
+    "Andheri, Mumbai, MH" → "mumbai"
+    "New Delhi, DL"       → "new delhi"
+    """
+    if not location:
+        return ""
+    parts = [p.strip().lower() for p in location.split(",")]
+    parts = [p for p in parts if p and p not in _UNKNOWN_TOKENS]
+    if not parts:
+        return ""
+    # Strip trailing state/country tokens until only the city remains
+    while len(parts) > 1 and parts[-1] in _STATE_TOKENS:
+        parts.pop()
+    return parts[-1]
+
+
+def _is_location_known(location: str) -> bool:
+    """Return False when location is missing, blank, or a placeholder."""
+    if not location or not location.strip():
+        return False
+    return location.strip().lower() not in _UNKNOWN_TOKENS
+
+
+def _same_city(loc_a: str, loc_b: str) -> bool:
+    """
+    Return True when two location strings resolve to the same city.
+    Uses substring containment to handle "Greater Mumbai" ↔ "Mumbai",
+    "New Delhi" ↔ "Delhi", etc.
+    """
+    city_a = _extract_city(loc_a)
+    city_b = _extract_city(loc_b)
+    if not city_a or not city_b:
+        return False
+    return city_a == city_b or city_a in city_b or city_b in city_a
+
+
 # ── Tool 2 — Location Velocity (Geovelocity) ──────────────────────────────────
 
 @tool
@@ -102,12 +163,13 @@ def evaluate_location_velocity(customer_id: str, location: str, transaction_date
 
     db = SessionLocal()
     try:
-        if not location:
+        if not _is_location_known(location):
             return (
                 "GEOGRAPHIC VELOCITY REPORT\n"
                 f"  Customer ID      : {customer_id}\n"
                 "  Geovelocity Risk : LOW\n"
-                "  Assessment       : No transaction location metadata available."
+                "  Geovelocity Breach: No\n"
+                "  Assessment       : Insufficient location data — geovelocity check skipped."
             )
 
         # Parse current transaction time
@@ -154,7 +216,7 @@ def evaluate_location_velocity(customer_id: str, location: str, transaction_date
             t_dt = t.transaction_date.replace(tzinfo=timezone.utc) if t.transaction_date.tzinfo is None else t.transaction_date
             # Check if within 4 hours
             diff = abs((curr_dt - t_dt).total_seconds()) / 3600.0
-            if diff < 4.0 and t.location and t.location.strip().lower() != location.strip().lower():
+            if diff < 4.0 and _is_location_known(t.location) and not _same_city(location, t.location):
                 geovelocity_breach = True
                 conflict_txn = t
                 time_diff_hours = round(diff, 2)
