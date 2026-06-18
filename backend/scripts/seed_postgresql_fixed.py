@@ -23,8 +23,11 @@ try:
 
     # 1. Seed bank_customers (using CUST-00001 format with 5 digits)
     print("Seeding 1000 Customers...")
+    customer_joining_dates = {}
     for i in range(1, 1001):
         customer_id = f"CUST-{i:05}"
+        joining_date = fake.date_between(start_date="-5y", end_date="today")
+        customer_joining_dates[customer_id] = joining_date
         cur.execute(
             """
             INSERT INTO bank_customers (customer_id, full_name, email, phone, joining_date)
@@ -35,7 +38,7 @@ try:
                 fake.name(),
                 fake.email(),
                 str(fake.random_number(digits=10)).zfill(10),
-                fake.date_between(start_date="-5y", end_date="today")
+                joining_date
             )
         )
     conn.commit()
@@ -55,9 +58,11 @@ try:
         ("BigBasket", "Groceries"),
         ("Reliance Digital", "Electronics")
     ]
+    merchant_id_to_name = {}
     for i in range(1, 101):
         merchant_id = f"MER-{i:04}"
         merchant_name, category = random.choice(merchants_templates)
+        merchant_id_to_name[merchant_id] = merchant_name
         cur.execute(
             """
             INSERT INTO merchant_profiles (
@@ -89,13 +94,29 @@ try:
     statuses = ["Success", "Failed", "Pending", "Reversed"]
     cities = ["Delhi", "Mumbai", "Bangalore", "Hyderabad", "Pune", "Chennai", "Kolkata"]
 
+    seeded_txns = []
+
     for i in range(1, 10001):
         transaction_id = f"TXN-{i:08}"
         customer_id = f"CUST-{random.randint(1, 1000):05}"
         merchant_num = random.randint(1, 100)
         merchant_id = f"MER-{merchant_num:04}"
         amount = round(random.uniform(100, 50000), 2)
-        transaction_date = datetime.now() - timedelta(days=random.randint(0, 365))
+        
+        # Ensure transaction date is after the customer's joining date
+        joining_date = customer_joining_dates[customer_id]
+        joining_datetime = datetime.combine(joining_date, datetime.min.time())
+        delta_days = (datetime.now() - joining_datetime).days
+        if delta_days > 0:
+            transaction_date = joining_datetime + timedelta(
+                days=random.randint(0, delta_days),
+                hours=random.randint(0, 23),
+                minutes=random.randint(0, 59)
+            )
+        else:
+            transaction_date = datetime.now()
+
+        merchant_name = merchant_id_to_name[merchant_id]
 
         cur.execute(
             """
@@ -110,7 +131,7 @@ try:
                 transaction_id,
                 customer_id,
                 merchant_id,
-                f"Merchant_{merchant_num}",
+                merchant_name,
                 amount,
                 "INR",
                 random.choice(transaction_types),
@@ -121,6 +142,15 @@ try:
                 False
             )
         )
+        
+        seeded_txns.append({
+            "transaction_id": transaction_id,
+            "customer_id": customer_id,
+            "merchant_id": merchant_id,
+            "amount": amount,
+            "transaction_date": transaction_date
+        })
+
         if i % 2000 == 0:
             conn.commit()
             print(f"{i} transactions inserted...")
@@ -136,13 +166,25 @@ try:
     ]
     resolutions = ["customer", "merchant", "partial"]
 
+    disputed_txns = random.sample(seeded_txns, 600)
+
     for i in range(1, 601):
         case_id = f"CASE-{i:06}"
-        customer_id = f"CUST-{random.randint(1, 1000):05}"
-        merchant_id = f"MER-{random.randint(1, 100):04}"
-        transaction_id = f"TXN-{random.randint(1, 10000):08}"
-        amount = round(random.uniform(100, 50000), 2)
-        created_at = datetime.now() - timedelta(days=random.randint(30, 365))
+        txn = disputed_txns[i - 1]
+        
+        customer_id = txn["customer_id"]
+        merchant_id = txn["merchant_id"]
+        transaction_id = txn["transaction_id"]
+        amount = txn["amount"]
+        txn_date = txn["transaction_date"]
+        
+        delta_created = (datetime.now() - txn_date).total_seconds()
+        max_days = min(5, int(delta_created / 86400))
+        if max_days > 0:
+            created_at = txn_date + timedelta(days=random.randint(0, max_days), hours=random.randint(0, 23))
+        else:
+            created_at = txn_date + timedelta(minutes=random.randint(5, 60))
+            
         resolution_days = random.randint(1, 15)
         resolved_at = created_at + timedelta(days=resolution_days)
 
@@ -170,6 +212,15 @@ try:
                 created_at,
                 resolved_at
             )
+        )
+        
+        cur.execute(
+            """
+            UPDATE transactions
+            SET is_disputed = TRUE
+            WHERE transaction_id = %s
+            """,
+            (transaction_id,)
         )
     conn.commit()
     print("600 Dispute History records Seeded Successfully.")

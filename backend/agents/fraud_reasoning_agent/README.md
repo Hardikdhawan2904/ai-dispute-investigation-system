@@ -1,4 +1,4 @@
-# Fraud Reasoning Agent (FRIA) — Agent 3
+# Fraud Reasoning Agent (FRIA) — Agent 4
 
 **Role**: Fraud analytics, anomaly detection, identity verification, and trust score calibration  
 **Model**: Groq `llama-3.1-8b-instant` (via ChatGroq)  
@@ -9,7 +9,7 @@
 
 ## 🎯 Purpose
 
-FRIA is the behavioral security audit engine of the system. It runs dynamically after the Orchestration Agent (Agent 5) when scheduled in the workflow execution plan to analyze transactions and customer history to determine fraud probability and verify user trust. The agent calls **6 database-backed tools** to check:
+FRIA is the behavioral security audit engine of the system. It runs dynamically after the Orchestration Agent (Agent 3) when scheduled in the workflow execution plan to analyze transactions and customer history to determine fraud probability and verify user trust. The agent calls **6 database-backed tools** to check:
 - **Transaction Timing Anomalies**: Late-night transactions (11 PM - 5 AM I4C fraud window).
 - **Geographic Velocity Anomalies**: Physical impossibility of travel between consecutive transactions.
 - **Spending Behavior Outliers**: Z-score statistical deviations in purchase amounts.
@@ -183,8 +183,12 @@ The final output is a structured JSON brief mapping the following schema:
 
 ## ── Invocation ──
 
-* **Function**: `run_fraud_reasoning_agent(dispute_input: dict, case_id: str) -> dict`
+* **Function**: `run_fraud_reasoning_agent(dispute_input: dict, case_id: Optional[str] = None) -> dict`
 * **Module**: [__init__.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/fraud_reasoning_agent/__init__.py)
+* **Behavior**:
+  - If `case_id` is provided (or extracted from `dispute_input`), it reads the case data fresh from the `dispute_cases` database table (save-first architecture).
+  - Falls back to `dispute_input` if the database read fails or `case_id` is not specified.
 * **Callers**:
   - `workflows/dispute_workflow.py` → `fraud_reasoning_node`
   - `api/routes/ops_cases.py` → manual re-analysis trigger endpoint
+

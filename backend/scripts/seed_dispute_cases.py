@@ -4,6 +4,8 @@ import psycopg2
 import json
 import random
 from datetime import datetime, timedelta
+import shutil
+from pathlib import Path
 
 load_dotenv()
 
@@ -59,6 +61,10 @@ try:
     ]
 
     print("Seeding 10 Dispute Cases...")
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    SAMPLES_DIR = BASE_DIR.parent / "samples"
+    UPLOADS_DIR = BASE_DIR / "uploads"
+
     for idx, row in enumerate(pairs):
         cust_id, cust_name, email, phone, join_date, txn_id, txn_type, merchant, amount, location, device_id = row
         
@@ -66,6 +72,29 @@ try:
         dispute_cat = random.choice(categories)
         fraud = "Fraud" in dispute_cat or "Unauthorized" in dispute_cat or idx % 3 == 0
         comment = comments[idx % len(comments)]
+
+        # Copy sample files to uploads folder
+        case_upload_dir = UPLOADS_DIR / case_id
+        if case_upload_dir.exists():
+            shutil.rmtree(case_upload_dir)
+        case_upload_dir.mkdir(parents=True, exist_ok=True)
+
+        if dispute_cat == "Unauthorized Transaction":
+            shutil.copy(SAMPLES_DIR / "sample_bank_sms.png", case_upload_dir / "sample_bank_sms.png")
+            shutil.copy(SAMPLES_DIR / "upi_collect_fraud.pdf", case_upload_dir / "upi_collect_fraud.pdf")
+        elif dispute_cat == "Duplicate Transaction":
+            shutil.copy(SAMPLES_DIR / "duplicate_charge.jpg", case_upload_dir / "duplicate_charge.jpg")
+            shutil.copy(SAMPLES_DIR / "bank_statement_CASE000527.png", case_upload_dir / "bank_statement_CASE000527.png")
+        elif dispute_cat in ["Refund Not Received", "Product Not Received"]:
+            shutil.copy(SAMPLES_DIR / "refund_not_received.png", case_upload_dir / "refund_not_received.png")
+            shutil.copy(SAMPLES_DIR / "transaction_receipt_CASE000527.png", case_upload_dir / "transaction_receipt_CASE000527.png")
+        elif dispute_cat == "Subscription Abuse":
+            shutil.copy(SAMPLES_DIR / "subscription_cancelled.png", case_upload_dir / "subscription_cancelled.png")
+            shutil.copy(SAMPLES_DIR / "bank_statement_CASE000527.png", case_upload_dir / "bank_statement_CASE000527.png")
+        elif dispute_cat == "ATM Cash Issue":
+            shutil.copy(SAMPLES_DIR / "bank_statement_CASE000527.png", case_upload_dir / "bank_statement_CASE000527.png")
+        else:
+            shutil.copy(SAMPLES_DIR / "transaction_receipt_CASE000527.png", case_upload_dir / "transaction_receipt_CASE000527.png")
         
         # Define varying trust scenarios
         if idx % 3 == 0:  # High threat/suspicious
@@ -299,6 +328,16 @@ try:
                 f"Identity trust scoring completed: Identity={id_verif}, Trust={trust_score}",
                 created_at_dt + timedelta(seconds=2)
             )
+        )
+
+        # Mark the transaction as disputed in transactions table
+        cur.execute(
+            """
+            UPDATE transactions
+            SET is_disputed = TRUE
+            WHERE transaction_id = %s;
+            """,
+            (txn_id,)
         )
 
     conn.commit()

@@ -307,219 +307,17 @@ RECEIVES Agent 1 OUTPUT
 
 ---
 
-# Agent 3: FRA
-## Fraud Reasoning Agent (FRA)
-
-**Role**: Fraud pattern analysis & anomaly detection  
-**Model**: Groq (llama-3.1-8b-instant)  
-**Flow Type**: Linear (3 tools pre-executed in build_context node)
-
-### Workflow
-
-```
-RECEIVES Agent 1, Agent 2 OUTPUT
-         │
-         ▼
-[VALIDATE NODE]
-  • Input sanity checks
-         │
-         ▼
-[BUILD_CONTEXT NODE]
-  PRE-EXECUTE 3 TOOLS:
-  
-  Tool 1: detect_transaction_anomalies()
-    → Off-hours flag, 24h velocity count
-    → Returns: NORMAL or SUSPICIOUS status
-  
-  Tool 2: evaluate_location_velocity()
-    → Query previous 7-day transactions
-    → Check for impossible geovelocity (different locations <4h apart)
-    → Returns: BREACH or OK
-  
-  Tool 3: analyze_spending_behavior()
-    → Historical average spend calculation
-    → Z-score computation
-    → Returns: NORMAL or ANOMALOUS + amount ratio
-         │
-         ▼
-[AGENT NODE - LLM]
-  • Receives pre-computed tool results
-  • Synthesizes fraud probability
-  • Produces fraud_reasoning_brief
-         │
-         ▼
-[FINALIZE NODE]
-  • Parse fraud_probability (0-1 scale)
-  • Map to fraud_risk_level
-  • Store fraud_reasoning_brief
-```
-
-### Parameters Checked
-
-| Parameter | Check | Fraud Signal |
-|-----------|-------|--------------|
-| **transaction_time** | Off-hours (11PM-5AM)? | +10% fraud prob if yes |
-| **24h_velocity** | 3+ transactions? | +15% if velocity breach |
-| **location** | Impossible geovelocity? | +25% if breach detected |
-| **amount** | Z-score analysis | +25% if ≥3σ, +15% if 3x avg, +8% if 2x avg |
-| **fraud_suspicion** | From Agent 1 | Base contribution to final score |
-| **customer_history** | From Agent 2 | Contextual adjustment (-15% if history) |
-
-### Output
-
-```json
-{
-  "fraud_probability": 0.58,
-  "fraud_risk_level": "MEDIUM",
-  "fraud_reasoning_brief": {
-    "transaction_anomalies": {
-      "off_hours": false,
-      "velocity_breach": false
-    },
-    "geovelocity_analysis": {
-      "breach_detected": false
-    },
-    "spending_behavior": {
-      "z_score": 1.85,
-      "deviation_level": "MODERATE",
-      "amount_ratio": 2.28
-    }
-  },
-  "anomaly_flags": ["SPENDING_DEVIATION_2X_AVERAGE"],
-  "recommended_fraud_actions": [
-    "Verify UPI authorization logs",
-    "Check OTP delivery records",
-    "Review device login history"
-  ]
-}
-```
-
-### Fraud Probability Calculation
-
-```
-STARTING FROM AGENT 1 & 2:
-  Base score = fraud_suspicion_level from Agent 1
-
-ADD ANOMALY SIGNALS:
-  + Off-hours (11PM-5AM):        +10%
-  + Velocity breach (3+/24h):    +15%
-  + Geovelocity breach:          +25%
-  + Z-score >= 3.0:              +25%
-  + Amount > 3x average:         +15%
-  + Amount > 2x average:         +8%
-
-CONTEXTUAL ADJUSTMENTS:
-  - Customer has fraud history:  -15% (contextual)
-  + Clean history:               +5%
-
-FINAL = MIN(SUM(all factors), 0.95)  # Never 100% certain
-```
-
----
-
-# Agent 4: EIA
-## Evidence Intelligence Agent (EIA)
-
-**Role**: Evidence verification & document requirement tracking  
-**Model**: Groq (llama-3.1-8b-instant)  
-**Execution**: ReAct loop (5 tools available)
-
-### Workflow
-
-```
-RECEIVES Agent 1, 2, 3 OUTPUT
-       │
-       ▼
-[AGENT NODE - ReAct Loop]
-  
-  Tool 1: evaluate_evidence_completeness()
-    → Check required_documents from investigation_plan
-    → Compare against fulfilled document requests
-    → Score: 0-100%
-  
-  Tool 2: identify_missing_evidence()
-    → List missing customer-obtainable documents
-    → Separate bank-obtainable docs
-    → Determine if gaps block investigation
-  
-  Tool 3: validate_evidence_consistency()
-    → Cross-check transaction details in documents
-    → Verify amount, merchant, date, time
-    → Flag inconsistencies
-  
-  Tool 4: assess_document_authenticity()
-    → Check document format, metadata
-    → Flag suspicious modifications
-  
-  Tool 5: determine_evidence_strength()
-    → HIGH: evidence_match + completeness >= 80%
-    → MEDIUM: some gaps
-    → LOW: major gaps or inconsistencies
-       │
-       ▼
-[FINALIZE NODE]
-  • Generate evidence_assessment summary
-  • Update evidence_match_note
-  • Determine if case ready for investigation
-```
-
-### Parameters Checked
-
-| Parameter | Check | Output |
-|-----------|-------|--------|
-| **required_documents[]** | From investigation_plan | Customer docs vs bank docs |
-| **fulfilled_requests** | Document request table | Count, types, dates |
-| **uploaded_files** | Files on disk in uploads/ | Count, formats, sizes |
-| **evidence_match** | From Agent 1 | true/false/null |
-| **investigation_documents[]** | Against uploads/ | Match accuracy % |
-| **document_consistency** | Amount, merchant, date | Consistency score |
-| **document_authenticity** | Format, metadata, signatures | Authenticity flag |
-
-### Output
-
-```json
-{
-  "evidence_assessment": {
-    "completeness_score": 65,
-    "completeness_status": "PARTIAL",
-    "required_documents_count": 3,
-    "fulfilled_documents_count": 2,
-    "missing_documents": [
-      "DEVICE_LOGIN_HISTORY"
-    ],
-    "bank_obtainable_documents": [
-      "UPI_SERVER_LOGS",
-      "OTP_DELIVERY_RECORDS"
-    ]
-  },
-  "evidence_strength": "MEDIUM",
-  "evidence_consistency": true,
-  "document_authenticity_flags": [],
-  "evidence_match_note": "Customer provided 2 of 3 required documents. Bank-obtainable docs tracking separately.",
-  "gaps_block_investigation": false,
-  "recommended_document_requests": [
-    {
-      "type": "DEVICE_LOGIN_HISTORY",
-      "priority": "HIGH",
-      "rationale": "Verify device used for UPI transaction"
-    }
-  ]
-}
-```
-
----
-
-# Agent 5: WOA
-## Orchestration Workflow Agent (WOA)
+# Agent 3: WOA
+## Workflow Orchestration Agent (WOA)
 
 **Role**: Coordinator — routes cases to specialist agents & final disposition  
 **Model**: Groq (llama-3.1-8b-instant)  
-**Execution**: 6 deterministic tools (pre-computed before LLM)
+**Execution**: ReAct loop (6 deterministic tools pre-computed before LLM)
 
 ### Workflow
 
 ```
-RECEIVES AGENT 1, 2, 3, 4 OUTPUTS
+RECEIVES AGENT 1, 2 OUTPUTS
          │
          ▼
 [PRE-EXECUTION NODE]
@@ -538,9 +336,14 @@ RECEIVES AGENT 1, 2, 3, 4 OUTPUTS
     → FRAUD_AGENT first (fraud informs all others)
     → EVIDENCE_AGENT before MERCHANT_AGENT
   
-  Tool 4: [compute_priority]
-    Tool 5: [estimate_sla]
-    Tool 6: [assign_to_queue]
+  Tool 4: assess_escalation_need()
+    → Determine manager escalation required
+  
+  Tool 5: estimate_workload()
+    → Recommends analyst seniority + estimated effort hours
+  
+  Tool 6: determine_next_execution_step()
+    → Track execution completion and remaining steps
          │
          ▼
 [AGENT NODE - LLM]
@@ -585,7 +388,7 @@ EXECUTION ORDER (dependency-aware):
 | **fraud_signals** | High-risk tags present? | Complexity: LOW/MEDIUM/HIGH/CRITICAL |
 | **risk_tags[]** | Compliance triggers? | Agent list: [FRAUD_AGENT, ...] |
 | **investigation_complexity** | From Agent 2 | Affects analyst level (JUNIOR/STANDARD/SENIOR/LEAD) |
-| **evidence_strength** | From Agent 4 | May block MERCHANT_AGENT until complete |
+| **evidence_strength** | From Agent 5 | May block MERCHANT_AGENT until complete |
 | **customer_risk** | From Agent 2 | Affects scrutiny level |
 
 ### Output
@@ -620,6 +423,189 @@ EXECUTION ORDER (dependency-aware):
 
 ---
 
+# Agent 4: FRIA
+## Fraud Reasoning Agent (FRIA)
+
+**Role**: Fraud pattern analysis, behavior profiling, & anomaly detection  
+**Model**: Groq (llama-3.1-8b-instant)  
+**Flow Type**: Linear (6 tools pre-executed in parallel in build_context node)
+
+### Workflow
+
+```
+RECEIVES Agent 1, Agent 2 OUTPUT
+          │
+          ▼
+[VALIDATE NODE]
+  • Input sanity checks
+          │
+          ▼
+[BUILD_CONTEXT NODE]
+  PRE-EXECUTE 6 TOOLS IN PARALLEL:
+  
+  Tool 1: detect_transaction_anomalies()
+    → Off-hours flag, 24h transaction velocity count
+  
+  Tool 2: evaluate_location_velocity()
+    → Geographic geovelocity travel speed checks
+  
+  Tool 3: analyze_spending_behavior()
+    → Z-score statistical spending deviation
+  
+  Tool 4: verify_kyc_match()
+    → Comparison against bank's KYC CIF records
+  
+  Tool 5: evaluate_device_fingerprint()
+    → Login logs recognition and location match
+  
+  Tool 6: analyze_behavioral_patterns()
+    → Historical claims counts and friendly fraud risk
+          │
+          ▼
+[AGENT NODE - LLM]
+  • Receives pre-computed tool results
+  • Synthesizes fraud risk probability and trust levels
+  • Produces detailed Fraud & Trust Assessment brief
+          │
+          ▼
+[FINALIZE NODE]
+  • Parse final JSON matching output schema
+  • Map to fraud_risk_level and user_trust_score
+  • Persist brief back to dispute_cases table
+```
+
+### Parameters Checked
+
+| Parameter/Tool | Check | Fraud/Trust Signal |
+|-----------|-------|--------------|
+| **detect_transaction_anomalies** | Off-hours (11PM-5AM) & 24h count | +10% probability if off-hours, velocity alert if 3+ |
+| **evaluate_location_velocity** | Travel distance speed | +25% probability if impossible travel Speed |
+| **analyze_spending_behavior** | Spend Z-score deviation | +25% if Z >= 3, +15% if >3x average, +8% if >2x average |
+| **verify_kyc_match** | KYC name/email/phone match | Suspicious status if fields mismatch registered KYC |
+| **evaluate_device_fingerprint** | Unrecognized device | High rating if unrecognized device ID + location mismatch |
+| **analyze_behavioral_patterns** | Dispute velocity / favor profile | High friendly fraud risk if 30d claim count >= 2 |
+
+### Output
+
+```json
+{
+  "fraud_probability": 0.58,
+  "fraud_risk_level": "MEDIUM",
+  "anomaly_detection": {
+    "amount_anomaly": true,
+    "time_anomaly": false,
+    "velocity_anomaly": false
+  },
+  "user_trust_score": 0.45,
+  "behavioral_risk_score": 0.60,
+  "identity_verification": "SUSPICIOUS"
+}
+```
+
+### Fraud Probability Calculation
+
+```
+STARTING FROM AGENT 1 & 2:
+  Base score = fraud_suspicion_level from Agent 1
+
+ADD ANOMALY SIGNALS:
+  + Off-hours (11PM-5AM):        +10%
+  + Velocity breach (3+/24h):    +15%
+  + Geovelocity breach:          +25%
+  + Z-score >= 3.0:              +25%
+  + Amount > 3x average:         +15%
+  + Amount > 2x average:         +8%
+
+CONTEXTUAL ADJUSTMENTS:
+  - Customer has fraud history:  -15% (contextual)
+  + Clean history:               +5%
+
+FINAL = MIN(SUM(all factors), 0.95)  # Never 100% certain
+```
+
+---
+
+# Agent 5: EIA
+## Evidence Intelligence Agent (EIA)
+
+**Role**: Evidence verification & document requirement tracking  
+**Model**: Groq (llama-3.1-8b-instant)  
+**Execution**: ReAct loop (5 deterministic tools pre-computed)
+
+### Workflow
+
+```
+RECEIVES Agent 1, 2, 3, 4 OUTPUTS
+       │
+       ▼
+[AGENT NODE - ReAct Loop]
+  
+  Tool 1: evaluate_evidence_completeness()
+    → Check required_documents from investigation_plan
+    → Compare against fulfilled document requests (customer-obtainable only)
+    → Score: 0-100%
+  
+  Tool 2: identify_missing_evidence()
+    → List missing customer-obtainable documents
+    → Determine if gaps block investigation
+  
+  Tool 3: validate_evidence_consistency()
+    → Cross-check transaction details (amount, merchant, date)
+    → Flag discrepancies
+  
+  Tool 4: assess_evidence_strength()
+    → Base score + match credit + completeness adjustment
+    → Returns HIGH, MEDIUM, or LOW strength
+  
+  Tool 5: determine_next_document_request()
+    → Recommend next required customer doc to formally request
+       │
+       ▼
+[FINALIZE NODE]
+  • Generate evidence_assessment summary
+  • Update evidence_match_note
+  • Determine if case ready for investigation
+```
+
+### Parameters Checked
+
+| Parameter | Check | Output |
+|-----------|-------|--------|
+| **required_documents[]** | From investigation_plan | Customer docs vs bank docs |
+| **fulfilled_requests** | Document request table | Count, types, dates |
+| **uploaded_files** | Files on disk in uploads/ | Count, formats, sizes |
+| **evidence_match** | From Agent 1 | true/false/null |
+| **document_consistency** | Amount, merchant, date | Consistency score |
+| **evidence_strength** | Combined formula score | Strength level (HIGH/MEDIUM/LOW) |
+
+### Output
+
+```json
+{
+  "evidence_assessment": {
+    "completeness_score": 65,
+    "completeness_status": "PARTIAL",
+    "required_documents_count": 3,
+    "fulfilled_documents_count": 2,
+    "missing_documents": [
+      "DEVICE_LOGIN_HISTORY"
+    ],
+    "bank_obtainable_documents": [
+      "UPI_SERVER_LOGS",
+      "OTP_DELIVERY_RECORDS"
+    ]
+  },
+  "evidence_strength": "MEDIUM",
+  "evidence_consistency": true,
+  "gaps_block_investigation": false,
+  "recommended_document_requests": [
+    "DEVICE_LOGIN_HISTORY"
+  ]
+}
+```
+
+---
+
 # Data Flow & Dependencies
 
 ## Complete Data Flow
@@ -645,7 +631,7 @@ CUSTOMER
            │
            ▼
 ┌──────────────────────────────┐
-│ Agent 5: WOA (ORCHESTRATION) │
+│ Agent 3: WOA (ORCHESTRATION) │
 │ • Evaluate case complexity   │
 │ • Dynamically route case     │
 │ • Schedule specialist agents │
@@ -654,7 +640,7 @@ CUSTOMER
            ├────────────────────────────┐
            ▼                            ▼
 ┌──────────────────────────────┐  ┌──────────────────────────────┐
-│ Agent 3: FRA (FRAUD AGENT)   │  │ Agent 4: EIA (EVIDENCE AGENT)│
+│ Agent 4: FRIA (FRAUD AGENT)  │  │ Agent 5: EIA (EVIDENCE AGENT)│
 │ • Spend & geovelocity risk   │  │ • Document completeness check│
 │ • Anomaly indicators check   │  │ • Evidence strength checklist│
 └──────────┬───────────────────┘  └─────────────┬────────────────┘
@@ -702,7 +688,7 @@ Fallback:
 
 ### Scenario 3: Missing Document
 ```
-Agent 4 requires document type X
+Agent 5 requires document type X
   Upload not found
   
 Action:
@@ -747,9 +733,10 @@ Action:
 
 | Agent | Role | Entry | Tools | Output |
 |-------|------|-------|-------|--------|
-| **ARIA** | Dispute intake | validate | 2 | fraud_suspicion, priority, confidence |
-| **IIA** | History analysis | agent | 5 | investigation_plan, complexity |
-| **FRA** | Fraud patterns | validate | 3 | fraud_probability, risk_level |
+| **ARIA** | Dispute intake | validate | 4 | fraud_suspicion, priority, confidence |
+| **IIA** | History analysis | agent | 4 | investigation_plan, complexity |
+| **WOA** | Orchestration | agent | 6 | workflow_plan, assigned_analyst |
+| **FRIA** | Fraud patterns | validate | 6 | fraud_probability, risk_level |
 | **EIA** | Evidence check | agent | 5 | evidence_assessment, gaps |
-| **WOA** | Orchestration | (tools) | 6 | workflow_plan, assigned_analyst |
+
 

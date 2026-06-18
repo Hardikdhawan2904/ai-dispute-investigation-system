@@ -1,4 +1,4 @@
-# Workflow Orchestration Agent (WOA) — Agent 5
+# Workflow Orchestration Agent (WOA) — Agent 3
 
 **Role**: Workflow coordinator, queue director, and specialist agent execution planner  
 **Model**: Groq `llama-3.1-8b-instant` (via ChatGroq)  
@@ -148,7 +148,11 @@ WOA orchestrates routing across the following specialist nodes:
 
 * **Function**: `run_orchestration_agent(case_id: str) -> dict`
 * **Module**: [__init__.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/orchestration_agent/__init__.py)
+* **Behavior**:
+  - Reads the combined classification results from Agent 1 (ARIA) and investigation plan from Agent 2 (IIA) fresh from the `dispute_cases` database table by `case_id` (save-first architecture).
+  - Pre-runs all 6 orchestration tools in parallel and formats their results into the LLM context for optimal synthesis.
 * **Callers**:
   - `workflows/dispute_workflow.py` → `orchestration_node`
   - `api/routes/ops_cases.py` → manual analyst re-orchestration trigger
   - `api/routes/disputes.py` → re-analysis trigger after customer document upload
+

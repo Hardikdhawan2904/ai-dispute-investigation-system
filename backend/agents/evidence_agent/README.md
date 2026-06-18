@@ -1,4 +1,4 @@
-# Evidence Intelligence Agent (EIA) — Agent 4
+# Evidence Intelligence Agent (EIA) — Agent 5
 
 **Role**: Evidence sufficiency audit, detail consistency validation, and document gap analysis  
 **Model**: Groq `llama-3.1-8b-instant` (via ChatGroq)  
@@ -9,7 +9,7 @@
 
 ## 🎯 Purpose
 
-EIA is the document audit engine of the system. It processes uploads and pending document requests to determine whether enough proof exists to proceed with the dispute. It runs conditionally when the Workflow Orchestration Agent (Agent 5) routes the case to it. The agent calls **5 database-backed tools** to:
+EIA is the document audit engine of the system. It processes uploads and pending document requests to determine whether enough proof exists to proceed with the dispute. It runs conditionally when the Workflow Orchestration Agent (Agent 3) routes the case to it. The agent calls **5 database-backed tools** to:
 - Verify that required documents have been uploaded or formally requested.
 - Calculate an **Evidence Completeness Score (0-100%)** based on customer-obtainable documents (ignoring bank-internal files).
 - Validate transaction **detail consistency** (comparing amount, merchant, date, and type across database tables and dispute fields).
@@ -40,7 +40,7 @@ EIA is the document audit engine of the system. It processes uploads and pending
      └───────────────┴───────────────┘
 ```
 
-EIA is run conditionally at the `evidence` node if Agent 5 (WOA) sets `next_agent=EVIDENCE_AGENT`. It processes details, updates the Case record with the evidence assessment JSON, and marks `EVIDENCE_AGENT` as complete in the workflow plan.
+EIA is run conditionally at the `evidence` node if Agent 3 (WOA) sets `next_agent=EVIDENCE_AGENT`. It processes details, updates the Case record with the evidence assessment JSON, and marks `EVIDENCE_AGENT` as complete in the workflow plan.
 
 ---
 
@@ -172,6 +172,10 @@ The final output is a structured JSON assessment mapping the following fields:
 
 * **Function**: `run_evidence_agent(case_id: str) -> dict`
 * **Module**: [__init__.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/evidence_agent/__init__.py)
+* **Behavior**:
+  - Reads the case details, investigation plan, and workflow plan fresh from the `dispute_cases` database table by `case_id` (save-first architecture).
+  - Queries `document_requests` and `transactions` tables deterministically before invoking the reasoning pipeline.
 * **Callers**:
   - `workflows/dispute_workflow.py` → `evidence_node` (invoked conditionally based on Agent 5 workflow plan routing)
   - `api/routes/ops_cases.py` → POST `/{case_id}/run-evidence-agent` (manual triggers)
+

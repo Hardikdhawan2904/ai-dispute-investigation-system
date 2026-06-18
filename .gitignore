@@ -54,4 +54,9 @@ backend/chroma_db/
 logs/
 backend/logs/
 
+# ── Temporary test files ──────────────────────────────────────────────────────
+test_tesseract.py
+*_test_temp.*
+tesseract_test_temp.png
+
 

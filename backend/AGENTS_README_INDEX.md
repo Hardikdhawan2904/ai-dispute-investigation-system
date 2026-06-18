@@ -11,12 +11,13 @@
 
 | Document | Purpose | Location |
 |----------|---------|----------|
+
 | **Comprehensive Guide** | Full system architecture, all agents, workflows, error handling | [AGENTS_COMPREHENSIVE_GUIDE.md](AGENTS_COMPREHENSIVE_GUIDE.md) |
 | **Agent 1: ARIA** | Dispute Understanding Agent — intake & classification | [agents/dispute_agent/README.md](agents/dispute_agent/README.md) |
 | **Agent 2: IIA** | Investigation Intelligence Agent — historical analysis | [agents/investigation_agent/README.md](agents/investigation_agent/README.md) |
-| **Agent 3: FRA** | Fraud Reasoning Agent — pattern analysis | [agents/fraud_reasoning_agent/README.md](agents/fraud_reasoning_agent/README.md) |
-| **Agent 4: EIA** | Evidence Intelligence Agent — document verification | [agents/evidence_agent/README.md](agents/evidence_agent/README.md) |
-| **Agent 5: WOA** | Orchestration Workflow Agent — case routing | [agents/orchestration_agent/README.md](agents/orchestration_agent/README.md) |
+| **Agent 3: WOA** | Orchestration Workflow Agent — case routing | [agents/orchestration_agent/README.md](agents/orchestration_agent/README.md) |
+| **Agent 4: FRIA** | Fraud Reasoning Agent — pattern analysis | [agents/fraud_reasoning_agent/README.md](agents/fraud_reasoning_agent/README.md) |
+| **Agent 5: EIA** | Evidence Intelligence Agent — document verification | [agents/evidence_agent/README.md](agents/evidence_agent/README.md) |
 
 ---
 
@@ -47,58 +48,19 @@
 **Tools**: 
 - `lookup_customer_history()` — Customer risk profile
 - `check_merchant_risk()` — Merchant reputation
-- `detect_velocity_patterns()` — Transaction frequency anomalies
-- `analyze_transaction_anomalies()` — Spending & off-hours patterns
-- `cross_reference_dispute_history()` — Similar case guidance
+- `find_duplicate_transaction()` — Duplicate claims verification
+- `lookup_related_cases()` — Precedent cases history
 **Key Metrics**: 
 - Customer fraud rate (%)
 - Merchant complaint count
-- Velocity breach status
+- Duplicate check status
 - Investigation complexity (LOW/MEDIUM/HIGH)
 
 **Quick Start**: [Read IIA README](agents/investigation_agent/README.md)
 
 ---
 
-### Agent 3: FRA - Fraud Reasoning Agent
-**Role**: Fraud pattern analysis & anomaly detection  
-**Input**: Agent 1, 2 output  
-**Output**: fraud_probability, fraud_risk_level, reasoning_brief  
-**Tools** (pre-executed):
-- `detect_transaction_anomalies()` — Off-hours, velocity
-- `evaluate_location_velocity()` — Geovelocity breaches
-- `analyze_spending_behavior()` — Z-score analysis
-**Key Metrics**: 
-- Fraud probability (0-1 scale)
-- Risk level (LOW/MEDIUM/HIGH/CRITICAL)
-- Anomaly flags
-- Z-score computation
-
-**Quick Start**: [Read FRA README](agents/fraud_reasoning_agent/README.md)
-
----
-
-### Agent 4: EIA - Evidence Intelligence Agent
-**Role**: Evidence verification & document requirement tracking  
-**Input**: Agents 1, 2, 3 + uploaded documents  
-**Output**: evidence_strength, completeness_score, missing_docs  
-**Tools**: 
-- `evaluate_evidence_completeness()` — Document scorecard
-- `identify_missing_evidence()` — Gap analysis
-- `validate_evidence_consistency()` — Cross-check details
-- `assess_document_authenticity()` — Fraud detection
-- `determine_evidence_strength()` — Final assessment
-**Key Metrics**: 
-- Completeness % (0-100)
-- Consistency score (0-100)
-- Authenticity flag (HIGH/MEDIUM/LOW)
-- Evidence strength (HIGH/MEDIUM/LOW)
-
-**Quick Start**: [Read EIA README](agents/evidence_agent/README.md)
-
----
-
-### Agent 5: WOA - Orchestration Workflow Agent
+### Agent 3: WOA - Workflow Orchestration Agent
 **Role**: Case routing & workflow coordination  
 **Input**: All prior agents' outputs  
 **Output**: workflow_plan, assigned_queue, assigned_analyst, SLA  
@@ -117,6 +79,48 @@
 - Estimated hours
 
 **Quick Start**: [Read WOA README](agents/orchestration_agent/README.md)
+
+---
+
+### Agent 4: FRIA - Fraud Reasoning Agent
+**Role**: Fraud pattern analysis & anomaly detection  
+**Input**: Agent 1, 2 output  
+**Output**: fraud_probability, fraud_risk_level, reasoning_brief  
+**Tools** (pre-executed):
+- `detect_transaction_anomalies()` — Off-hours, velocity
+- `evaluate_location_velocity()` — Geovelocity breaches
+- `analyze_spending_behavior()` — Z-score analysis
+- `verify_kyc_match()` — KYC matching
+- `evaluate_device_fingerprint()` — Login logs auditing
+- `analyze_behavioral_patterns()` — Friendly fraud risk
+**Key Metrics**: 
+- Fraud probability (0-1 scale)
+- Risk level (LOW/MEDIUM/HIGH/CRITICAL)
+- Anomaly flags
+- Z-score computation
+
+**Quick Start**: [Read FRIA README](agents/fraud_reasoning_agent/README.md)
+
+---
+
+### Agent 5: EIA - Evidence Intelligence Agent
+**Role**: Evidence verification & document requirement tracking  
+**Input**: Agents 1, 2, 3 + uploaded documents  
+**Output**: evidence_strength, completeness_score, missing_docs  
+**Tools**: 
+- `evaluate_evidence_completeness()` — Document scorecard
+- `identify_missing_evidence()` — Gap analysis
+- `validate_evidence_consistency()` — Cross-check details
+- `assess_evidence_strength()` — Final assessment
+- `determine_next_document_request()` — Recommends next request
+**Key Metrics**: 
+- Completeness % (0-100)
+- Consistency score (0-100)
+- Authenticity flag (HIGH/MEDIUM/LOW)
+- Evidence strength (HIGH/MEDIUM/LOW)
+
+**Quick Start**: [Read EIA README](agents/evidence_agent/README.md)
+
 
 ---
 
@@ -140,15 +144,15 @@ CUSTOMER DISPUTE SUBMISSION
               │
               ▼
     ┌─────────────────────┐
-    │  Agent 5: WOA       │ Case Orchestration
+    │  Agent 3: WOA       │ Case Orchestration
     │  workflow_plan      │ Routing Decisions
     └─────────┬───────────┘
               │
         ┌─────┴─────┐
         ▼           ▼
     ┌────────┐  ┌──────────┐
-    │Agent 3 │  │ Agent 4  │
-    │  FRA   │  │   EIA    │
+    │Agent 4 │  │ Agent 5  │
+    │  FRIA  │  │   EIA    │
     │ Fraud  │  │Evidence  │
     └────┬───┘  └────┬─────┘
          │           │
@@ -169,7 +173,7 @@ CUSTOMER DISPUTE SUBMISSION
 - **₹200K–1M**: Mandatory investigation
 - **>₹1M**: Executive-level review
 
-### Fraud Scoring (Agents 1, 3)
+### Fraud Scoring (Agents 1, 4)
 **Tier-1 Indicators** (each = +8.0):
 - OTP shared with third party
 - Bank impersonation (vishing)
@@ -195,12 +199,12 @@ CUSTOMER DISPUTE SUBMISSION
 - **HIGH**: High-value disputes, multiple signals
 - **CRITICAL**: Very high value, identity theft patterns
 
-### Evidence Completeness (Agent 4)
+### Evidence Completeness (Agent 5)
 - **>80%**: HIGH (proceeding with confidence)
 - **50–80%**: MEDIUM (may request additional docs)
 - **<50%**: LOW (blocks investigation until complete)
 
-### Case Complexity (Agent 5)
+### Case Complexity (Agent 3)
 - **LOW**: Amount <₹10K, no fraud, single category
 - **MEDIUM**: Amount ₹10K–₹200K, moderate signals
 - **HIGH**: Amount >₹200K OR multiple risk tags
@@ -229,9 +233,9 @@ agent:
 **Locations**:
 - Agent 1: [agents/dispute_agent/agent.yaml](agents/dispute_agent/agent.yaml)
 - Agent 2: [agents/investigation_agent/agent.yaml](agents/investigation_agent/agent.yaml)
-- Agent 3: [agents/fraud_reasoning_agent/agent.yaml](agents/fraud_reasoning_agent/agent.yaml)
-- Agent 4: [agents/evidence_agent/agent.yaml](agents/evidence_agent/agent.yaml)
-- Agent 5: [agents/orchestration_agent/agent.yaml](agents/orchestration_agent/agent.yaml)
+- Agent 3: [agents/orchestration_agent/agent.yaml](agents/orchestration_agent/agent.yaml)
+- Agent 4: [agents/fraud_reasoning_agent/agent.yaml](agents/fraud_reasoning_agent/agent.yaml)
+- Agent 5: [agents/evidence_agent/agent.yaml](agents/evidence_agent/agent.yaml)
 
 ---
 
@@ -304,19 +308,19 @@ Agent 2 Output:
   investigation_complexity: HIGH
   required_documents: [UPI_LOG, OTP_RECORDS, DEVICE_HISTORY]
   
-Agent 3 Output:
-  fraud_probability: 0.85
-  fraud_risk_level: CRITICAL
-  
-Agent 4 Output:
-  evidence_strength: HIGH
-  completeness: 90%
-  
-Agent 5 Output:
+Agent 3 (WOA) Output:
   workflow_plan: [FRAUD_AGENT, EVIDENCE_AGENT]
   assigned_queue: FRAUD_INVESTIGATION_HIGH_PRIORITY
   analyst_level: SENIOR
   sla_hours: 8
+
+Agent 4 (FRIA) Output:
+  fraud_probability: 0.85
+  fraud_risk_level: CRITICAL
+  
+Agent 5 (EIA) Output:
+  evidence_strength: HIGH
+  completeness: 90%
 ```
 
 ### Example 2: Refund Not Received
@@ -339,7 +343,7 @@ Agent 2 Output:
   customer_risk_level: LOW
   merchant_risk_level: LOW
   
-Agent 5 Output:
+Agent 3 (WOA) Output:
   workflow_plan: [MERCHANT_AGENT]
   assigned_queue: MERCHANT_DISPUTE_STANDARD
   analyst_level: JUNIOR

@@ -46,7 +46,7 @@ ARIA is the classification and understanding core of the dispute resolution syst
      └───────────────┴───────────────┘
 ```
 
-ARIA runs after the `fraud_reasoning` node within the main workflow (`dispute_workflow.py`). It receives the raw inputs alongside pre-computed flags, processes them, and passes its output to the `reasoning` node for tag enrichment.
+ARIA runs after the `document_check` node within the main workflow ([dispute_workflow.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/workflows/dispute_workflow.py)). It receives the raw inputs alongside document texts, processes them, and passes its output to the `reasoning` node for tag enrichment.
 
 ---
 
@@ -140,8 +140,12 @@ ARIA has access to **4 deterministic understanding tools** defined in [tools.py]
 
 ## ── Invocation ──
 
-* **Function**: `run_dispute_agent(dispute_input: dict, document_texts: List[str], case_id: str) -> dict`
-* **Module**: [__init__.py]
+* **Function**: `run_dispute_agent(dispute_input: dict, document_texts: Optional[List[str]] = None, case_id: Optional[str] = None) -> dict`
+* **Module**: [__init__.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/dispute_agent/__init__.py)
+* **Behavior**:
+  - If `case_id` is provided, it reads case data directly from the `dispute_cases` table in the database (save-first architecture).
+  - If DB read fails or `case_id` is not provided, it falls back to using the in-memory `dispute_input` dictionary.
 * **Callers**:
   - `workflows/dispute_workflow.py` → `dispute_understanding_node`
   - `api/routes/ops_cases.py` → manual re-analysis trigger endpoint
+

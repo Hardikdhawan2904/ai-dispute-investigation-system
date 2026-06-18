@@ -69,7 +69,7 @@ IIA's StateGraph consists of:
 
 ## ── State Schema ──
 
-The agent manages state via `InvestigationAgentState` defined in [state.py]
+The agent manages state via `InvestigationAgentState` defined in [state.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/investigation_agent/state.py)
 * `messages`: Annotated message list accumulating the ReAct tool call/response history.
 * `agent1_output`: Input dictionary from Agent 1 (read from DB).
 * `tool_results`: Dictionary caching raw database records returned by tools.
@@ -85,7 +85,7 @@ The agent manages state via `InvestigationAgentState` defined in [state.py]
 
 ## ── Database-Backed Tools ──
 
-IIA has access to **4 deterministic database-backed tools** defined in [tools.py]. They query history ledger, live dispute cases, merchant profiles, and transaction records:
+IIA has access to **4 deterministic database-backed tools** defined in [tools.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/investigation_agent/tools.py). They query history ledger, live dispute cases, merchant profiles, and transaction records:
 
 ### 1. `lookup_customer_history`
 - **Purpose**: Queries the historical dispute database (`dispute_history`) and live cases (`dispute_cases`) for this customer's complete record. Excludes the active case from calculations.
@@ -127,7 +127,11 @@ IIA assigns cases to operations queues according to the following matrix:
 ## ── Invocation ──
 
 * **Function**: `run_investigation_agent(agent1_output: dict) -> dict`
-* **Module**: [__init__.py]
+* **Module**: [__init__.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/investigation_agent/__init__.py)
+* **Behavior**:
+  - Reads Agent 1's classification results fresh from the `dispute_cases` table by the `case_id` provided in `agent1_output` (save-first architecture).
+  - Falls back to the passed `agent1_output` in-memory dictionary if the DB read fails.
 * **Callers**:
   - `workflows/dispute_workflow.py` → `investigation_node`
   - `api/routes/ops_cases.py` → POST `/{case_id}/re-investigate` (manual analyst trigger)
+
