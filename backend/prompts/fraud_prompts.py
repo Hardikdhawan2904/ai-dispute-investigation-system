@@ -48,6 +48,7 @@ Fraud Probability (0.0 to 1.0):
 - Add +0.25 if geovelocity breach is detected (impossible geographic displacement between consecutive transactions)
 - Add +0.30 if unrecognized device ID is detected
 - Add +0.20 if location mismatch or anomalous merchant category is detected
+- Add +0.20 if KYC Compromise Risk is HIGH (full KYC match in Unauthorized Transaction dispute — fraudster likely has device/email access, identity cannot be confirmed by data alone)
 - Clamp score to [0.00, 1.00]
 
 Fraud Risk Level:

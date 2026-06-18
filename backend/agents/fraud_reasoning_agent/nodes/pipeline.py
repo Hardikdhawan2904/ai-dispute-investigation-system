@@ -100,7 +100,8 @@ def build_context_node(state: FraudReasoningAgentState) -> dict:
                 "customer_id": customer_id,
                 "name": customer_name,
                 "email": email,
-                "phone": phone
+                "phone": phone,
+                "dispute_category": d.get("dispute_category", ""),
             }
         ),
         "evaluate_device_fingerprint": (

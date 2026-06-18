@@ -61,14 +61,38 @@ def detect_transaction_anomalies(customer_id: str, transaction_time: str, transa
         ).all()
 
         txn_count_24h = len(txns)
-        velocity_breach = txn_count_24h >= 3
+
+        # Velocity breach: any two transactions separated by < 15 seconds.
+        # 3-per-day is normal card usage; rapid-fire pairs indicate scripted/automated fraud.
+        _MIN_GAP_SECONDS = 15
+        velocity_breach = False
+        rapid_pair_gap_seconds: float | None = None
+        sorted_txns = sorted(
+            [t for t in txns if t.transaction_date is not None],
+            key=lambda t: t.transaction_date,
+        )
+        for i in range(len(sorted_txns) - 1):
+            a = sorted_txns[i].transaction_date
+            b = sorted_txns[i + 1].transaction_date
+            if a.tzinfo is None:
+                a = a.replace(tzinfo=timezone.utc)
+            if b.tzinfo is None:
+                b = b.replace(tzinfo=timezone.utc)
+            gap = abs((b - a).total_seconds())
+            if gap < _MIN_GAP_SECONDS:
+                velocity_breach = True
+                rapid_pair_gap_seconds = round(gap, 1)
+                break
 
         status = "SUSPICIOUS" if (is_off_hours or velocity_breach) else "NORMAL"
         reasons = []
         if is_off_hours:
             reasons.append("Transaction processed during off-hours (11 PM - 5 AM).")
         if velocity_breach:
-            reasons.append(f"High velocity breach: {txn_count_24h} transactions executed in the last 24 hours.")
+            reasons.append(
+                f"Rapid-fire velocity breach: two transactions only {rapid_pair_gap_seconds}s apart "
+                f"(threshold: {_MIN_GAP_SECONDS}s). Possible scripted or automated fraud."
+            )
 
         assessment = " | ".join(reasons) if reasons else "Transaction patterns within normal velocity and timing limits."
 
@@ -79,8 +103,9 @@ def detect_transaction_anomalies(customer_id: str, transaction_time: str, transa
             f"  Transaction Date/Time: {transaction_date} {transaction_time}\n"
             f"  Off-Hours Flag       : {'Yes' if is_off_hours else 'No'}\n"
             f"  24h Transaction Count: {txn_count_24h}\n"
-            f"  Velocity Breach      : {'Yes — ALERT' if velocity_breach else 'No'}\n"
-            f"  Assessment           : {assessment}"
+            f"  Velocity Breach      : {'Yes — ALERT' if velocity_breach else 'No'}"
+            + (f"\n  Rapid-Fire Gap (sec) : {rapid_pair_gap_seconds}s" if velocity_breach else "") +
+            f"\n  Assessment           : {assessment}"
         )
     except Exception as exc:
         agent_logger.warning(f"detect_transaction_anomalies failed: {exc}")
@@ -334,8 +359,13 @@ def analyze_spending_behavior(customer_id: str, amount: float) -> str:
 
 # ── Tool 4 — KYC Profile verification ─────────────────────────────────────────
 
+# Dispute types where a full KYC match is a red flag, not a green one —
+# the fraudster has the victim's device/email and can supply all three fields.
+_COMPROMISE_RISK_CATEGORIES = {"unauthorized transaction"}
+
+
 @tool
-def verify_kyc_match(customer_id: str, name: str, email: str, phone: str) -> str:
+def verify_kyc_match(customer_id: str, name: str, email: str, phone: str, dispute_category: str = "") -> str:
     """Compare dispute submission name, email, and phone against the bank's
     internal KYC/CIF database. Returns joining date and match flags.
     Use this to detect potential Identity Theft or account creation discrepancies."""
@@ -363,10 +393,10 @@ def verify_kyc_match(customer_id: str, name: str, email: str, phone: str) -> str
         # Standardise and check matches
         name_clean = name.strip().lower()
         db_name_clean = db_name.strip().lower()
-        
+
         name_match = (name_clean == db_name_clean) or (name_clean in db_name_clean) or (db_name_clean in name_clean)
         email_match = email.strip().lower() == db_email.strip().lower()
-        
+
         # Phone check: ignore country code prefix (+91 or 91)
         p1 = "".join(filter(str.isdigit, phone))
         p2 = "".join(filter(str.isdigit, db_phone))
@@ -375,7 +405,25 @@ def verify_kyc_match(customer_id: str, name: str, email: str, phone: str) -> str
         all_match = name_match and email_match and phone_match
         any_match = name_match or email_match or phone_match
 
-        if all_match:
+        # A full KYC match in a device/account-compromise category is ambiguous —
+        # the fraudulent actor has physical access to the victim's phone and email,
+        # so they can trivially supply the correct name, email, and phone.
+        category_lower = dispute_category.strip().lower()
+        compromise_risk = (
+            "HIGH"
+            if all_match and category_lower in _COMPROMISE_RISK_CATEGORIES
+            else "NONE"
+        )
+
+        if compromise_risk == "HIGH":
+            status = "SUSPICIOUS"
+            note = (
+                "All KYC fields match, but this is an Unauthorized Transaction dispute. "
+                "A fraudulent actor with physical access to the victim's device and email "
+                "can supply all three fields — a full match does not confirm the submitter "
+                "is the legitimate account holder."
+            )
+        elif all_match:
             status = "VERIFIED"
             note = "All details correspond to KYC records."
         elif any_match:
@@ -393,6 +441,7 @@ def verify_kyc_match(customer_id: str, name: str, email: str, phone: str) -> str
             "KYC VERIFICATION REPORT\n"
             f"  Customer ID      : {customer_id}\n"
             f"  Verification     : {status}\n"
+            f"  Compromise Risk  : {compromise_risk}\n"
             f"  Name Match       : {'Yes' if name_match else 'No'} (Submitted: '{name}', KYC: '{db_name}')\n"
             f"  Email Match      : {'Yes' if email_match else 'No'} (Submitted: '{email}', KYC: '{db_email}')\n"
             f"  Phone Match      : {'Yes' if phone_match else 'No'} (Submitted: '{phone}', KYC: '{db_phone}')\n"
