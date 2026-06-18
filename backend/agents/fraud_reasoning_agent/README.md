@@ -92,14 +92,16 @@ The agent manages state via `FraudReasoningAgentState` defined in [state.py](fil
 FRIA has access to **6 deterministic tools** defined in [tools.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/fraud_reasoning_agent/tools.py) that query transactions, customer data, and dispute tables:
 
 ### 1. `detect_transaction_anomalies`
-- **Purpose**: Checks if transaction was processed in off-hours (11 PM - 5 AM) and scans transaction counts for the customer in the last 24 hours to check for velocity breaches.
+- **Purpose**: Checks if a transaction was processed in off-hours (11 PM - 5 AM) and scans transaction intervals to check for rapid-fire automated or scripted velocity breaches.
+- **Rules**: A velocity breach is triggered if any two transactions in the last 24 hours occurred less than 15 seconds apart.
 - **Inputs**: `customer_id`, `transaction_time`, `transaction_date`
-- **Output**: Anomaly report with Off-Hours Flag and 24h Transaction Count.
+- **Output**: Anomaly report with Off-Hours Flag, 24h transaction count, and a velocity breach alert.
 
 ### 2. `evaluate_location_velocity`
 - **Purpose**: Scans transaction history to check geovelocity feasibility (impossible travel distance between successive transactions under 4 hours).
+- **Rules**: Uses city-level location normalization (extracts canonical city and strips state/country tokens) to prevent false positives from text differences. Skips transactions with missing or unknown location metadata.
 - **Inputs**: `customer_id`, `location`, `transaction_date`, `transaction_time`
-- **Output**: Travel feasibility flag, speed calculations, and geographical risk.
+- **Output**: Geovelocity breach status, location details, time differences, and geographical risk level (`LOW` | `HIGH`).
 
 ### 3. `analyze_spending_behavior`
 - **Purpose**: Evaluates statistical deviation (Z-score) of the disputed amount relative to the customer's typical historical average spend.
@@ -107,9 +109,10 @@ FRIA has access to **6 deterministic tools** defined in [tools.py](file:///d:/Tr
 - **Output**: Deviation factor, average spend, standard deviation, and spend status.
 
 ### 4. `verify_kyc_match`
-- **Purpose**: Compares dispute submission fields (name, email, phone) against the bank's internal KYC database record.
-- **Inputs**: `customer_id`, `name`, `email`, `phone`
-- **Output**: Verification status (`VERIFIED` | `SUSPICIOUS` | `FAILED`) and match flags.
+- **Purpose**: Compares dispute submission fields (name, email, phone) against the bank's internal KYC database record to identify identity anomalies.
+- **Rules**: If all details match but the dispute category is an "Unauthorized Transaction", it flags a `Compromise Risk: HIGH` and marks status as `SUSPICIOUS` (since a fraudster with physical device or email access can easily supply correct KYC details).
+- **Inputs**: `customer_id`, `name`, `email`, `phone`, `dispute_category`
+- **Output**: Verification status (`VERIFIED` | `SUSPICIOUS` | `FAILED`), compromise risk rating, and match flags.
 
 ### 5. `evaluate_device_fingerprint`
 - **Purpose**: Audits login logs to check if the transaction device ID has history for this customer and whether the location matches typical profiles.

@@ -478,12 +478,12 @@ RECEIVES Agent 1, Agent 2 OUTPUT
 
 | Parameter/Tool | Check | Fraud/Trust Signal |
 |-----------|-------|--------------|
-| **detect_transaction_anomalies** | Off-hours (11PM-5AM) & 24h count | +10% probability if off-hours, velocity alert if 3+ |
-| **evaluate_location_velocity** | Travel distance speed | +25% probability if impossible travel Speed |
-| **analyze_spending_behavior** | Spend Z-score deviation | +25% if Z >= 3, +15% if >3x average, +8% if >2x average |
-| **verify_kyc_match** | KYC name/email/phone match | Suspicious status if fields mismatch registered KYC |
+| **detect_transaction_anomalies** | Off-hours (11PM-5AM) & rapid-fire interval | +15% probability if off-hours, +30% velocity breach if two transactions in last 24h are < 15 seconds apart |
+| **evaluate_location_velocity** | Travel distance speed | +25% probability if impossible travel speed; uses city-level normalization to prevent text false positives, skips missing locations |
+| **analyze_spending_behavior** | Spend Z-score deviation | +20% probability if Z >= 3.0 or > 3x average spend |
+| **verify_kyc_match** | KYC name/email/phone match | Suspicious status if fields mismatch registered KYC, or if all fields match on an "Unauthorized Transaction" category (Compromise Risk: HIGH) |
 | **evaluate_device_fingerprint** | Unrecognized device | High rating if unrecognized device ID + location mismatch |
-| **analyze_behavioral_patterns** | Dispute velocity / favor profile | High friendly fraud risk if 30d claim count >= 2 |
+| **analyze_behavioral_patterns** | Dispute velocity / favor profile | High friendly fraud risk if 30d claim count >= 2 or merchant-favor rate is high |
 
 ### Output
 
@@ -505,22 +505,26 @@ RECEIVES Agent 1, Agent 2 OUTPUT
 ### Fraud Probability Calculation
 
 ```
-STARTING FROM AGENT 1 & 2:
-  Base score = fraud_suspicion_level from Agent 1
+Fraud Probability is the rounded sum of active risk indicators capped between [0.00, 1.00]:
 
-ADD ANOMALY SIGNALS:
-  + Off-hours (11PM-5AM):        +10%
-  + Velocity breach (3+/24h):    +15%
-  + Geovelocity breach:          +25%
-  + Z-score >= 3.0:              +25%
-  + Amount > 3x average:         +15%
-  + Amount > 2x average:         +8%
+ANOMALY SIGNALS:
+  + Time Anomaly (11 PM - 5 AM off-hours)   : +0.15
+  + Velocity Breach (< 15s between txns)     : +0.30
+  + Geovelocity Breach (Impossible travel)   : +0.25
+  + Amount Anomaly (Z >= 3.0 or > 3x average): +0.20
+  + Unrecognized Device                      : +0.15
+  + Location Mismatch                        : +0.20
 
-CONTEXTUAL ADJUSTMENTS:
-  - Customer has fraud history:  -15% (contextual)
-  + Clean history:               +5%
-
-FINAL = MIN(SUM(all factors), 0.95)  # Never 100% certain
+CUSTOMER DISCLOSED VECTOR FLAGS (METADATA):
+  + Bank Impersonation / Vishing             : +0.30
+  + Remote Access Application installed      : +0.25
+  + Screen Sharing active with attacker      : +0.20
+  + OTP Shared with third party              : +0.20
+  + SIM Swap suspected                       : +0.20
+  + Phishing Link clicked                    : +0.15
+  + Unknown Beneficiary / recipient          : +0.10
+  + Physical Device / Card Lost              : +0.10 each
+  + Explicit Fraud check box selected        : +0.10
 ```
 
 ---
@@ -554,8 +558,8 @@ RECEIVES Agent 1, 2, 3, 4 OUTPUTS
     → Flag discrepancies
   
   Tool 4: assess_evidence_strength()
-    → Base score + match credit + completeness adjustment
-    → Returns HIGH, MEDIUM, or LOW strength
+    → Verdict base (Match: 0.65, Mismatch: 0.05, Unassessed/No docs: 0.30) + completeness adjustment (ranges from -0.25 to +0.25) + Agent 2 Data Quality adjustment (capped at ±0.075 max)
+    → Returns HIGH (score >= 0.70), MEDIUM (0.45 - 0.69), or LOW (< 0.45) strength
   
   Tool 5: determine_next_document_request()
     → Recommend next required customer doc to formally request

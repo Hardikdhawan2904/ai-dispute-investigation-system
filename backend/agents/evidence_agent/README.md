@@ -113,12 +113,10 @@ EIA has access to **5 deterministic tools** defined in [tools.py](file:///d:/Tra
 ### 4. `assess_evidence_strength`
 - **Purpose**: Calculates overall evidence quality score (0.0 to 1.0) and assigns a strength level (`HIGH` | `MEDIUM` | `LOW`).
 - **Scoring Weights**:
-  - Base score: `0.50`
-  - `evidence_match=true`: `+0.25`, `false`: `-0.20`
-  - Customer completeness adjustment: up to `+/- 0.10` max (derived from `(completeness - 0.5) * 0.20`).
-  - Upload file counts: `2+` files: `+0.05`, `1` file: `+0.02`.
-  - Agent 2 Data Quality adjustment: `(dq_score - 0.75) * 0.10`.
-  - Score >= 0.70 → `HIGH` (sufficient); >= 0.45 → `MEDIUM` (proceed with caution); else `LOW` (action required).
+  - **Verdict Base (`verdict_base`)**: Matching verdict determines baseline score: Match is `0.65`, Mismatch is `0.05` (always maps to `LOW`), and Unassessed/No Documents is `0.30`.
+  - **Customer Completeness Adjustment (`completeness_adj`)**: Derived from `(completeness - 0.5) * 0.50` (ranges from `-0.25` to `+0.25`).
+  - **Agent 2 Data Quality Adjustment (`dq_adj`)**: Derived from `(dq_score - 0.75) * 0.30` (capped at `±0.075` max).
+  - **Thresholds**: Score >= 0.70 → `HIGH` (sufficient); >= 0.45 → `MEDIUM` (proceed with caution); else `LOW` (action required).
 - **Inputs**: `case_id`
 - **Output**: Strength level, numeric score, and list of contributing factors.
 
