@@ -35,6 +35,24 @@ def trigger_communication(
             api_logger.warning(f"communication_service: case {case_id} not found")
             return None
 
+        # Deduplicate: one-shot types should never fire more than once per case
+        _ONE_SHOT_TYPES = {"CASE_RECEIVED", "CASE_RESOLVED"}
+        if notification_type in _ONE_SHOT_TYPES:
+            already = (
+                db.query(CommunicationLog)
+                .filter(
+                    CommunicationLog.case_id == case_id,
+                    CommunicationLog.notification_type == notification_type,
+                    CommunicationLog.status == "SENT",
+                )
+                .first()
+            )
+            if already:
+                api_logger.info(
+                    f"communication_service: skipping duplicate {notification_type} for {case_id}"
+                )
+                return None
+
         # Build customer-safe subset — no fraud scores, risk signals, or internal details
         case_data = {
             "case_id":          case.case_id,
