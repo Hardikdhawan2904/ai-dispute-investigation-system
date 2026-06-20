@@ -50,11 +50,14 @@ def send_communication(
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
 
+    ctx = dict(payload.context or {})
+    ctx["_skip_dedup"] = True   # manual sends always go through
+
     result = trigger_communication(
         case_id           = case_id,
         notification_type = payload.notification_type,
         db                = db,
-        context           = payload.context,
+        context           = ctx,
     )
 
     if result is None:
