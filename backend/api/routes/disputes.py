@@ -226,66 +226,12 @@ def track_dispute(case_id: str, db: Session = Depends(get_db)):
             "timestamp":   log.created_at.isoformat() if log.created_at else None,
         })
 
-    # ── Document tracking ────────────────────────────────────────────────────
+    # ── Document tracking — source of truth is the DocumentRequest table ─────
     required_docs: list[str] = []
     pending_docs:  list[str] = []
     received_count = 0
-    doc_requested  = bool(c.get("document_requested"))
-
-    if doc_requested:
-        try:
-            category = c.get("dispute_category", "") or ""
-            fraud_sel = bool(c.get("fraud_selected", False))
-            amount    = float(c.get("amount", 0) or 0)
-            required_docs = get_customer_required_documents(category, fraud_sel, amount)
-        except Exception:
-            pass
-
-        # Check DB document requests for pending vs fulfilled
-        try:
-            db_reqs = (
-                db.query(DocumentRequest)
-                .filter(DocumentRequest.case_id == case_id.upper())
-                .all()
-            )
-            if db_reqs:
-                required_docs = [r.document_type for r in db_reqs]
-                pending_docs  = [r.document_type for r in db_reqs if not r.fulfilled_at]
-                received_count = sum(1 for r in db_reqs if r.fulfilled_at)
-            else:
-                # Fall back: check uploads folder for received count
-                upload_dir = _UPLOAD_ROOT / case_id.upper()
-                if upload_dir.exists():
-                    received_count = sum(1 for f in upload_dir.iterdir() if f.is_file())
-                pending_docs = [d for d in required_docs]
-                if received_count:
-                    pending_docs = required_docs[received_count:] if received_count < len(required_docs) else []
-        except Exception:
-            pending_docs = required_docs
-
-    # ── Estimated resolution ──────────────────────────────────────────────────
-    from datetime import datetime, timedelta
-    PRIORITY_DAYS = {"CRITICAL": 2, "HIGH": 3, "MEDIUM": 5, "LOW": 7}
-    priority = c.get("priority", "MEDIUM") or "MEDIUM"
-    sla = c.get("sla_deadline")
-    if sla and isinstance(sla, str):
-        try:
-            sla_dt  = datetime.fromisoformat(sla.replace("Z", "+00:00"))
-            est_res = sla_dt.strftime("%d %b %Y")
-        except Exception:
-            est_res = "5–7 business days"
-    elif sla and hasattr(sla, "strftime"):
-        est_res = sla.strftime("%d %b %Y")
-    else:
-        days    = PRIORITY_DAYS.get(priority, 5)
-        est_res = f"{days}–{days + 2} business days"
-
-    status = c.get("status", "Dispute Received")
-    if status in ("Resolved", "Rejected", "Closed"):
-        est_res = "Case closed"
-
-    # Build document_requests list with IDs for upload fulfillment
     doc_request_items = []
+
     try:
         db_reqs_full = (
             db.query(DocumentRequest)
@@ -303,6 +249,34 @@ def track_dispute(case_id: str, db: Session = Depends(get_db)):
             })
     except Exception:
         pass
+
+    if doc_request_items:
+        required_docs  = [r["document_type"] for r in doc_request_items]
+        pending_docs   = [r["document_type"] for r in doc_request_items if not r["fulfilled"]]
+        received_count = sum(1 for r in doc_request_items if r["fulfilled"])
+
+    # doc_requested: true whenever analyst has created requests OR case is Pending Documents
+    status = c.get("status", "Dispute Received")
+    doc_requested = bool(doc_request_items) or status == "Pending Documents"
+
+    # ── Estimated resolution ──────────────────────────────────────────────────
+    from datetime import datetime, timedelta, timezone as _tz
+    PRIORITY_DAYS = {"CRITICAL": 2, "HIGH": 3, "MEDIUM": 5, "LOW": 7}
+    priority = c.get("priority", "MEDIUM") or "MEDIUM"
+    sla = c.get("sla_deadline")
+    est_res = f"{PRIORITY_DAYS.get(priority, 5)}–{PRIORITY_DAYS.get(priority, 5) + 2} business days"
+    if sla:
+        try:
+            sla_str = sla if isinstance(sla, str) else sla.isoformat()
+            sla_dt  = datetime.fromisoformat(sla_str.replace("Z", "+00:00"))
+            if sla_dt > datetime.now(_tz.utc):
+                est_res = sla_dt.strftime("%d %b %Y")
+            # else: SLA is past → fall through to default days estimate
+        except Exception:
+            pass
+
+    if status in ("Resolved", "Rejected", "Closed"):
+        est_res = "Case closed"
 
     return {
         "case_id":            case_id.upper(),
