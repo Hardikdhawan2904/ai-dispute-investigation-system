@@ -56,10 +56,20 @@ def create_request(
     db.commit()
     db.refresh(dr)
 
-    # Trigger CCA communication for DOCUMENT_REQUESTED
+    # Trigger DOCUMENT_REQUESTED email listing all unfulfilled docs for this case
     try:
         from services.communication_service import trigger_communication_async
-        trigger_communication_async(case_id, "DOCUMENT_REQUESTED", context={"requested_documents": [document_type]})
+        pending_docs = [
+            r.document_type
+            for r in db.query(DocumentRequest)
+            .filter(DocumentRequest.case_id == case_id, DocumentRequest.fulfilled == False)
+            .all()
+        ]
+        trigger_communication_async(
+            case_id=case_id,
+            notification_type="DOCUMENT_REQUESTED",
+            context={"requested_documents": pending_docs, "_skip_dedup": True},
+        )
     except Exception:
         pass
 

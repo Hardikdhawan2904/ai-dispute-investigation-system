@@ -284,6 +284,26 @@ def track_dispute(case_id: str, db: Session = Depends(get_db)):
     if status in ("Resolved", "Rejected", "Closed"):
         est_res = "Case closed"
 
+    # Build document_requests list with IDs for upload fulfillment
+    doc_request_items = []
+    try:
+        db_reqs_full = (
+            db.query(DocumentRequest)
+            .filter(DocumentRequest.case_id == case_id.upper())
+            .order_by(DocumentRequest.created_at)
+            .all()
+        )
+        for dr in db_reqs_full:
+            doc_request_items.append({
+                "id":            dr.id,
+                "document_type": dr.document_type,
+                "description":   dr.description or "",
+                "fulfilled":     bool(dr.fulfilled_at),
+                "due_date":      dr.due_date.isoformat() if dr.due_date else None,
+            })
+    except Exception:
+        pass
+
     return {
         "case_id":            case_id.upper(),
         "status":             status,
@@ -299,8 +319,68 @@ def track_dispute(case_id: str, db: Session = Depends(get_db)):
         "required_documents": required_docs,
         "pending_documents":  pending_docs,
         "documents_received": received_count,
+        "document_requests":  doc_request_items,
         "timeline":           timeline,
     }
+
+
+@router.post("/{case_id}/upload-documents", status_code=status.HTTP_200_OK)
+async def upload_customer_documents(
+    case_id: str,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Customer uploads additional documents for a pending case.
+    Saves files to uploads/{case_id}/, marks matching document requests fulfilled.
+    """
+    from database.models import DisputeCase, DocumentRequest, AuditLog
+    from utils.extractor import extract_text
+
+    case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id.upper()).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    upload_dir = _UPLOAD_ROOT / case_id.upper()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    saved = []
+    for file in files:
+        ext = Path(file.filename or "").suffix.lower()
+        if ext not in _ALLOWED_EXTENSIONS:
+            continue
+        content = await file.read()
+        if len(content) > _MAX_FILE_BYTES:
+            continue
+        safe_name = Path(file.filename).name
+        dest = upload_dir / safe_name
+        dest.write_bytes(content)
+        saved.append(safe_name)
+
+        # Mark the oldest unfulfilled document request as fulfilled
+        pending_req = (
+            db.query(DocumentRequest)
+            .filter(DocumentRequest.case_id == case_id.upper(), DocumentRequest.fulfilled == False)
+            .order_by(DocumentRequest.created_at)
+            .first()
+        )
+        if pending_req:
+            from datetime import datetime, timezone
+            pending_req.fulfilled    = True
+            pending_req.fulfilled_at = datetime.now(timezone.utc)
+
+    if saved:
+        db.add(AuditLog(
+            case_id    = case_id.upper(),
+            event_type = "DOCUMENT_UPLOADED",
+            stage      = "customer_action",
+            actor      = "customer",
+            message    = f"Customer uploaded {len(saved)} document(s): {', '.join(saved)}",
+            payload    = {"files": saved},
+        ))
+        db.commit()
+
+    return {"case_id": case_id.upper(), "uploaded": saved, "count": len(saved)}
 
 
 @router.get("/cases", response_model=CasesListResponse)

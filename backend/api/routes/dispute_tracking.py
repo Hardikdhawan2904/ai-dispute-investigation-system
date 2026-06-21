@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from database.database import get_db, SessionLocal
-from database.models import DisputeCase, AuditLog
+from database.models import DisputeCase, AuditLog, DocumentRequest
 from schemas.customer_tracking import (
     CustomerTrackingResponse,
     build_tracking_response,
@@ -54,7 +54,14 @@ def track_dispute(case_id: str, db: Session = Depends(get_db)):
         .all()
     )
 
-    return build_tracking_response(case, audit_logs)
+    doc_requests = (
+        db.query(DocumentRequest)
+        .filter(DocumentRequest.case_id == case_id)
+        .order_by(DocumentRequest.created_at.asc())
+        .all()
+    )
+
+    return build_tracking_response(case, audit_logs, doc_requests)
 
 
 # ── SSE streaming endpoint ─────────────────────────────────────────────────────

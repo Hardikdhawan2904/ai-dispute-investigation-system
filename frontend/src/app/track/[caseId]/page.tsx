@@ -10,6 +10,14 @@ interface TimelineEvent {
   timestamp: string | null;
 }
 
+interface DocumentRequestItem {
+  id: number;
+  document_type: string;
+  description: string;
+  fulfilled: boolean;
+  due_date: string | null;
+}
+
 interface TrackingData {
   case_id: string;
   status: string;
@@ -25,6 +33,7 @@ interface TrackingData {
   required_documents: string[];
   pending_documents: string[];
   documents_received: number;
+  document_requests: DocumentRequestItem[];
   timeline: TimelineEvent[];
 }
 
@@ -62,13 +71,16 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function TrackDisputePage() {
   const { caseId } = useParams<{ caseId: string }>();
-  const [data, setData]         = useState<TrackingData | null>(null);
-  const [comms, setComms]       = useState<CommLog[]>([]);
-  const [expanded, setExpanded] = useState<number | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<string | null>(null);
+  const [data, setData]           = useState<TrackingData | null>(null);
+  const [comms, setComms]         = useState<CommLog[]>([]);
+  const [expanded, setExpanded]   = useState<number | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadDone, setUploadDone] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchData = () => {
     if (!caseId) return;
     Promise.all([
       fetch(`${API_BASE}/api/disputes/track/${caseId}`).then(r => {
@@ -83,7 +95,31 @@ export default function TrackDisputePage() {
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [caseId]);
+  };
+
+  useEffect(() => { fetchData(); }, [caseId]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    setUploadError(null);
+    setUploadDone(false);
+    try {
+      const formData = new FormData();
+      Array.from(files).forEach(f => formData.append("files", f));
+      const res = await fetch(`${API_BASE}/api/disputes/${caseId}/upload-documents`, {
+        method: "POST", body: formData,
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      setUploadDone(true);
+      setTimeout(() => { fetchData(); setUploadDone(false); }, 1500);
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const statusColor = data ? (STATUS_COLOR[data.status] || "#64748B") : "#64748B";
 
@@ -185,23 +221,78 @@ export default function TrackDisputePage() {
           </div>
         )}
 
-        {/* Documents */}
-        {data.document_requested && data.pending_documents.length > 0 && (
+        {/* Documents Required + Upload */}
+        {data.document_requested && data.document_requests && data.document_requests.length > 0 && (
           <div style={{ backgroundColor: "#1C1209", border: "1px solid #92400E", borderRadius: 8, padding: "1.25rem 1.5rem", marginBottom: "1rem" }}>
-            <div style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#D97706", marginBottom: "0.875rem" }}>
-              ⚠ Documents Required
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.875rem" }}>
+              <div style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#D97706" }}>
+                ⚠ Documents Required
+              </div>
+              <div style={{ fontSize: "0.65rem", color: "#64748B" }}>
+                {data.documents_received} of {data.document_requests.length} received
+              </div>
             </div>
-            <div style={{ fontSize: "0.78rem", color: "#CBD5E1", marginBottom: "0.75rem" }}>
-              Please submit the following documents to proceed with your dispute:
+
+            <div style={{ fontSize: "0.75rem", color: "#CBD5E1", marginBottom: "1rem" }}>
+              Please upload the following documents to proceed with your dispute:
             </div>
-            <ul style={{ margin: 0, paddingLeft: "1.25rem", display: "flex", flexDirection: "column", gap: "0.375rem" }}>
-              {data.pending_documents.map((doc, i) => (
-                <li key={i} style={{ fontSize: "0.78rem", color: "#FCD34D" }}>{doc}</li>
+
+            {/* Document list */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1.25rem" }}>
+              {data.document_requests.map((doc) => (
+                <div key={doc.id} style={{
+                  display: "flex", alignItems: "center", gap: "0.625rem",
+                  padding: "0.625rem 0.875rem",
+                  backgroundColor: doc.fulfilled ? "#0D2414" : "#1C1209",
+                  border: `1px solid ${doc.fulfilled ? "#166534" : "#78350F"}`,
+                  borderRadius: 6,
+                }}>
+                  <span style={{ fontSize: "1rem", flexShrink: 0 }}>{doc.fulfilled ? "✅" : "📄"}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "0.78rem", fontWeight: 600, color: doc.fulfilled ? "#4ADE80" : "#FCD34D" }}>
+                      {doc.document_type}
+                    </div>
+                    {doc.description && (
+                      <div style={{ fontSize: "0.65rem", color: "#64748B", marginTop: 2 }}>{doc.description}</div>
+                    )}
+                  </div>
+                  <span style={{ fontSize: "0.65rem", fontWeight: 600, color: doc.fulfilled ? "#4ADE80" : "#F59E0B" }}>
+                    {doc.fulfilled ? "RECEIVED" : "PENDING"}
+                  </span>
+                </div>
               ))}
-            </ul>
-            <div style={{ marginTop: "0.875rem", fontSize: "0.7rem", color: "#64748B" }}>
-              Documents received so far: {data.documents_received} of {data.required_documents.length}
             </div>
+
+            {/* Upload section */}
+            {data.pending_documents.length > 0 && (
+              <div style={{ borderTop: "1px solid #78350F", paddingTop: "1rem" }}>
+                <div style={{ fontSize: "0.72rem", color: "#94A3B8", marginBottom: "0.625rem" }}>
+                  Upload your documents (PDF, JPG, PNG — max 10MB each):
+                </div>
+                <label style={{
+                  display: "inline-flex", alignItems: "center", gap: "0.5rem",
+                  padding: "0.625rem 1.25rem",
+                  backgroundColor: uploading ? "#1E293B" : "#1a5f9e",
+                  color: "#fff", borderRadius: 6,
+                  fontSize: "0.78rem", fontWeight: 600,
+                  cursor: uploading ? "not-allowed" : "pointer",
+                }}>
+                  {uploading ? "⏳ Uploading…" : uploadDone ? "✅ Uploaded!" : "📎 Upload Documents"}
+                  <input
+                    type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.xlsx,.csv"
+                    style={{ display: "none" }}
+                    disabled={uploading}
+                    onChange={handleUpload}
+                  />
+                </label>
+                {uploadError && (
+                  <div style={{ marginTop: "0.5rem", fontSize: "0.7rem", color: "#F87171" }}>{uploadError}</div>
+                )}
+                <div style={{ marginTop: "0.5rem", fontSize: "0.65rem", color: "#64748B" }}>
+                  Accepted: PDF, JPG, PNG, XLSX, CSV
+                </div>
+              </div>
+            )}
           </div>
         )}
 

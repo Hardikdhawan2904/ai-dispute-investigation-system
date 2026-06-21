@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from pydantic import BaseModel
 
-from database.models import DisputeCase, AuditLog
+from database.models import DisputeCase, AuditLog, DocumentRequest
 from schemas.customer_schemas import CUSTOMER_STATUS_MAP
 from services.document_rules import get_customer_required_documents
 
@@ -71,6 +71,14 @@ class TimelineEvent(BaseModel):
     timestamp: Optional[str] = None
 
 
+class DocumentRequestItem(BaseModel):
+    id:            int
+    document_type: str
+    description:   Optional[str] = None
+    fulfilled:     bool = False
+    due_date:      Optional[str] = None
+
+
 class CustomerTrackingResponse(BaseModel):
     case_id:              str
     status:               str           # customer-friendly label
@@ -86,6 +94,7 @@ class CustomerTrackingResponse(BaseModel):
     required_documents:   List[str] = []   # all customer-required docs
     pending_documents:    List[str] = []   # only the ones not yet received
     documents_received:   int = 0
+    document_requests:    List[DocumentRequestItem] = []   # actual analyst requests
     timeline:             List[TimelineEvent]
 
 
@@ -94,6 +103,7 @@ class CustomerTrackingResponse(BaseModel):
 def build_tracking_response(
     case: DisputeCase,
     audit_logs: List[AuditLog],
+    document_requests: List[DocumentRequest] | None = None,
 ) -> dict:
     """
     Build a customer-safe tracking payload from a DisputeCase and its audit logs.
@@ -145,6 +155,25 @@ def build_tracking_response(
     # know which specific files map to which document type).
     pending_docs = required_docs[docs_received:]
 
+    # Build actual document request items from analyst requests (source of truth)
+    doc_request_items: List[DocumentRequestItem] = []
+    if document_requests:
+        for dr in document_requests:
+            doc_request_items.append(DocumentRequestItem(
+                id            = dr.id,
+                document_type = dr.document_type,
+                description   = dr.description or "",
+                fulfilled     = bool(dr.fulfilled),
+                due_date      = _utc_iso(dr.due_date) if dr.due_date else None,
+            ))
+
+    # If analyst has created document requests, use those as the canonical list
+    if doc_request_items:
+        required_docs  = [r.document_type for r in doc_request_items]
+        pending_docs   = [r.document_type for r in doc_request_items if not r.fulfilled]
+        docs_received  = sum(1 for r in doc_request_items if r.fulfilled)
+        doc_requested  = len(pending_docs) > 0
+
     return CustomerTrackingResponse(
         case_id              = case.case_id,
         status               = customer_status,
@@ -160,5 +189,6 @@ def build_tracking_response(
         required_documents   = required_docs,
         pending_documents    = pending_docs,
         documents_received   = docs_received,
+        document_requests    = doc_request_items,
         timeline             = timeline,
     ).model_dump()
