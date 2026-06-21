@@ -742,5 +742,6 @@ Action:
 | **WOA** | Orchestration | agent | 6 | workflow_plan, assigned_analyst |
 | **FRIA** | Fraud patterns | validate | 6 | fraud_probability, risk_level |
 | **EIA** | Evidence check | agent | 5 | evidence_assessment, gaps |
+| **CCA** | Customer notification | validate | 0 (SMTP) | subject, body, status, sent_at |
 
 

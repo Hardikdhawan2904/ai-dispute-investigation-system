@@ -18,6 +18,7 @@
 | **Agent 3: WOA** | Orchestration Workflow Agent — case routing | [agents/orchestration_agent/README.md](agents/orchestration_agent/README.md) |
 | **Agent 4: FRIA** | Fraud Reasoning Agent — pattern analysis | [agents/fraud_reasoning_agent/README.md](agents/fraud_reasoning_agent/README.md) |
 | **Agent 5: EIA** | Evidence Intelligence Agent — document verification | [agents/evidence_agent/README.md](agents/evidence_agent/README.md) |
+| **Agent 6: CCA** | Customer Communication Agent — customer notification | [agents/communication_agent/README.md](agents/communication_agent/README.md) |
 
 ---
 
@@ -121,6 +122,20 @@
 
 **Quick Start**: [Read EIA README](agents/evidence_agent/README.md)
 
+---
+
+### Agent 6: CCA - Customer Communication Agent
+**Role**: Customer-facing notification delivery  
+**Input**: Event updates, status updates, dynamic context (e.g., requested documents list)  
+**Output**: Email subject line, HTML-styled email body, delivery logs  
+**Tools**: 
+- `send_email` — Outlook SMTP/TLS delivery service
+**Key Metrics**:
+- Successful deliveries (SENT / FAILED)
+- Latency (intake to send time)
+- Communication event tracking
+
+**Quick Start**: [Read CCA README](agents/communication_agent/README.md)
 
 ---
 

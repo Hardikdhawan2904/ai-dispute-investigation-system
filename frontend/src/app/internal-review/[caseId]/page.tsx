@@ -87,9 +87,9 @@ function InfoRow({ label, value, mono = false }: { label: string; value?: string
 }
 
 
-function Panel({ children, style, className }: { children: React.ReactNode; style?: React.CSSProperties; className?: string }) {
+function Panel({ children, style, className, onClick }: { children: React.ReactNode; style?: React.CSSProperties; className?: string; onClick?: () => void }) {
   return (
-    <div style={style} className={cn("ops-panel p-4", className)}>
+    <div style={style} className={cn("ops-panel p-4", className)} onClick={onClick}>
       {children}
     </div>
   );

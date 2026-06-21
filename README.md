@@ -1,6 +1,6 @@
 # AI Dispute Resolution System
 
-Enterprise-grade, multi-agent platform for banking transaction dispute resolution. Built for BFSI operations teams — automates dispute intake, fraud detection, evidence verification, investigation planning, and case routing through a cooperative pipeline of 5 specialized AI agents.
+Enterprise-grade, multi-agent platform for banking transaction dispute resolution. Built for BFSI operations teams — automates dispute intake, fraud detection, evidence verification, investigation planning, and case routing through a cooperative pipeline of 6 specialized AI agents.
 
 ---
 
@@ -28,6 +28,11 @@ graph TD
     K --> L[(PostgreSQL Database)]
     L --> M([Ops Review Portal])
 
+    %% CCA triggers asynchronously on lifecycle events
+    E -. "Async Event" .-> N["Agent 6 · CCA\nCustomer Communication Agent"]
+    L -. "Status/Analyst Action" .-> N
+    N --> O([Email Notification])
+
     style A fill:#1E293B,stroke:#334155,color:#F8FAFC
     style Z fill:#1E293B,stroke:#334155,color:#F8FAFC
     style M fill:#1E293B,stroke:#334155,color:#F8FAFC
@@ -42,6 +47,8 @@ graph TD
     style J fill:#0F172A,stroke:#059669,color:#6EE7B7
     style K fill:#0F172A,stroke:#334155,color:#94A3B8
     style L fill:#0F172A,stroke:#0EA5E9,color:#7DD3FC
+    style N fill:#0F172A,stroke:#EA580C,color:#FFEDD5
+    style O fill:#1E293B,stroke:#334155,color:#F8FAFC
 ```
 
 **WOA is the single source of truth.** It decides which specialist agents run based on dispute category, fraud signals, and evidence gaps. Specialist agents only execute when WOA explicitly routes to them.
@@ -141,6 +148,19 @@ Acts as the workflow controller. Runs after Agent 2, before any specialist agent
 
 ---
 
+### Agent 6 — CCA (Customer Communication Agent)
+
+Generates clear, reassuring, and professional HTML email notifications for dispute lifecycle events. Sits in parallel to react to workflow milestones and analyst actions, ensuring no AI metrics or internal risk scores leak to the customer.
+
+**Nodes (linear flow):**
+- `validate` — verifies inputs, resolves recipient email address, stamps time
+- `generate` — constructs email subject and HTML body using safe design templates
+- `deliver` — delivers the notification via SMTP TLS and logs to the database
+
+**Outputs:** `recipient`, `subject`, `body`, `status` (`SENT`/`FAILED`), `sent_at`
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -188,7 +208,8 @@ ai-dispute-resolution-system/
 │   │   ├── investigation_agent/    # Agent 2 — IIA
 │   │   ├── fraud_reasoning_agent/  # Agent 3 — FRIA
 │   │   ├── evidence_agent/         # Agent 4 — EIA
-│   │   └── orchestration_agent/    # Agent 5 — WOA
+│   │   ├── orchestration_agent/    # Agent 5 — WOA
+│   │   └── communication_agent/    # Agent 6 — CCA
 │   ├── api/
 │   │   ├── main.py                 # FastAPI entry point
 │   │   └── routes/                 # disputes, auth, ops, queues, analytics
@@ -302,6 +323,7 @@ Frontend available at `http://localhost:3000`
 | Case Coordination | Always | WOA workflow path, agent progression, SLA |
 | Evidence | Always | Uploaded files |
 | Audit Trail | Always | Full immutable event log |
+| Communications | Always | Real-time and historical customer email notifications |
 | Advanced Diagnostics | Always (hidden by default) | LangGraph execution trace |
 
 ---
@@ -317,6 +339,8 @@ POST   /api/disputes/cases/{case_id}/documents  Upload evidence files
 GET    /api/disputes/stats                  Dashboard stats
 GET    /api/disputes/audit-logs             Global audit log
 GET    /api/disputes/document-requirements  Required docs for a dispute type
+GET    /api/communications/{case_id}        Get case communications
+POST   /api/communications/{case_id}/send   Manually send update to customer
 WS     /ws                                  Real-time case updates
 ```
 
