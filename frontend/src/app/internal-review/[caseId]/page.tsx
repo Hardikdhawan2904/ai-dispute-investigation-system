@@ -1708,10 +1708,18 @@ export default function CaseWorkspace() {
                           To: {comm.recipient} &nbsp;·&nbsp; {comm.sent_at ? new Date(comm.sent_at).toLocaleString() : comm.created_at ? new Date(comm.created_at).toLocaleString() : "—"}
                         </div>
                       </div>
-                      {/* Email body — always shown, rendered as HTML */}
-                      <div
-                        style={{ padding: "0", backgroundColor: "#fff", fontSize: "0.8rem" }}
-                        dangerouslySetInnerHTML={{ __html: comm.body }}
+                      {/* Email body — rendered in sandboxed iframe for proper HTML isolation */}
+                      <iframe
+                        srcDoc={comm.body}
+                        sandbox="allow-same-origin"
+                        style={{ width: "100%", minHeight: 420, border: "none", display: "block", backgroundColor: "#fff" }}
+                        onLoad={(e) => {
+                          const iframe = e.currentTarget;
+                          try {
+                            const h = iframe.contentDocument?.documentElement?.scrollHeight;
+                            if (h && h > 0) iframe.style.height = h + "px";
+                          } catch {}
+                        }}
                       />
                     </Panel>
                   ))}
