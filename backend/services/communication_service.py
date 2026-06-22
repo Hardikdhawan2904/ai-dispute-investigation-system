@@ -37,7 +37,7 @@ def trigger_communication(
 
         # Deduplicate: one-shot types fire at most once per case (any status).
         # Manual sends via the API endpoint pass skip_dedup=True to override this.
-        _ONE_SHOT_TYPES = {"CASE_RECEIVED", "CASE_RESOLVED"}
+        _ONE_SHOT_TYPES = {"CASE_RECEIVED", "CASE_RESOLVED", "INVESTIGATION_STARTED"}
         skip_dedup = (context or {}).get("_skip_dedup", False)
         if notification_type in _ONE_SHOT_TYPES and not skip_dedup:
             already = (
