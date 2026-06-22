@@ -112,6 +112,16 @@ a brief explanation of what this status means for the customer,
 and the tracking link: {tracking_link}
 """,
     },
+    "DOCUMENTS_RECEIVED": {
+        "subject_template": "{case_id} | Documents Received",
+        "instruction": """
+Generate a confirmation email informing the customer that their uploaded documents have been received.
+Include: Case Reference ({case_id}),
+confirmation that the documents have been successfully received and added to their case,
+a note that the documents will be reviewed by the team shortly,
+and the tracking link: {tracking_link}
+""",
+    },
 }
 
 
@@ -206,10 +216,20 @@ def build_html_email(
             "Thank you for your patience throughout this process. We value your trust in SecureBank and are committed to providing you with the highest level of service.",
         ]
 
+    elif notification_type == "DOCUMENTS_RECEIVED":
+        badge      = ("#F0FDF4", "#16A34A", "DOCUMENTS RECEIVED")
+        headline   = "We have received your documents"
+        paragraphs = [
+            f"Dear {name},",
+            "Thank you for submitting your documents. We have successfully received and attached them to your dispute case.",
+            "Our team will review the submitted documents and you will be notified of any further updates. "
+            "No additional action is required from you at this time.",
+        ]
+
     else:  # STATUS_CHANGED / fallback
         new_status = ctx.get("new_status", case_data.get("status", "Under Review"))
         badge      = ("#F1F5F9", "#475569", "STATUS UPDATE")
-        headline   = f"Your dispute status has been updated"
+        headline   = "Your dispute status has been updated"
         paragraphs = [
             f"Dear {name},",
             f"We would like to inform you that the status of your dispute case has been updated to "

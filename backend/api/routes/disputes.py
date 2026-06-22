@@ -381,6 +381,16 @@ async def upload_customer_documents(
         ))
         db.commit()
 
+        # CCA — confirm receipt to the customer
+        try:
+            from services.communication_service import trigger_communication_async
+            trigger_communication_async(
+                case_id.upper(), "DOCUMENTS_RECEIVED",
+                context={"files": saved, "_skip_dedup": True},
+            )
+        except Exception:
+            pass
+
     return {"case_id": case_id.upper(), "uploaded": saved, "count": len(saved)}
 
 

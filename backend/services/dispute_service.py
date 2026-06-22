@@ -448,20 +448,28 @@ class DisputeService:
         db.commit()
         db.refresh(case)
 
-        # CCA — notify customer of status change
+        # CCA — only fire for major customer-visible stage transitions.
+        # Skip if status hasn't actually changed, or if it's an internal-only transition.
+        _MAJOR_CUSTOMER_STAGES = {
+            "Dispute Raised", "Under Investigation", "Pending Documents",
+            "Escalated", "Resolved", "Rejected", "Closed",
+        }
         try:
-            _STATUS_COMM_MAP = {
-                "Under Investigation": "INVESTIGATION_STARTED",
-                "Pending Documents":   "DOCUMENT_REQUESTED",
-                "Resolved":            "CASE_RESOLVED",
-                "Rejected":            "CASE_RESOLVED",
-                "Closed":              "CASE_RESOLVED",
-            }
-            comm_type = _STATUS_COMM_MAP.get(new_status, "STATUS_CHANGED")
-            context = {"new_status": new_status, "resolution_status": new_status}
-            if note:
-                context["resolution_summary"] = note
-            trigger_communication_async(case_id, comm_type, context=context)
+            if new_status != old_status and new_status in _MAJOR_CUSTOMER_STAGES:
+                _STATUS_COMM_MAP = {
+                    "Under Investigation": "INVESTIGATION_STARTED",
+                    "Pending Documents":   "DOCUMENT_REQUESTED",
+                    "Resolved":            "CASE_RESOLVED",
+                    "Rejected":            "CASE_RESOLVED",
+                    "Closed":              "CASE_RESOLVED",
+                    "Escalated":           "STATUS_CHANGED",
+                    "Dispute Raised":      "STATUS_CHANGED",
+                }
+                comm_type = _STATUS_COMM_MAP.get(new_status, "STATUS_CHANGED")
+                context = {"new_status": new_status, "resolution_status": new_status}
+                if note:
+                    context["resolution_summary"] = note
+                trigger_communication_async(case_id, comm_type, context=context)
         except Exception:
             pass
 
