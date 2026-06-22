@@ -1685,42 +1685,34 @@ export default function CaseWorkspace() {
                   <div style={{ fontSize: "0.8rem", color: "#64748B" }}>No communications sent yet.</div>
                 </Panel>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                   {communications.map((comm) => (
-                    <Panel key={comm.id} style={{ padding: "0.75rem 1rem", cursor: "pointer" }} onClick={() => setExpandedComm(expandedComm === comm.id ? null : comm.id)}>
-                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem" }}>
+                    <Panel key={comm.id} style={{ padding: 0, overflow: "hidden" }}>
+                      {/* Header row */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.625rem 1rem", borderBottom: "1px solid #1E293B", backgroundColor: "#0F172A" }}>
+                        <span style={{ fontSize: "0.62rem", fontWeight: 700, padding: "2px 7px", borderRadius: 3, backgroundColor: "#0F172A", color: "#94A3B8", border: "1px solid #334155", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
+                          {comm.notification_type.replace(/_/g, " ")}
+                        </span>
+                        <span style={{
+                          fontSize: "0.6rem", fontWeight: 600, padding: "2px 7px", borderRadius: 3,
+                          backgroundColor: comm.status === "SENT" ? "#14532D" : comm.status === "FAILED" ? "#450A0A" : "#1C1209",
+                          color:           comm.status === "SENT" ? "#4ADE80" : comm.status === "FAILED" ? "#FCA5A5" : "#FCD34D",
+                          border: `1px solid ${comm.status === "SENT" ? "#166534" : comm.status === "FAILED" ? "#7F1D1D" : "#3D2E00"}`,
+                        }}>
+                          {comm.status}
+                        </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: 3 }}>
-                            <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "1px 6px", borderRadius: 3, backgroundColor: "#0F172A", color: "#94A3B8", border: "1px solid #334155", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
-                              {comm.notification_type.replace(/_/g, " ")}
-                            </span>
-                            <span style={{
-                              fontSize: "0.6rem", fontWeight: 600, padding: "1px 6px", borderRadius: 3,
-                              backgroundColor: comm.status === "SENT" ? "#14532D" : comm.status === "FAILED" ? "#450A0A" : "#1C1209",
-                              color:           comm.status === "SENT" ? "#4ADE80" : comm.status === "FAILED" ? "#FCA5A5" : "#FCD34D",
-                              border: `1px solid ${comm.status === "SENT" ? "#166534" : comm.status === "FAILED" ? "#7F1D1D" : "#3D2E00"}`,
-                            }}>
-                              {comm.status}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#F8FAFC", marginBottom: 2 }}>{comm.subject}</div>
-                          <div style={{ fontSize: "0.68rem", color: "#64748B" }}>
-                            To: {comm.recipient} &nbsp;·&nbsp; {comm.sent_at ? new Date(comm.sent_at).toLocaleString() : comm.created_at ? new Date(comm.created_at).toLocaleString() : "—"}
-                          </div>
-                          {expandedComm !== comm.id && (
-                            <div style={{ fontSize: "0.68rem", color: "#94A3B8", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "600px" }}>
-                              {comm.body.replace(/<[^>]+>/g, " ").substring(0, 120)}…
-                            </div>
-                          )}
+                          <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "#F8FAFC" }}>{comm.subject}</span>
                         </div>
-                        <span style={{ fontSize: "0.65rem", color: "#475569", flexShrink: 0 }}>{expandedComm === comm.id ? "▲" : "▼"}</span>
+                        <div style={{ fontSize: "0.62rem", color: "#475569", whiteSpace: "nowrap", flexShrink: 0 }}>
+                          To: {comm.recipient} &nbsp;·&nbsp; {comm.sent_at ? new Date(comm.sent_at).toLocaleString() : comm.created_at ? new Date(comm.created_at).toLocaleString() : "—"}
+                        </div>
                       </div>
-                      {expandedComm === comm.id && (
-                        <div
-                          style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid #334155", fontSize: "0.75rem" }}
-                          dangerouslySetInnerHTML={{ __html: comm.body }}
-                        />
-                      )}
+                      {/* Email body — always shown, rendered as HTML */}
+                      <div
+                        style={{ padding: "0", backgroundColor: "#fff", fontSize: "0.8rem" }}
+                        dangerouslySetInnerHTML={{ __html: comm.body }}
+                      />
                     </Panel>
                   ))}
                 </div>
