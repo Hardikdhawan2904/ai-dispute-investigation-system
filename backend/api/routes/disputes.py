@@ -256,30 +256,35 @@ def track_dispute(case_id: str, db: Session = Depends(get_db)):
 
     status = c.get("status", "Dispute Raised")
 
-    # If analyst has created requests, use those. Otherwise fall back to evidence_assessment.
-    if doc_request_items:
-        required_docs  = [r["document_type"] for r in doc_request_items]
-        pending_docs   = [r["document_type"] for r in doc_request_items if not r["fulfilled"]]
-        received_count = sum(1 for r in doc_request_items if r["fulfilled"])
-    else:
-        # Pull missing_documents from evidence_assessment (set by EIA)
-        ev = c.get("evidence_assessment") or {}
-        ea_missing = ev.get("missing_documents") or []
-        if ea_missing:
-            required_docs  = ea_missing
-            pending_docs   = ea_missing   # none received yet — no uploads logged
-            received_count = 0
-            # Synthesise virtual doc_request_items so the frontend renders them
-            for idx, doc_type in enumerate(ea_missing):
-                doc_request_items.append({
-                    "id":            -(idx + 1),   # negative = virtual (not in DB)
-                    "document_type": doc_type,
-                    "description":   "",
-                    "fulfilled":     False,
-                    "due_date":      None,
-                })
+    # Always use evidence_assessment.missing_documents as the canonical list.
+    # Overlay analyst document_request fulfillment status on top.
+    ev = c.get("evidence_assessment") or {}
+    ea_missing: list[str] = ev.get("missing_documents") or []
 
-    doc_requested = bool(doc_request_items) or status == "Pending Documents"
+    # Index analyst requests by document_type for fast lookup
+    analyst_by_type: dict[str, dict] = {r["document_type"]: r for r in doc_request_items}
+
+    # Build the merged list: evidence docs + fulfillment from analyst requests
+    merged_items: list[dict] = []
+    if ea_missing:
+        for idx, doc_type in enumerate(ea_missing):
+            analyst = analyst_by_type.get(doc_type)
+            merged_items.append({
+                "id":            analyst["id"] if analyst else -(idx + 1),
+                "document_type": doc_type,
+                "description":   analyst["description"] if analyst else "",
+                "fulfilled":     analyst["fulfilled"] if analyst else False,
+                "due_date":      analyst["due_date"] if analyst else None,
+            })
+    else:
+        # No evidence assessment — fall back to raw analyst requests
+        merged_items = doc_request_items
+
+    doc_request_items = merged_items
+    required_docs  = [r["document_type"] for r in doc_request_items]
+    pending_docs   = [r["document_type"] for r in doc_request_items if not r["fulfilled"]]
+    received_count = sum(1 for r in doc_request_items if r["fulfilled"])
+    doc_requested  = bool(pending_docs) or status == "Pending Documents"
 
     # ── Estimated resolution ──────────────────────────────────────────────────
     from datetime import datetime, timedelta, timezone as _tz
