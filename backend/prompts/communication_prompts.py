@@ -246,12 +246,11 @@ def build_html_email(
 
       <!-- Header -->
       <tr>
-        <td style="background:linear-gradient(135deg,#0F2A4A 0%,#1a4a7a 100%);padding:32px 40px;">
+        <td style="background:linear-gradient(135deg,#0F2A4A 0%,#1a4a7a 100%);padding:24px 40px;">
           <table width="100%" cellpadding="0" cellspacing="0">
             <tr>
               <td>
-                <div style="font-size:24px;font-weight:800;color:#ffffff;letter-spacing:0.5px;">SecureBank</div>
-                <div style="font-size:11px;color:#7FB3D3;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;">Dispute Resolution Centre</div>
+                <div style="font-size:11px;color:#7FB3D3;letter-spacing:1.5px;text-transform:uppercase;">Dispute Resolution Centre</div>
               </td>
               <td align="right">
                 <div style="font-size:11px;color:#7FB3D3;">Ref: {case_id}</div>

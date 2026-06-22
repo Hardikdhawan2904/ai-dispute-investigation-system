@@ -383,14 +383,6 @@ export default function TrackDisputePage() {
         )}
 
 
-        {/* Footer */}
-        <div style={{ textAlign: "center", marginTop: "2rem", fontSize: "0.62rem", color: "#334155" }}>
-          <div>SecureBank Dispute Resolution Centre</div>
-          <div style={{ marginTop: 4 }}>For assistance, contact us at 1800-XXX-XXXX (toll free)</div>
-          <a href="/track" style={{ display: "block", marginTop: "0.75rem", color: "#475569", textDecoration: "none" }}>
-            ← Track another dispute
-          </a>
-        </div>
 
       </div>
     </div>
