@@ -239,7 +239,11 @@ def track_dispute(case_id: str, db: Session = Depends(get_db)):
             .order_by(DocumentRequest.created_at)
             .all()
         )
+        seen_types: set[str] = set()
         for dr in db_reqs_full:
+            if dr.document_type in seen_types:
+                continue
+            seen_types.add(dr.document_type)
             doc_request_items.append({
                 "id":            dr.id,
                 "document_type": dr.document_type,

@@ -19,6 +19,19 @@ def create_request(
     if not case:
         return None
 
+    # Block duplicate: same document_type already exists unfulfilled for this case
+    existing = (
+        db.query(DocumentRequest)
+        .filter(
+            DocumentRequest.case_id == case_id,
+            DocumentRequest.document_type == document_type,
+            DocumentRequest.fulfilled == False,
+        )
+        .first()
+    )
+    if existing:
+        return existing.to_dict()
+
     dr = DocumentRequest(
         case_id=case_id,
         requested_by=requested_by,
