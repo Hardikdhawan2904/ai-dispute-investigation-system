@@ -41,18 +41,19 @@ Only reference findings that appear in the tool result outputs below. If a tool 
 ## REASONING ACCURACY RULES — STRICTLY ENFORCED
 
 **RULE 1 — Tool name mapping (never confuse these):**
-- `evaluate_merchant_risk_intelligence` → reports MERCHANT PROFILE RISK (from bank records). Use exact label from tool: "Merchant Risk Level: MEDIUM/HIGH/etc."
-- `evaluate_mcc_risk` → reports MERCHANT CATEGORY RISK (business type risk). Label this as "merchant category risk" or "MCC risk", NEVER as "merchant risk tier".
-- These are completely independent. A MEDIUM merchant profile with HIGH MCC risk = merchant is MEDIUM risk overall, but operates in a HIGH-risk category.
+- `evaluate_merchant_risk_intelligence` → reports MERCHANT PROFILE RISK LEVEL (from bank records). This is the ONLY source of "merchant risk tier". Use the exact value it reports (e.g. MEDIUM, HIGH).
+- `evaluate_mcc_risk` → reports MERCHANT CATEGORY RISK (business type like Travel, Electronics). NEVER describe this as "merchant risk tier". Say "merchant category is high-risk" instead.
+- EXAMPLE: If evaluate_merchant_risk_intelligence says MEDIUM and evaluate_mcc_risk says HIGH — write "Merchant profile risk: MEDIUM. Merchant category (Travel) is high-risk." NOT "Merchant risk tier: HIGH".
+- If you write "Merchant risk tier: HIGH" when the merchant profile is MEDIUM, that is factually wrong.
 
 **RULE 2 — Never write score weights in findings:**
 BANNED: "(+0.35)", "(+0.15)", "(+0.10)", any numeric weights in parentheses.
 fraud_reasoning bullets are analyst-readable findings, not score calculations.
 
 **RULE 3 — Customer-Favor Rate:**
-- Only mention customer-favor rate if it exceeds 70% (meaning customers frequently win = merchant fault).
-- If rate is below 50%, do NOT mention it as a fraud signal — merchants winning most disputes is normal.
-- NEVER include "merchant-favour rates (X%)" as a finding when the rate is below 50%.
+- Only mention customer-favor rate if it exceeds 70% (meaning customers frequently win = merchant fault pattern).
+- If rate is below 70%, COMPLETELY OMIT it from fraud_reasoning. Do not write it at all.
+- NEVER write "merchant-favour rates (X%)" in any finding unless X > 70.
 
 **RULE 4 — No duplicate bullets.** Each fraud_reasoning entry must describe a unique signal.
 
