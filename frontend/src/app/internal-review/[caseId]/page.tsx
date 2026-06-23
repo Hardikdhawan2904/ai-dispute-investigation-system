@@ -8,7 +8,7 @@ import {
   ArrowLeft, AlertTriangle, FileText, CheckCircle, Loader2,
   RefreshCw, X, ZoomIn, ChevronDown, ChevronUp,
 } from "lucide-react";
-import { cn, formatCurrency, formatDate, getPriorityColor, getConfidenceLabel } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, getPriorityColor } from "@/lib/utils";
 import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads, createDocumentRequest, getCommunications, sendCommunication } from "@/lib/api";
 import type { CommunicationLog } from "@/lib/api";
 import type { CaseUploadFile } from "@/lib/api";

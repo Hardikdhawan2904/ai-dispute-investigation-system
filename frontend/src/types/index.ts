@@ -373,55 +373,6 @@ export interface DocumentRequest {
   created_at: string;
 }
 
-export interface TimelineEntry {
-  id: string;
-  type: string;
-  label: string;
-  color: string;
-  icon: string;
-  actor: string;
-  actor_type: "system" | "analyst" | "customer";
-  message: string;
-  payload: Record<string, unknown>;
-  timestamp: string;
-  source: string;
-}
-
-export interface RiskIndicator {
-  tag: string;
-  explanation: string;
-}
-
-export interface QueueSummary {
-  queue: string;
-  display: string;
-  count: number;
-  critical: number;
-  sla_breached: number;
-}
-
-export interface OpsAnalytics {
-  total_cases: number;
-  open_cases: number;
-  fraud_cases: number;
-  critical_cases: number;
-  sla_breached_cases: number;
-  manual_review_cases: number;
-  resolved_cases: number;
-  resolution_rate: number;
-  new_cases_7d: number;
-  new_cases_30d: number;
-  avg_confidence_score: number;
-  by_queue: Record<string, number>;
-  by_status: Record<string, number>;
-  by_priority: Record<string, number>;
-  by_category: Record<string, number>;
-  // Agent 4 — EIA evidence metrics
-  evidence_reviews_pending?: number;
-  evidence_reviews_completed?: number;
-  blocked_investigations?: number;
-  avg_evidence_completeness?: number;
-}
 
 export interface DisputeSubmissionResponse {
   success: boolean;

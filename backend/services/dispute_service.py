@@ -19,8 +19,8 @@ from sqlalchemy import func, desc
 
 from workflows.dispute_workflow import run_dispute_workflow
 from database.models import DisputeCase, AuditLog, WorkflowState
-from utils.logger import api_logger, audit_logger, log_workflow_event
-from utils.helpers import utc_now_iso, generate_case_id
+from utils.logger import api_logger, audit_logger
+from utils.helpers import generate_case_id
 from services.priority_engine import compute_priority
 from services.sla_service import compute_sla_deadline
 from services.queue_assignment_service import assign_queue
