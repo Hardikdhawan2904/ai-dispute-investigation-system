@@ -1551,12 +1551,13 @@ export default function CaseWorkspace() {
                             try {
                               const docsToRequest = customerDocs.filter((d: string) => selectedDocs.has(d));
                               // Delete all existing unfulfilled requests first (clean slate)
-                              const existing = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/ops/cases/${caseData.case_id}/document-requests`);
+                              const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+                              const existing = await fetch(`${BASE}/api/ops/cases/${caseData.case_id}/document-requests`);
                               if (existing.ok) {
                                 const data = await existing.json();
                                 for (const req of (data.requests || [])) {
                                   if (!req.fulfilled) {
-                                    await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/ops/document-requests/${req.id}/delete`, { method: "DELETE" }).catch(() => {});
+                                    await fetch(`${BASE}/api/ops/cases/document-requests/${req.id}/delete`, { method: "DELETE" }).catch(() => {});
                                   }
                                 }
                               }
