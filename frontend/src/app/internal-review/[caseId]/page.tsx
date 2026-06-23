@@ -1284,34 +1284,13 @@ export default function CaseWorkspace() {
                 )}
 
                 {/* ── Section 1: Evidence Summary cards ── */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.5rem" }}>
                   <Panel>
                     <Label>Completeness</Label>
                     <div style={{ fontSize: "1.1rem", fontWeight: 700, color: completenessColor, fontFamily: "ui-monospace, monospace" }}>{ea.evidence_completeness ?? "—"}%</div>
                     <div style={{ marginTop: 4, height: 3, backgroundColor: "#334155", borderRadius: 2 }}>
                       <div style={{ height: "100%", width: `${ea.evidence_completeness ?? 0}%`, backgroundColor: completenessColor, borderRadius: 2 }} />
                     </div>
-                  </Panel>
-                  <Panel>
-                    <Label>Status</Label>
-                    {(() => {
-                      const realIssues = (ea.consistency_issues ?? []).filter(
-                        (i: string) => !i.toLowerCase().includes("not found")
-                      );
-                      const infoOnly = (ea.consistency_issues ?? []).length > 0 && realIssues.length === 0;
-                      return (
-                        <>
-                          <div style={{ fontSize: "0.85rem", fontWeight: 700, color: realIssues.length > 0 ? "#FCA5A5" : infoOnly ? "#FCD34D" : "#4ADE80" }}>
-                            {realIssues.length > 0 ? "Issues Found" : infoOnly ? "Unverified" : "Consistent"}
-                          </div>
-                          <div style={{ fontSize: "0.65rem", color: "#64748B", marginTop: 2 }}>
-                            {realIssues.length > 0
-                              ? `${realIssues.length} mismatch(es)`
-                              : infoOnly ? "Txn record not found" : "No issues"}
-                          </div>
-                        </>
-                      );
-                    })()}
                   </Panel>
                   <Panel>
                     <Label>Review Status</Label>
