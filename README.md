@@ -1,6 +1,6 @@
 # AI Dispute Resolution System
 
-Enterprise-grade, multi-agent platform for banking transaction dispute resolution. Built for BFSI operations teams — automates dispute intake, fraud detection, evidence verification, investigation planning, and customer communication through a cooperative pipeline of 6 specialized AI agents.
+Enterprise-grade, multi-agent banking fraud and dispute resolution platform. Built for BFSI operations teams — automates dispute intake, classification, investigation, fraud detection, evidence verification, orchestration, and customer communication through 6 specialized AI agents and 30 fraud intelligence tools.
 
 ---
 
@@ -18,8 +18,8 @@ graph TD
     E --> F["Agent 2 · IIA\nInvestigation Intelligence Agent"]
     F --> G["Agent 3 · WOA\nWorkflow Orchestration Agent\n─────────────────────────\nSingle source of truth for routing"]
 
-    G -- "workflow_path includes\nFRAUD_AGENT" --> H["Agent 4 · FRIA\nFraud Reasoning Agent\n─────────────────────────\n6 tools in parallel"]
-    G -- "workflow_path includes\nEVIDENCE_AGENT" --> I["Agent 5 · EIA\nEvidence Intelligence Agent\n─────────────────────────\n5 tools"]
+    G -- "FRAUD_AGENT" --> H["Agent 4 · FRIA\nFraud Reasoning Agent\n─────────────────────────\n30 tools · Channel-aware"]
+    G -- "EVIDENCE_AGENT" --> I["Agent 5 · EIA\nEvidence Intelligence Agent\n─────────────────────────\n5 tools"]
     G -- "No agents remaining" --> J[Structured Output Node]
 
     H --> G
@@ -29,7 +29,7 @@ graph TD
 
     E -. "Async Event" .-> M["Agent 6 · CCA\nCustomer Communication Agent"]
     K -. "Status / Analyst Action" .-> M
-    M --> N([Email · Outlook SMTP])
+    M --> N([Email · Gmail / Outlook SMTP])
 
     style A fill:#1E293B,stroke:#334155,color:#F8FAFC
     style Z fill:#1E293B,stroke:#334155,color:#F8FAFC
@@ -48,21 +48,21 @@ graph TD
     style N fill:#1E293B,stroke:#334155,color:#F8FAFC
 ```
 
-**WOA is the single source of truth.** It decides which specialist agents run based on dispute category, fraud signals, and evidence gaps. Specialist agents only execute when WOA explicitly routes to them.
-
 ---
 
 ## Agents
 
 ### Agent 1 — ARIA (Dispute Understanding Agent)
 
-Reads the dispute form, transaction metadata, and OCR-extracted document text. Produces the primary classification that all downstream agents build upon.
+Reads the customer's dispute form, transaction metadata, and OCR-extracted document text. Produces the primary classification that all downstream agents build upon.
 
-**Tools (pre-computed, deterministic):**
-- `assess_transaction_context` — RBI liability tiers, off-hours risk, CNP channels
-- `score_fraud_indicators` — OTP sharing, SIM swap, phishing, remote access, device loss
-- `verify_evidence_match` — OCR document text vs claimed merchant and amount
-- `compute_confidence_score` — calibrated confidence from all tool findings
+**Tools (deterministic, no DB queries):**
+- `assess_transaction_context` — RBI liability tiers, off-hours risk, CNP channel flags, UPI/IMPS patterns
+- `score_fraud_indicators` — I4C taxonomy: OTP sharing (+8), bank impersonation (+8), SIM swap (+8), remote access (+4), phishing (+4), card/device loss (+2.5)
+- `verify_evidence_match` — OCR document text vs claimed merchant, amount, and document type
+- `compute_confidence_score` — calibrated confidence from completeness, comment quality, evidence verdict, fraud signal alignment
+
+**Confidence Score baseline: 0.30** (allows meaningful discrimination between 40–90% range)
 
 **Outputs:** `dispute_category`, `fraud_suspicion`, `confidence_score`, `risk_tags`, `evidence_match`, `structured_reasoning`
 
@@ -70,13 +70,13 @@ Reads the dispute form, transaction metadata, and OCR-extracted document text. P
 
 ### Agent 2 — IIA (Investigation Intelligence Agent)
 
-Runs 4 database-backed tools against live customer, merchant, and case history before designing an investigation plan.
+Runs 4 database-backed tools against live customer, merchant, and case history to design a targeted investigation plan.
 
 **Tools:**
-- `lookup_customer_history` — dispute frequency, chargeback ratios, risk profile
-- `check_merchant_risk` — category risk, complaint counts, blacklist status
+- `lookup_customer_history` — dispute frequency, chargeback ratios, friendly fraud risk profile
+- `check_merchant_risk` — category risk, complaint volume, blacklist status, fraud rate
 - `find_duplicate_transaction` — identical merchant/amount/date within 72-hour window
-- `lookup_related_cases` — outcomes of similar historical disputes
+- `lookup_related_cases` — outcomes of similar historical disputes (55%+ resolution rate = reliable signal)
 
 **Outputs:** `investigation_plan`, `required_documents`, `recommended_queue`, `investigation_complexity`, `recommended_steps`
 
@@ -84,21 +84,17 @@ Runs 4 database-backed tools against live customer, merchant, and case history b
 
 ### Agent 3 — WOA (Workflow Orchestration Agent)
 
-Acts as the workflow controller. Runs after IIA, before any specialist agents. Its `workflow_path` is the authoritative execution plan — no other agent can modify it.
+Acts as the authoritative workflow controller. Runs after IIA, before specialist agents. Its `workflow_path` cannot be modified by any other agent.
 
 **Routing logic:**
-- Adds `FRAUD_AGENT` if `fraud_suspicion = true` OR category is fraud-related
-- Adds `EVIDENCE_AGENT` if document gaps exist
-- Adds `MERCHANT_AGENT` if merchant dispute category
-- Adds `COMPLIANCE_AGENT` for regulatory flags
+- `FRAUD_AGENT` — if `fraud_suspicion = true` OR fraud-related dispute category
+- `EVIDENCE_AGENT` — if document gaps exist
+- `MERCHANT_AGENT` — merchant dispute categories
+- `COMPLIANCE_AGENT` — regulatory flags
 
-**Tools (deterministic — LLM used for reasoning only):**
-- `evaluate_case_complexity` — value tiers, risk tags, investigation complexity
-- `determine_required_agents` — specialist routing decision
-- `recommend_workflow_path` — ordered execution sequence
-- `assess_escalation_need` — supervisor approval triggers
-- `estimate_workload` — analyst seniority level and hours estimate
-- `determine_next_execution_step` — tracks completed vs remaining agents
+**Tools:**
+- `evaluate_case_complexity`, `determine_required_agents`, `recommend_workflow_path`
+- `assess_escalation_need`, `estimate_workload`, `determine_next_execution_step`
 
 **Outputs:** `workflow_path`, `required_agents`, `next_agent`, `workflow_complexity`, `escalation_required`, `analyst_level`, `sla_hours`
 
@@ -106,71 +102,185 @@ Acts as the workflow controller. Runs after IIA, before any specialist agents. I
 
 ### Agent 4 — FRIA (Fraud Reasoning Agent)
 
-Only runs when WOA includes `FRAUD_AGENT` in the workflow path. Runs 6 tools in parallel via `ThreadPoolExecutor`. All numeric scores are server-side deterministic — the LLM synthesises narrative only.
+**The most complex agent — 30 fraud intelligence tools across 4 transaction channels.**
 
-**Tools (parallel execution):**
-- `detect_transaction_anomalies` — off-hours flag, rapid-fire velocity (< 15 seconds between transactions)
-- `evaluate_location_velocity` — geovelocity breach with city-level normalization (Mumbai vs Mumbai MH treated as same city)
-- `analyze_spending_behavior` — Z-score deviation from customer's spending baseline
-- `verify_kyc_match` — CIF record comparison; flags Compromise Risk HIGH for Unauthorized Transaction disputes where all fields match (fraudster may have device access)
-- `evaluate_device_fingerprint` — device ID familiarity, location consistency
-- `analyze_behavioral_patterns` — friendly fraud indicator from dispute history
+All tools run in parallel via `ThreadPoolExecutor(max_workers=20)`. All numeric fraud scores are server-side deterministic. The LLM synthesises narrative reasoning only.
 
-**Fraud Probability (server-side deterministic):**
+#### Channel Detection
+
+FRIA detects the transaction channel from `transaction_type` and routes the appropriate tools:
+
+| Channel | Transaction Types |
+|---|---|
+| **UPI** | UPI |
+| **Internet Banking** | Net Banking, Mobile Banking, IMPS, NEFT, RTGS |
+| **Card POS** | Debit Card, Credit Card |
+| **ATM** | ATM, ATM Cash, Cash Withdrawal |
+
+**Device data (`device_id`) is NULL in the database for Card POS and ATM** — POS terminals and ATMs are merchant/bank hardware, not customer devices. Only digital channels (UPI, Net Banking) carry customer device context.
+
+---
+
+#### Core Tools — Digital Channels (UPI + Internet Banking)
+
+| Tool | What it detects |
+|---|---|
+| `detect_transaction_anomalies` | Off-hours (11PM–5AM) flag; rapid-fire velocity (< 15 seconds between transactions) |
+| `evaluate_location_velocity` | Geovelocity breach with city-level normalization (Mumbai = Mumbai, MH = Andheri, Mumbai) |
+| `analyze_spending_behavior` | Z-score deviation from customer's 30-transaction baseline |
+| `verify_kyc_match` | CIF record comparison; Compromise Risk HIGH for Unauthorized Transaction + full match (device access possible) |
+| `evaluate_device_fingerprint` | Device ID familiarity, location consistency |
+| `analyze_behavioral_patterns` | Prior dispute count, dispute velocity (30 days, deduplicated), friendly fraud rate |
+| `evaluate_merchant_risk_intelligence` | Bank's merchant profile: risk tier, blacklist, fraud complaints, resolution rates |
+
+---
+
+#### UPI-Specific Tools (5)
+
+| Tool | What it detects |
+|---|---|
+| `analyze_new_beneficiary_risk` | First-time high-value transfer to unknown beneficiary (+0.20) |
+| `detect_upi_collect_request_fraud` | UPI collect/payment request fraud — victim approves outgoing transfer (+0.30) |
+| `analyze_beneficiary_velocity` | 5+ different customers sending to same UPI ID recently (+0.30) |
+| `evaluate_upi_handle_reputation` | UPI handle with 5+ historical fraud reports (+0.35) |
+| `analyze_dormant_beneficiary_risk` | Beneficiary first used < 7 days ago — throwaway account (+0.20) |
+
+---
+
+#### Internet Banking / Mobile Banking Tools (4)
+
+| Tool | What it detects |
+|---|---|
+| `detect_impossible_login_travel` | Different city transaction within 2 hours — credential compromise (+0.35) |
+| `analyze_device_change_large_transfer` | New device + amount > 2× average — ATO pattern (+0.30) |
+| `detect_password_reset_transaction_pattern` | Transaction immediately after password reset (+0.30) |
+| `analyze_mobile_number_change_risk` | Mobile number changed before transaction — OTP bypass possible (+0.35) |
+
+---
+
+#### Card POS Tools (11)
+
+| Tool | What it detects |
+|---|---|
+| `analyze_card_velocity` | 3+ card transactions within 5 minutes (+0.25) |
+| `evaluate_atm_pos_distance` | Different city ATM + POS within 1 hour — card cloning (+0.35) |
+| `analyze_foreign_usage` | International card use when 90%+ history is domestic (+0.30) |
+| `analyze_card_present_anomalies` | Late-night / high-risk merchant / amount 3× POS average (+0.15–0.25) |
+| `detect_merchant_compromise_pattern` | 10+ disputes at merchant in 7 days — skimming device (+0.25–0.40) |
+| `analyze_first_time_merchant` | Never used this merchant + amount > 1.5× average (+0.15) |
+| `evaluate_merchant_resolution_history` | >70% customer-favor dispute rate = merchant fault pattern (+0.15–0.25) |
+| `detect_card_testing_pattern` | ≤₹50 micro-transactions before main fraud (+0.30) |
+| `analyze_multi_merchant_burst` | 4+ merchants within 30 minutes — stolen card hopping (+0.25) |
+| `evaluate_mcc_risk` | Electronics/Travel/Crypto/Gift Cards = high-risk category (+0.10–0.20) |
+| `analyze_decline_success_pattern` | 2+ declined attempts before success — card testing (+0.20) |
+| `check_refund_reversal_absence` | Refund claimed but no reversal transaction in records (+0.15) |
+
+---
+
+#### ATM Tools (6)
+
+| Tool | What it detects |
+|---|---|
+| `analyze_atm_velocity` | 3+ ATM withdrawals within 1 hour (+0.25) |
+| `evaluate_atm_geovelocity` | Different city ATM within 2 hours — card cloning (+0.35) |
+| `analyze_cash_withdrawal_patterns` | Amount > 3× average or 3+ withdrawals in 24h (+0.15) |
+| `analyze_consecutive_atm_withdrawals` | 3+ same-amount withdrawals in short interval (+0.25) |
+| `analyze_foreign_atm_usage` | International ATM when 80%+ history is domestic (+0.35) |
+| `detect_sim_swap_atm_pattern` | SIM swap + ATM withdrawal = bypass + drain (+0.40) |
+
+---
+
+#### Universal Tools — All Channels (4)
+
+| Tool | What it detects |
+|---|---|
+| `evaluate_historical_fraud_victim_score` | Customer defrauded before — repeat targeting (+0.15) |
+| `detect_account_takeover_pattern` | 2+ ATO signals (password reset + device change + SIM swap) combined (+0.25–0.40) |
+| `analyze_mule_account_indicators` | 8+ transactions in 24h or 5+ beneficiaries in 2h — pass-through account (+0.40) |
+| `detect_historical_case_similarity` | Same merchant + same fraud pattern in historical cases (+0.20) |
+
+---
+
+#### Fraud Probability Formula (Server-Side Deterministic)
+
 ```
-Unauthorized Transaction base             +0.15
-Amount anomaly (2×–5× average)           +0.15
-Amount anomaly (> 5× average)            +0.25
-Time anomaly (off-hours 11 PM – 5 AM)   +0.15
-Rapid-fire velocity breach (< 15s)       +0.30
-Geovelocity breach (impossible travel)   +0.35
-Unrecognized device                      +0.30
-Location mismatch                        +0.20
-KYC Compromise Risk HIGH                 +0.20
-High behavioral risk score (≥ 0.60)      +0.15
+Base signals:
+  Unauthorized Transaction category          +0.15
+  Amount anomaly 2×–5× average              +0.15
+  Amount anomaly > 5× average               +0.25
+  Off-hours transaction (11 PM – 5 AM)      +0.15
+  Rapid-fire velocity (< 15s gap)           +0.30
+  Geovelocity breach (impossible travel)    +0.35  ← strongest hard signal
+  Unrecognized device (digital only)        +0.30
+  Location mismatch (digital only)          +0.20
+  KYC Compromise Risk HIGH                  +0.20
+  Behavioral risk score ≥ 0.60              +0.15
+
+Social engineering signals (from customer form):
+  Bank impersonation call                   +0.30
+  Remote access app installed               +0.25
+  Screen sharing active                     +0.20
+  OTP shared with third party               +0.20
+  SIM swap suspected                        +0.20
+  Phishing link clicked                     +0.15
+  Unknown beneficiary                       +0.10
+  Fraud selected by customer                +0.10
+
+Merchant signals (all channels):
+  Merchant blacklisted                      +0.50
+  Merchant CRITICAL risk                    +0.30
+  Merchant HIGH risk                        +0.15
+
+Channel-specific signals: (see tool tables above)
+
+Final: clamp to [0.00, 1.00]
 ```
 
-**Fraud Risk Levels:** LOW < 0.15 · MEDIUM < 0.40 · HIGH < 0.75 · CRITICAL ≥ 0.75
+**Risk Levels:** LOW < 0.15 · MEDIUM < 0.40 · HIGH < 0.75 · CRITICAL ≥ 0.75
 
-**Outputs:** `fraud_probability`, `fraud_risk_level`, `user_trust_score`, `behavioral_risk_score`, `identity_verification`
+**Fraud Review tab is channel-aware** — Device & Location section hidden for Card POS and ATM. Separate intelligence panels shown per channel. LLM reasoning rules enforced server-side (wrong merchant tier corrected, score weights stripped, social engineering signals always referenced when present).
 
 ---
 
 ### Agent 5 — EIA (Evidence Intelligence Agent)
 
-Audits evidence completeness and transaction consistency. Separates customer-obtainable documents from bank-obtainable documents — only customer gaps affect completeness score and `investigation_blocked`.
+Audits evidence completeness and transaction record consistency. Separates customer-obtainable from bank-obtainable documents.
 
 **Tools:**
-- `evaluate_evidence_completeness` — required docs vs fulfilled requests + upload credits
+- `evaluate_evidence_completeness` — required docs vs fulfilled requests + upload count
 - `identify_missing_evidence` — unfulfilled customer document gaps
 - `validate_evidence_consistency` — amount/merchant/date vs original transaction record
-- `assess_evidence_strength` — weighted score: Agent 1 verdict + completeness + Agent 2 data quality
-- `determine_next_document_request` — next document to formally request (deduplicates pending requests)
+- `assess_evidence_strength` — weighted: Agent 1 verdict + completeness + Agent 2 data quality
+- `determine_next_document_request` — next formal document request (deduplicates pending)
 
 **Outputs:** `evidence_completeness`, `evidence_strength`, `missing_documents`, `bank_pending_documents`, `investigation_blocked`, `recommended_document_requests`
+
+The customer tracking portal automatically displays `missing_documents` from EIA without requiring analysts to create individual requests.
 
 ---
 
 ### Agent 6 — CCA (Customer Communication Agent)
 
-Generates professional HTML email notifications for dispute lifecycle events. Fires asynchronously — never blocks the main workflow. All internal AI metrics, agent names, fraud scores, and risk signals are stripped before sending.
+Generates and delivers professional HTML email notifications. Fires asynchronously — never blocks the workflow. Internal data (agent names, fraud scores, risk levels, queue assignments) is never exposed.
 
-**Email triggers:**
-| Event | Notification Type |
-|---|---|
-| Dispute submitted | CASE_RECEIVED |
-| Case moves to Under Investigation | INVESTIGATION_STARTED |
-| Analyst creates document request | DOCUMENT_REQUESTED |
-| FRIA completes fraud review | FRAUD_REVIEW_STARTED |
-| EIA completes evidence review | EVIDENCE_REVIEW_COMPLETED |
-| Case resolved / rejected / closed | CASE_RESOLVED |
-| Any other status change | STATUS_CHANGED |
+**Email triggers (auto-fired, each at most once per case):**
 
-**CASE_RECEIVED and CASE_RESOLVED** are one-shot — fire at most once per case automatically. Manual resend always available from the Communications tab.
+| Trigger | Type | Dedup |
+|---|---|---|
+| Case submitted | `CASE_RECEIVED` | Once per case |
+| IIA completes | `INVESTIGATION_STARTED` | Once per case |
+| Analyst creates document request | `DOCUMENT_REQUESTED` | Every analyst action |
+| Customer uploads documents | `DOCUMENTS_RECEIVED` | Every upload |
+| Case resolved/rejected/closed | `CASE_RESOLVED` | Once per case |
+| Manual from Communications tab | Any type | Always sends |
 
-**Delivery:** Outlook SMTP (`smtp.office365.com:587` TLS) or Gmail (`smtp.gmail.com:587`). All emails in demo mode redirect to `NOTIFICATION_EMAIL`.
+`FRAUD_REVIEW_STARTED` and `EVIDENCE_REVIEW_COMPLETED` are suppressed from auto-sending — they are internal pipeline steps. Analysts can manually send any type from the Communications tab.
 
-**Outputs:** `subject`, `body` (HTML), `recipient`, `status` (SENT/FAILED), `sent_at` — all persisted to `communication_logs`.
+**Status changes trigger `STATUS_CHANGED`** only for major customer-visible transitions (Dispute Raised → Under Investigation → Pending Documents → Escalated → Resolved). Internal transitions are silently skipped.
+
+**Delivery:** Gmail SMTP (`smtp.gmail.com:587` TLS) recommended. All emails in demo mode redirect to `NOTIFICATION_EMAIL`.
+
+**Outputs:** persisted to `communication_logs` table with `subject`, `body` (HTML), `recipient`, `status`, `sent_at`.
 
 ---
 
@@ -181,42 +291,48 @@ Generates professional HTML email notifications for dispute lifecycle events. Fi
 | Backend framework | FastAPI |
 | Agent orchestration | LangGraph + LangChain |
 | LLM engine | Groq — `llama-3.1-8b-instant` |
-| Database | PostgreSQL, SQLAlchemy ORM |
+| Database | PostgreSQL, SQLAlchemy ORM (pool: 20 base / 40 overflow) |
 | Document extraction | PyMuPDF, pytesseract (OCR) |
 | LLM resilience | Tenacity (exponential backoff, 3 retries) |
 | Frontend | Next.js 14 App Router, React 18, TypeScript |
 | Forms | React Hook Form + Zod |
 | Real-time | WebSocket (live case status push) |
-| Email | smtplib TLS (Outlook / Gmail) |
+| Email | smtplib TLS (Gmail / Outlook) |
 | Priority engine | Deterministic post-workflow computation |
 
 ---
 
 ## Key Design Decisions
 
-**WOA is the single source of truth.**
-No specialist agent can change the workflow path. When WOA excludes `FRAUD_AGENT`, the Fraud Review tab is hidden in the UI. When it re-includes it, all fraud scores are recomputed from scratch.
+**FRIA is transaction-channel-aware.**
+Different transaction types have fundamentally different fraud signals. Card POS terminals don't expose customer device data. ATMs don't expose mobile metadata. FRIA routes 30 tools based on channel — wrong signals for the wrong channel create false positives. Device fingerprint and KYC match are disabled for Card POS and ATM at the database level (device_id = NULL for those transaction types).
 
 **LLM produces narrative — deterministic code produces numbers.**
-Confidence scores, fraud probability, evidence completeness, priority, and SLA deadlines are all computed server-side. The LLM is trusted for classification and reasoning text only.
+Fraud probability, confidence scores, trust scores, and all risk levels are computed server-side. The LLM is given the tool results and asked to explain them. Server-side post-processing corrects known LLM errors: strips score weights from findings, corrects merchant tier misattribution, and strips merchant-favour rates below the 70% threshold.
+
+**WOA is the single source of truth.**
+No specialist agent can change the workflow path. When WOA excludes `FRAUD_AGENT`, the Fraud Review tab is hidden. All stale fraud data is cleared. When it re-includes it, scores are recomputed from scratch.
+
+**Assessment confidence starts at 0.30, not 0.50.**
+A 0.50 baseline meant well-documented cases always hit 100%, making the score meaningless. With 0.30 baseline: excellent case = 83%, outstanding case = 90–95%, weak case = 40–55%.
 
 **KYC match is context-aware.**
-A full name/email/phone match in an Unauthorized Transaction dispute raises `Compromise Risk: HIGH` — the fraudster has device access and can trivially supply all three fields. A full match is not treated as VERIFIED in that context.
+A full name/email/phone match in an Unauthorized Transaction dispute raises Compromise Risk HIGH — the fraudster has device/email access. A full match in that context is not VERIFIED.
 
 **Velocity breach uses time gaps, not daily counts.**
-Two transactions less than 15 seconds apart = velocity breach. Three transactions in a day = normal card usage. The old 3-per-day threshold generated false positives for legitimate users.
+Two transactions < 15 seconds apart = breach. Three transactions in a day = normal card usage.
 
 **Location normalization prevents geovelocity false positives.**
-"Mumbai" and "Mumbai, MH" are treated as the same city. "Andheri, Mumbai" resolves to Mumbai. Transactions with unknown/missing location are skipped rather than flagged.
+"Mumbai" = "Mumbai, MH" = "Andheri, Mumbai". Unknown/missing locations are skipped rather than flagged.
 
-**Priority is computed post-workflow, never by the LLM.**
-`priority_engine.py` runs after all agents complete and derives `CRITICAL / HIGH / MEDIUM / LOW` from a weighted formula across amount, fraud signals, complexity, and SLA state.
+**Behavioral patterns are deduplicated.**
+Cases appearing in both `dispute_cases` (live) and `dispute_history` (resolved) are counted once, not twice.
 
-**PII is masked before it reaches the LLM.**
-Customer names, IDs, and free-text comments are masked via `utils/pii_masking.py` before inclusion in any prompt.
+**CCA communication is noise-controlled.**
+One-shot types (CASE_RECEIVED, INVESTIGATION_STARTED, CASE_RESOLVED) fire at most once per case automatically. FRAUD_REVIEW_STARTED and EVIDENCE_REVIEW_COMPLETED are analyst-triggered only. STATUS_CHANGED fires only for major customer-visible transitions.
 
-**CCA never exposes internal details.**
-Email bodies are built from fixed HTML templates — no LLM generation of email content. Agent names, fraud probability, trust scores, workflow paths, and queue assignments never appear in customer-facing output.
+**PII is masked before reaching the LLM.**
+Names, IDs, and free-text are masked via `utils/pii_masking.py`. Social engineering metadata (bank impersonation, remote access, etc.) IS passed to FRIA's LLM so it can correctly explain the fraud, but only after tools have already used it for deterministic scoring.
 
 ---
 
@@ -229,29 +345,29 @@ ai-dispute-resolution-system/
 │   │   ├── dispute_agent/          # Agent 1 — ARIA
 │   │   ├── investigation_agent/    # Agent 2 — IIA
 │   │   ├── orchestration_agent/    # Agent 3 — WOA
-│   │   ├── fraud_reasoning_agent/  # Agent 4 — FRIA
+│   │   ├── fraud_reasoning_agent/  # Agent 4 — FRIA (30 tools)
 │   │   ├── evidence_agent/         # Agent 5 — EIA
 │   │   └── communication_agent/    # Agent 6 — CCA
 │   ├── api/
-│   │   ├── main.py                 # FastAPI entry point + router registration
+│   │   ├── main.py                 # FastAPI entry point
 │   │   └── routes/                 # disputes, ops_cases, ops_analytics,
 │   │                               # queues, auth, communications, dispute_tracking
 │   ├── database/
-│   │   ├── database.py             # SQLAlchemy engine, session, migrations
-│   │   └── models.py               # ORM models (DisputeCase, CommunicationLog, etc.)
-│   ├── prompts/                    # System prompts per agent
+│   │   ├── database.py             # SQLAlchemy engine, session, auto-migrations
+│   │   └── models.py               # ORM: DisputeCase, CommunicationLog, etc.
+│   ├── prompts/                    # LLM system prompts per agent
 │   ├── schemas/                    # Pydantic request/response models
 │   ├── services/                   # Priority, SLA, queue, document rules,
 │   │                               # communication, email, analytics
 │   ├── workflows/
-│   │   └── dispute_workflow.py     # LangGraph compiled graph
+│   │   └── dispute_workflow.py     # LangGraph compiled graph (recursion_limit=50)
 │   └── utils/                      # Helpers, logger, PII masking, OCR extractor
 └── frontend/
     └── src/
         ├── app/
-        │   ├── submit-dispute/     # Customer dispute submission portal
-        │   ├── internal-review/    # Ops analyst case queue + workspace
-        │   └── track/              # Customer case tracking portal
+        │   ├── submit-dispute/     # Customer dispute submission (multi-step form)
+        │   ├── internal-review/    # Ops analyst queue + case workspace
+        │   └── track/              # Customer tracking portal
         ├── components/             # Shared UI components
         ├── hooks/                  # WebSocket hook
         ├── lib/                    # API client, auth, utilities
@@ -292,11 +408,11 @@ LLM_TEMPERATURE=0
 LLM_MAX_TOKENS=1024
 TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
 
-# Email (CCA — Agent 6)
+# Email — Agent 6 CCA (Gmail recommended)
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USERNAME=your_email@gmail.com
-SMTP_PASSWORD=your_app_password
+SMTP_PASSWORD=your_16_char_app_password
 NOTIFICATION_EMAIL=your_email@gmail.com
 
 API_HOST=0.0.0.0
@@ -305,16 +421,18 @@ API_RELOAD=true
 SECRET_KEY=change-this-in-production
 ```
 
+> **Gmail App Password:** Google Account → Security → 2-Step Verification → App passwords → Create
+
 Initialize the database and start the server:
 ```bash
-# Create all tables (auto-migration included)
+# Create all tables + run auto-migrations
 python -c "from database.database import init_db; init_db()"
 
 # Start the server
 uvicorn api.main:app --reload
 ```
 
-API available at `http://localhost:8000` · Swagger docs at `http://localhost:8000/docs`
+API at `http://localhost:8000` · Swagger at `http://localhost:8000/docs`
 
 ### Frontend
 
@@ -324,7 +442,7 @@ npm install
 npm run dev
 ```
 
-Frontend available at `http://localhost:3000`
+Frontend at `http://localhost:3000`
 
 ---
 
@@ -333,7 +451,7 @@ Frontend available at `http://localhost:3000`
 | Portal | URL | Audience |
 |---|---|---|
 | Dispute Submission | `http://localhost:3000/submit-dispute` | Customer |
-| Case Tracking | `http://localhost:3000/track` | Customer |
+| Case Tracking Search | `http://localhost:3000/track` | Customer |
 | Case Status | `http://localhost:3000/track/{case_id}` | Customer |
 | Ops Queue | `http://localhost:3000/internal-review` | Analyst |
 | Case Workspace | `http://localhost:3000/internal-review/{case_id}` | Analyst |
@@ -345,55 +463,57 @@ Frontend available at `http://localhost:3000`
 
 | Tab | Visible when | Content |
 |---|---|---|
-| Case Analysis | Always | Dispute classification, confidence, risk tags, evidence match |
-| Investigation | Always | Agent 2 plan, required documents, complexity score |
-| Fraud Review | WOA included FRAUD_AGENT | Fraud probability, trust score, identity verification, behavioral risk |
+| Case Analysis | Always | Classification, confidence, risk tags, evidence match, key findings |
+| Investigation | Always | IIA plan, customer history, merchant intelligence, recommended steps |
+| Fraud Review | WOA included FRAUD_AGENT | Channel badge, fraud probability, trust score, behavioral risk, channel-specific fraud signals, fraud findings |
 | Evidence Review | Always | Completeness %, consistency check, missing docs, document provenance |
 | Case Coordination | Always | WOA workflow path, agent progression, SLA tracker |
 | Evidence | Always | Uploaded files with preview |
 | Audit Trail | Always | Full immutable event log |
-| Communications | Always | All customer email notifications with full HTML preview |
+| Communications | Always | All customer emails with full HTML iframe preview, Send Update button |
 | Advanced Diagnostics | Always (collapsed) | LangGraph execution trace, tool timings |
 
 ---
 
 ## Customer Tracking Portal
 
-The `/track/{case_id}` portal is publicly accessible and shows only customer-safe information:
+`/track/{case_id}` — publicly accessible, shows only customer-safe data:
 
 - **Progress bar** — 4 stages: Received → Investigation → Review → Resolution
-- **Next Action Required** — pending document list with upload deadline
-- **Document upload** — customer can submit files directly; marks document requests as fulfilled
-- **Case timeline** — customer-visible audit events (duplicates removed)
+- **Next Action Required** — pending document list with upload deadline (amber alert banner)
+- **Document upload** — customer uploads files directly; marks analyst document requests as fulfilled
+- **Required Documents list** — sourced from `evidence_assessment.missing_documents` (EIA output) — shows automatically without analyst creating individual requests
+- **Case timeline** — customer-visible audit events, deduplicated
 - **Dispute details** — merchant, amount, transaction type, submission date
 
-**Hidden from customers:** agent names, fraud probability, trust scores, internal queues, analyst assignments, workflow paths, risk tags.
-
-Missing documents are sourced from `evidence_assessment.missing_documents` (set by EIA) — customers see the full required list automatically without analysts needing to create individual requests.
+**Never shown:** agent names, fraud probability, trust scores, internal queues, analyst assignments, workflow paths, risk tags.
 
 ---
 
 ## API Reference
 
 ```
-POST   /api/disputes/submit-public                 Submit a new dispute (with file uploads)
-GET    /api/disputes/cases                         List all cases (filterable by status/priority/category)
-GET    /api/disputes/cases/{case_id}               Get full case detail
-PUT    /api/disputes/cases/{case_id}/status        Update case status
-POST   /api/disputes/{case_id}/upload-documents    Customer uploads additional documents
-GET    /api/disputes/track/{case_id}               Customer-safe case tracking (no internal data)
-GET    /api/disputes/stats                         Dashboard statistics
-GET    /api/disputes/document-requirements         Required docs for a dispute type
-GET    /api/ops/cases/{case_id}/notes              Get case notes
-POST   /api/ops/cases/{case_id}/notes              Add analyst note
-GET    /api/ops/cases/{case_id}/document-requests  Get document requests
-POST   /api/ops/cases/{case_id}/document-requests  Create document request (triggers email)
-GET    /api/ops/cases/{case_id}/uploads            List uploaded files
-POST   /api/ops/cases/{case_id}/reanalyse          Re-run full agent pipeline
-GET    /api/communications/{case_id}               Get all communications for a case
-POST   /api/communications/{case_id}/send          Manually trigger a communication
-GET    /api/ops/analytics                          Ops analytics and stats
-WS     /ws/disputes                                Real-time case status push
+POST   /api/disputes/submit-public                  Submit dispute with file uploads
+GET    /api/disputes/cases                          List cases (filter: status/priority/category/fraud)
+GET    /api/disputes/cases/{case_id}                Full case detail
+PUT    /api/disputes/cases/{case_id}/status         Update case status
+POST   /api/disputes/{case_id}/upload-documents     Customer uploads additional documents
+GET    /api/disputes/track/{case_id}                Customer-safe tracking (no internal data)
+GET    /api/disputes/stats                          Dashboard statistics
+GET    /api/disputes/document-requirements          Required docs for dispute type
+
+GET    /api/ops/cases/{case_id}/notes               Get analyst notes
+POST   /api/ops/cases/{case_id}/notes               Add analyst note
+GET    /api/ops/cases/{case_id}/document-requests   Get document requests
+POST   /api/ops/cases/{case_id}/document-requests   Create document request (triggers DOCUMENT_REQUESTED email)
+GET    /api/ops/cases/{case_id}/uploads             List uploaded evidence files
+POST   /api/ops/cases/{case_id}/reanalyse           Re-run full agent pipeline
+
+GET    /api/communications/{case_id}                All communications for a case
+POST   /api/communications/{case_id}/send           Manually trigger a communication
+
+GET    /api/ops/analytics                           Ops analytics and stats
+WS     /ws/disputes                                 Real-time case status push
 ```
 
 ---
