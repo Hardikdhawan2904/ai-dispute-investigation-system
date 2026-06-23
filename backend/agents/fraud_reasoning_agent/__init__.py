@@ -92,7 +92,7 @@ def run_fraud_reasoning_agent(
     }
 
     try:
-        result = fraud_graph.invoke(initial, config={"recursion_limit": 6})
+        result = fraud_graph.invoke(initial, config={"recursion_limit": 10})
         return result["final_output"]
     except Exception as exc:
         agent_logger.error(f"Fraud Reasoning Agent graph failed: {exc}", exc_info=True)

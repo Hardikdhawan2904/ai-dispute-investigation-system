@@ -1040,7 +1040,7 @@ def run_dispute_workflow(dispute_input: dict, document_texts: Optional[List[str]
     )
 
     try:
-        result = dispute_workflow.invoke(initial_state)
+        result = dispute_workflow.invoke(initial_state, config={"recursion_limit": 50})
         return result
     except Exception as exc:
         # Last-resort catch — should never reach here after node-level fallbacks,
