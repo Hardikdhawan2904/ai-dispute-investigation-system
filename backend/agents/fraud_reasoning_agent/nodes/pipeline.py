@@ -257,6 +257,14 @@ def build_context_node(state: FraudReasoningAgentState) -> dict:
     _extra = (meta.get("fraud_additional_details") or d.get("fraud_additional_details") or "").strip()
     _fraud_additional_section = f"\nCUSTOMER FRAUD NARRATIVE:\n  {_extra}\n" if _extra else ""
 
+    _channel_label = {
+        "UPI": "UPI (Digital — device, location, KYC, and beneficiary tools apply)",
+        "INTERNET_BANKING": "Internet Banking / Mobile Banking (Digital — device, location, and KYC tools apply)",
+        "CARD_POS": "Card POS (Physical card at merchant terminal — NO device fingerprint, NO KYC, NO geovelocity from device)",
+        "ATM": "ATM (Physical ATM withdrawal — NO device fingerprint, NO KYC)",
+    }.get(channel, "Digital")
+    _active_tools_label = ", ".join(sorted(tool_results.keys())) if tool_results else "None"
+
     human_content = FRAUD_DATA_TEMPLATE.format(
         customer_name    = mask_name(customer_name),
         customer_id      = mask_id(customer_id),
@@ -284,8 +292,10 @@ def build_context_node(state: FraudReasoningAgentState) -> dict:
         device_lost           = _flag("device_lost"),
         fraud_selected        = "Yes" if d.get("fraud_selected") else "No",
         fraud_additional_section = _fraud_additional_section,
-        case_id          = mask_id(case_id),
-        created_at       = utc_now_iso(),
+        channel      = _channel_label,
+        active_tools = _active_tools_label,
+        case_id      = mask_id(case_id),
+        created_at   = utc_now_iso(),
     ) + tool_section
 
     return {
