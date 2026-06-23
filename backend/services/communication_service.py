@@ -35,9 +35,16 @@ def trigger_communication(
             api_logger.warning(f"communication_service: case {case_id} not found")
             return None
 
-        # Deduplicate: one-shot types fire at most once per case (any status).
-        # Manual sends via the API endpoint pass skip_dedup=True to override this.
-        _ONE_SHOT_TYPES = {"CASE_RECEIVED", "CASE_RESOLVED", "INVESTIGATION_STARTED"}
+        # Deduplicate: every auto-triggered type fires at most once per case.
+        # Manual sends via + Send Update button pass _skip_dedup=True to override.
+        _ONE_SHOT_TYPES = {
+            "CASE_RECEIVED",
+            "INVESTIGATION_STARTED",
+            "FRAUD_REVIEW_STARTED",
+            "EVIDENCE_REVIEW_COMPLETED",
+            "DOCUMENT_REQUESTED",
+            "CASE_RESOLVED",
+        }
         skip_dedup = (context or {}).get("_skip_dedup", False)
         if notification_type in _ONE_SHOT_TYPES and not skip_dedup:
             already = (
