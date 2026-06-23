@@ -354,7 +354,7 @@ export default function CaseWorkspace() {
         {/* ── CENTER PANEL — Tabbed workspace ─────────────────────────────── */}
         <div>
           {/* Tab navigation */}
-          <div style={{ display: "flex", borderBottom: "1px solid #334155", marginBottom: "1rem", overflowX: "auto" }}>
+          <div style={{ display: "flex", borderBottom: "1px solid #334155", marginBottom: "1rem", overflowX: "auto", scrollbarWidth: "none" }}>
             {tabs.map(({ key, label }) => (
               <button key={key} onClick={() => setActiveTab(key as Parameters<typeof setActiveTab>[0])}
                 style={{ fontSize: "0.75rem", fontWeight: activeTab === key ? 600 : 400, padding: "0.5rem 1rem", borderTop: "none", borderLeft: "none", borderRight: "none", borderBottom: activeTab === key ? "2px solid #2563EB" : "2px solid transparent", marginBottom: -1, color: activeTab === key ? "#F8FAFC" : "#64748B", background: "none", cursor: "pointer", whiteSpace: "nowrap", transition: "color 0.15s" }}>
