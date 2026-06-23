@@ -14,13 +14,13 @@
   }
 
   body {
-    background-color: #0F172A;
+    background-color: #162032;
     color: #F8FAFC;
     font-family: Inter, system-ui, sans-serif;
   }
 
   ::-webkit-scrollbar { width: 5px; height: 5px; }
-  ::-webkit-scrollbar-track { background: #0F172A; }
+  ::-webkit-scrollbar-track { background: #162032; }
   ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
   ::-webkit-scrollbar-thumb:hover { background: #475569; }
 }
