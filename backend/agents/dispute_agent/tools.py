@@ -465,7 +465,7 @@ def compute_confidence_score(
     evidence_verdict:          MATCH | PARTIAL_MATCH | MISMATCH | NO_DOCUMENTS | CANNOT_VERIFY
     has_contradictions:        true if customer statements or fields contradict each other"""
 
-    score     = 0.50   # RBI minimum baseline
+    score     = 0.30   # baseline — room for discrimination between strong and exceptional cases
     breakdown: list[str] = []
 
     # ── Data completeness (+/- 0.10) ─────────────────────────────────────────
@@ -524,7 +524,7 @@ def compute_confidence_score(
         interpretation = "High confidence — classification well-supported; automated processing appropriate"
     elif score >= 0.65:
         interpretation = "Good confidence — classification supported; standard analyst review sufficient"
-    elif score >= 0.50:
+    elif score >= 0.40:
         interpretation = "Moderate confidence — analyst verification recommended before decision"
     else:
         interpretation = "Low confidence — mandatory human review; do not auto-resolve"
