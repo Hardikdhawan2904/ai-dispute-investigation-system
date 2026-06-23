@@ -290,7 +290,7 @@ export default function CaseWorkspace() {
       )}
 
       {/* ── 3-Column workspace ─────────────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr 220px", gap: "1rem", alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "260px minmax(0,1fr) 220px", gap: "1rem", alignItems: "start", overflow: "hidden" }}>
 
         {/* ── LEFT PANEL — Collapsible metadata ──────────────────────────── */}
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
