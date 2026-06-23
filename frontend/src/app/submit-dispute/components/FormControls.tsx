@@ -297,7 +297,8 @@ export function FMaskedDigits({
             value={digits[idx].trim()}
             onChange={(e) => handleChange(idx, e.target.value)}
             onKeyDown={(e) => handleKeyDown(idx, e)}
-            className={`w-9 h-9 text-center text-sm font-mono font-semibold text-gray-900 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
+            style={{ color: '#000000', fontWeight: 700 }}
+            className={`w-9 h-9 text-center text-sm font-mono border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
               error
                 ? "border-red-400 bg-red-50/50 focus:ring-red-500/20"
                 : "border-gray-200 bg-white focus:ring-blue-500/20 focus:border-blue-500"
