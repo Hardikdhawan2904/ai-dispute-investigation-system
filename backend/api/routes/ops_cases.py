@@ -78,6 +78,15 @@ def create_document_request(case_id: str, body: CreateDocumentRequestBody, db: S
     return result
 
 
+@router.delete("/document-requests/{request_id}/delete", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document_request(request_id: int, db: Session = Depends(get_db)):
+    """Delete an unfulfilled document request (used when analyst resets the request batch)."""
+    dr = db.query(DocumentRequest).filter(DocumentRequest.id == request_id, DocumentRequest.fulfilled == False).first()
+    if dr:
+        db.delete(dr)
+        db.commit()
+
+
 @router.post("/document-requests/{request_id}/fulfill")
 def fulfill_document_request(request_id: int, db: Session = Depends(get_db)):
     result = document_request_service.fulfill_request(request_id, db)

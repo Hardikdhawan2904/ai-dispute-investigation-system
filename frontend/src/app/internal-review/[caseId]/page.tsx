@@ -1550,11 +1550,21 @@ export default function CaseWorkspace() {
                             setCreatingDocs(true);
                             try {
                               const docsToRequest = customerDocs.filter((d: string) => selectedDocs.has(d));
-                              // Create all requests silently (notify=false), then send ONE email
+                              // Delete all existing unfulfilled requests first (clean slate)
+                              const existing = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/ops/cases/${caseData.case_id}/document-requests`);
+                              if (existing.ok) {
+                                const data = await existing.json();
+                                for (const req of (data.requests || [])) {
+                                  if (!req.fulfilled) {
+                                    await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/ops/document-requests/${req.id}/delete`, { method: "DELETE" }).catch(() => {});
+                                  }
+                                }
+                              }
+                              // Create only the selected docs
                               for (const doc of docsToRequest) {
                                 await createDocumentRequest(caseData.case_id, "system", doc, "Required for evidence review", undefined, false, docsToRequest);
                               }
-                              // Send one consolidated email listing exactly the selected docs
+                              // Send one email listing exactly the selected docs
                               await sendCommunication(caseData.case_id, "DOCUMENT_REQUESTED", { requested_documents: docsToRequest, _skip_dedup: true });
                               setSelectedDocs(new Set());
                               toast.success(`Document request sent for ${docsToRequest.length} document${docsToRequest.length > 1 ? "s" : ""}`);
