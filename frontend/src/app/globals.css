@@ -106,7 +106,7 @@
   /* ── Form inputs ─────────────────────────────────────────────────────── */
   .bfsi-input {
     width: 100%;
-    background-color: #111827;
+    background-color: #162040;
     border: 1px solid #334155;
     border-radius: 4px;
     padding: 0.4rem 0.75rem;
@@ -166,7 +166,7 @@
 
   /* ── Investigation text block ────────────────────────────────────────── */
   .ai-reasoning {
-    background-color: #111827;
+    background-color: #162040;
     border: 1px solid #334155;
     border-radius: 4px;
     padding: 1rem;
@@ -226,7 +226,7 @@
     padding: 0.5rem 0.75rem;
     text-align: left;
     border-bottom: 1px solid #334155;
-    background-color: #111827;
+    background-color: #162040;
   }
   .ops-table td {
     font-size: 0.75rem;
@@ -235,6 +235,6 @@
     border-bottom: 1px solid #1E293B;
     vertical-align: middle;
   }
-  .ops-table tbody tr:hover { background-color: #1E293B; }
+  .ops-table tbody tr:hover { background-color: #1E2F50; }
   .ops-table tbody tr:last-child td { border-bottom: none; }
 }

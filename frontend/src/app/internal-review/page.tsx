@@ -167,16 +167,16 @@ export default function InternalReviewPage() {
       {/* Metrics strip — mutually exclusive by status, always sums to Total */}
       <div style={S.metricRow}>
         {[
-          { label: "Total Cases",          value: total,              color: "#F8FAFC" },
-          { label: "Dispute Raised",       value: disputeRaised,      color: "#60A5FA" },
-          { label: "Under Investigation",  value: underInvestigation, color: "#A78BFA" },
-          { label: "Pending Documents",    value: pendingDocs,        color: "#FCD34D" },
-          { label: "Escalated",            value: escalatedCount,     color: "#FB923C" },
-          { label: "Resolved / Closed",    value: resolvedCount,      color: "#4ADE80" },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{ backgroundColor: "#1E293B", border: "1px solid #334155", borderRadius: 4, padding: "0.75rem 1rem" }}>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, color, letterSpacing: "-0.02em" }}>{value}</div>
-            <div style={{ fontSize: "0.6rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "#64748B", marginTop: 3 }}>{label}</div>
+          { label: "Total Cases",         value: total,              color: "#E2E8F0", bg: "#1E3154", border: "#2D4270" },
+          { label: "Dispute Raised",      value: disputeRaised,      color: "#93C5FD", bg: "#1A2F52", border: "#2563EB44" },
+          { label: "Under Investigation", value: underInvestigation, color: "#818CF8", bg: "#1E2A52", border: "#6366F144" },
+          { label: "Pending Documents",   value: pendingDocs,        color: "#FCD34D", bg: "#2A2516", border: "#F59E0B44" },
+          { label: "Escalated",           value: escalatedCount,     color: "#FCA5A5", bg: "#2A1A1A", border: "#EF444444" },
+          { label: "Resolved / Closed",   value: resolvedCount,      color: "#6EE7B7", bg: "#142A24", border: "#10B98144" },
+        ].map(({ label, value, color, bg, border }) => (
+          <div key={label} style={{ backgroundColor: bg, border: `1px solid ${border}`, borderRadius: 6, padding: "0.875rem 1rem" }}>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700, color, letterSpacing: "-0.02em" }}>{value}</div>
+            <div style={{ fontSize: "0.6rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: `${color}88`, marginTop: 4 }}>{label}</div>
           </div>
         ))}
       </div>
