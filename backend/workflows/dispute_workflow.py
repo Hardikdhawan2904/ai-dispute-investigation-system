@@ -477,8 +477,16 @@ def fraud_reasoning_node(state: DisputeWorkflowState) -> dict:
     node  = "fraud_reasoning"
 
     try:
+        # Merge ARIA's classification into dispute_input so FRIA can use
+        # dispute_category, fraud_suspicion, and risk_tags in its scoring.
+        _fraud_input = dict(state["dispute_input"])
+        _ai = state.get("ai_analysis") or {}
+        for _k in ("dispute_category", "fraud_suspicion", "risk_tags", "priority"):
+            if _k in _ai and _k not in _fraud_input:
+                _fraud_input[_k] = _ai[_k]
+
         fraud_output = run_fraud_reasoning_agent(
-            state["dispute_input"],
+            _fraud_input,
             case_id=state.get("case_id"),
         )
         updated_wf_plan = _save_fraud_reasoning_to_db(
