@@ -2082,11 +2082,9 @@ export default function CaseWorkspace() {
                     <SectionTitle>Case Stage</SectionTitle>
                     <WorkflowStatus status={caseData.status as CaseStatus} workflowReady={caseData.workflow_ready} />
                   </Panel>
-                  <Panel>
+                  {workflowStates.length > 0 && <Panel>
                     <SectionTitle>Pipeline Execution</SectionTitle>
-                    {workflowStates.length === 0 ? (
-                      <p style={{ fontSize: "0.8rem", color: "#64748B" }}>No execution data available.</p>
-                    ) : (
+                    {(
                       <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
                         {workflowStates.map((ws) => (
                           <div key={ws.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.5rem 0.625rem", backgroundColor: "#111827", border: "1px solid #334155", borderRadius: 3 }}>
@@ -2103,7 +2101,7 @@ export default function CaseWorkspace() {
                         ))}
                       </div>
                     )}
-                  </Panel>
+                  </Panel>}
                 </div>
               )}
             </div>
