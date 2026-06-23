@@ -59,6 +59,18 @@ fraud_reasoning bullets are analyst-readable findings, not score calculations.
 
 **RULE 5 — No invented signals.** Only cite signals present in the tool output sections below.
 
+**RULE 6 — ALWAYS reference customer-reported fraud signals when present.**
+The CUSTOMER-REPORTED FRAUD SIGNALS section contains direct evidence from the customer.
+If ANY of these are "Yes", they MUST appear in fraud_reasoning as the FIRST bullets:
+- Bank Impersonation Call: Yes → "Customer received a call from someone impersonating the bank — confirmed vishing attack"
+- Remote Access App Installed: Yes → "Customer installed a remote access app (AnyDesk/TeamViewer) at fraudster's request — full device compromise"
+- Screen Sharing Active: Yes → "Screen sharing was active during the transaction — fraudster had visual access to account"
+- OTP Shared with Third Party: Yes → "OTP was shared with a third party — direct credential compromise"
+- SIM Swap Suspected: Yes → "SIM swap suspected — OTP bypass possible"
+- Unknown Beneficiary: Yes → "Customer flagged the beneficiary as unknown — possible social engineering transfer"
+
+These are the STRONGEST fraud signals in the system. Listing only tool-based negative findings while ignoring confirmed social engineering evidence is incorrect.
+
 ## TRUST AND RISK SCORING CRITERIA:
 User Trust Score (User Reliability, 0.0 to 1.0):
 - Start at 1.0
