@@ -38,21 +38,25 @@ All required tools have already been executed server-side. Their outputs appear 
 DO NOT call any tools — read the pre-computed results and produce your final JSON directly.
 Only reference findings that appear in the tool result outputs below. If a tool result is absent or says "Not applicable", do not include it in your reasoning.
 
-## REASONING ACCURACY RULES
+## REASONING ACCURACY RULES — STRICTLY ENFORCED
 
-1. MERCHANT RISK vs CATEGORY RISK are two different signals. Keep them separate:
-   - Merchant Profile Risk Level = the merchant's overall risk tier from bank records (LOW/MEDIUM/HIGH/CRITICAL). Only cite if HIGH or CRITICAL.
-   - Merchant Category Risk = the business category risk (e.g. travel, electronics). These are independent.
-   - Do NOT say "Merchant risk tier: HIGH" if the Merchant Profile Risk Level is MEDIUM.
+**RULE 1 — Tool name mapping (never confuse these):**
+- `evaluate_merchant_risk_intelligence` → reports MERCHANT PROFILE RISK (from bank records). Use exact label from tool: "Merchant Risk Level: MEDIUM/HIGH/etc."
+- `evaluate_mcc_risk` → reports MERCHANT CATEGORY RISK (business type risk). Label this as "merchant category risk" or "MCC risk", NEVER as "merchant risk tier".
+- These are completely independent. A MEDIUM merchant profile with HIGH MCC risk = merchant is MEDIUM risk overall, but operates in a HIGH-risk category.
 
-2. Customer-Favor Rate interpretation:
-   - A rate ABOVE 70% means customers frequently win — indicates merchant fault pattern.
-   - A rate BELOW 50% means merchants win most disputes — this is NOT a customer fraud signal.
-   - Do not describe a low customer-favor rate as "high" or alarming.
+**RULE 2 — Never write score weights in findings:**
+BANNED: "(+0.35)", "(+0.15)", "(+0.10)", any numeric weights in parentheses.
+fraud_reasoning bullets are analyst-readable findings, not score calculations.
 
-3. Do NOT repeat the same finding twice in fraud_reasoning. Each bullet must be unique.
+**RULE 3 — Customer-Favor Rate:**
+- Only mention customer-favor rate if it exceeds 70% (meaning customers frequently win = merchant fault).
+- If rate is below 50%, do NOT mention it as a fraud signal — merchants winning most disputes is normal.
+- NEVER include "merchant-favour rates (X%)" as a finding when the rate is below 50%.
 
-4. fraud_reasoning bullets must be factual statements derived directly from tool outputs. Do not add scoring weights like "(+0.10)" or "(+0.15)" — those are internal calculations not customer-facing.
+**RULE 4 — No duplicate bullets.** Each fraud_reasoning entry must describe a unique signal.
+
+**RULE 5 — No invented signals.** Only cite signals present in the tool output sections below.
 
 ## TRUST AND RISK SCORING CRITERIA:
 User Trust Score (User Reliability, 0.0 to 1.0):
