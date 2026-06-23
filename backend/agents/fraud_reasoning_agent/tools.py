@@ -1706,6 +1706,639 @@ def check_refund_reversal_absence(case_id: str) -> str:
         db.close()
 
 
+# ── UPI Fraud Intelligence Tools ──────────────────────────────────────────────
+
+@tool
+def analyze_new_beneficiary_risk(case_id: str) -> str:
+    """Detect large UPI transfers to beneficiaries the customer has never previously used."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, Transaction
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "NEW BENEFICIARY RISK\n  New Beneficiary Risk: No\n  Assessment: Case not found."
+        customer_id = case.customer_id or ""
+        merchant = case.merchant or ""
+        amount = float(case.amount or 0)
+        prior = db.query(Transaction).filter(
+            Transaction.customer_id == customer_id.upper(),
+            Transaction.merchant_name.ilike(f"%{merchant}%"),
+            Transaction.transaction_id != (case.transaction_id or ""),
+        ).all()
+        prior_count = len(prior)
+        new_beneficiary = prior_count == 0
+        all_txns = db.query(Transaction).filter(Transaction.customer_id == customer_id.upper()).order_by(Transaction.transaction_date.desc()).limit(30).all()
+        avg_amount = sum(float(t.amount or 0) for t in all_txns) / max(len(all_txns), 1)
+        large_transfer = amount > max(avg_amount * 2, 10000)
+        new_beneficiary_risk = new_beneficiary and large_transfer
+        return (
+            "NEW BENEFICIARY RISK REPORT\n"
+            f"  Beneficiary          : {merchant}\n"
+            f"  Prior Transfers      : {prior_count}\n"
+            f"  New Beneficiary      : {'Yes' if new_beneficiary else 'No'}\n"
+            f"  Transaction Amount   : INR {amount:,.2f}\n"
+            f"  Avg Transfer Amount  : INR {avg_amount:,.2f}\n"
+            f"  Large Transfer       : {'Yes' if large_transfer else 'No'}\n"
+            f"  New Beneficiary Risk : {'Yes' if new_beneficiary_risk else 'No'}\n"
+            f"  Assessment           : {'High-value transfer to first-time beneficiary — strong fraud signal.' if new_beneficiary_risk else 'Beneficiary known or amount within normal range.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"analyze_new_beneficiary_risk failed: {exc}")
+        return f"NEW BENEFICIARY RISK REPORT\n  Error: {exc}\n  New Beneficiary Risk: No"
+    finally:
+        db.close()
+
+
+@tool
+def detect_upi_collect_request_fraud(case_id: str) -> str:
+    """Detect UPI Collect request fraud — one of India's most common UPI fraud vectors
+    where fraudsters send a payment request and trick victims into approving it."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "UPI COLLECT REQUEST ANALYSIS\n  Collect Request Detected: No"
+        meta = case.transaction_metadata or {}
+        dispute_reason = (case.dispute_reason or "").lower()
+        comment = (case.customer_comment or "").lower()
+        from_meta = str(meta.get("collect_request", "")).lower() in {"yes", "true", "1"}
+        from_reason = "collect" in dispute_reason
+        from_comment = "collect" in comment or "money request" in comment or "payment request" in comment
+        detected = from_meta or from_reason or from_comment
+        method = ("transaction metadata" if from_meta else "dispute reason" if from_reason else "customer description" if from_comment else "not detected")
+        return (
+            "UPI COLLECT REQUEST ANALYSIS\n"
+            f"  Collect Request Detected : {'Yes' if detected else 'No'}\n"
+            f"  Detection Method         : {method}\n"
+            f"  Assessment               : {'UPI collect request fraud detected — customer approved fraudulent payment request.' if detected else 'No collect request fraud pattern detected.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"detect_upi_collect_request_fraud failed: {exc}")
+        return f"UPI COLLECT REQUEST ANALYSIS\n  Error: {exc}\n  Collect Request Detected: No"
+    finally:
+        db.close()
+
+
+@tool
+def analyze_beneficiary_velocity(case_id: str) -> str:
+    """Detect suspicious beneficiary concentration — multiple customers sending to same beneficiary."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, DisputeHistory, Transaction
+    from datetime import datetime, timezone, timedelta
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "BENEFICIARY VELOCITY REPORT\n  Velocity Flag: No"
+        merchant = case.merchant or ""
+        now = datetime.now(timezone.utc)
+        hist = db.query(DisputeHistory).filter(
+            DisputeHistory.created_at >= now - timedelta(days=30),
+        ).all()
+        disputing_customers = {h.customer_id for h in hist if merchant.lower() in (h.merchant_id or "").lower()}
+        unique_customers = len(disputing_customers)
+        recent_txns = db.query(Transaction).filter(
+            Transaction.merchant_name.ilike(f"%{merchant}%"),
+            Transaction.transaction_date >= now - timedelta(days=7),
+        ).all()
+        recent_senders = len({t.customer_id for t in recent_txns})
+        velocity_flag = unique_customers >= 5 or recent_senders >= 8
+        risk = "HIGH" if velocity_flag else "LOW"
+        return (
+            "BENEFICIARY VELOCITY REPORT\n"
+            f"  Beneficiary                      : {merchant}\n"
+            f"  Unique Disputing Customers (30d) : {unique_customers}\n"
+            f"  Recent Unique Senders (7d)       : {recent_senders}\n"
+            f"  Velocity Flag                    : {'Yes' if velocity_flag else 'No'}\n"
+            f"  Risk Level                       : {risk}\n"
+            f"  Assessment                       : {'Multiple customers disputing this beneficiary — possible fraud hub.' if velocity_flag else 'Beneficiary activity within normal range.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"analyze_beneficiary_velocity failed: {exc}")
+        return f"BENEFICIARY VELOCITY REPORT\n  Error: {exc}\n  Velocity Flag: No"
+    finally:
+        db.close()
+
+
+@tool
+def evaluate_upi_handle_reputation(case_id: str) -> str:
+    """Evaluate UPI handle/beneficiary reputation using historical dispute data."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, DisputeHistory
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "UPI HANDLE REPUTATION\n  UPI Handle Reputation: LOW_RISK"
+        merchant = case.merchant or ""
+        all_hist = db.query(DisputeHistory).all()
+        matching = [h for h in all_hist if merchant.lower() in (h.merchant_id or "").lower() or merchant.lower() in (getattr(h, 'merchant_name', '') or "").lower()]
+        total_disputes = len(matching)
+        fraud_reports = sum(1 for h in matching if h.fraud_claim)
+        fraud_rate = fraud_reports / max(total_disputes, 1) * 100
+        reputation = ("HIGH_RISK" if fraud_reports >= 5 or fraud_rate > 30
+                      else "MEDIUM_RISK" if fraud_reports >= 2 or fraud_rate > 15
+                      else "LOW_RISK")
+        return (
+            "UPI HANDLE REPUTATION REPORT\n"
+            f"  Beneficiary          : {merchant}\n"
+            f"  Total Disputes       : {total_disputes}\n"
+            f"  Fraud Reports        : {fraud_reports}\n"
+            f"  Fraud Rate           : {fraud_rate:.1f}%\n"
+            f"  UPI Handle Reputation: {reputation}\n"
+            f"  Assessment           : {'Known high-risk beneficiary with significant fraud history.' if reputation == 'HIGH_RISK' else 'Moderate dispute history.' if reputation == 'MEDIUM_RISK' else 'No significant fraud history for this beneficiary.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"evaluate_upi_handle_reputation failed: {exc}")
+        return f"UPI HANDLE REPUTATION REPORT\n  Error: {exc}\n  UPI Handle Reputation: LOW_RISK"
+    finally:
+        db.close()
+
+
+@tool
+def analyze_dormant_beneficiary_risk(case_id: str) -> str:
+    """Detect transfers to recently-created beneficiaries — fraudsters register new accounts
+    immediately before receiving stolen funds."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, Transaction
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "DORMANT BENEFICIARY RISK\n  Dormant Risk: No"
+        customer_id = case.customer_id or ""
+        merchant = case.merchant or ""
+        prior_txns = db.query(Transaction).filter(
+            Transaction.customer_id == customer_id.upper(),
+            Transaction.merchant_name.ilike(f"%{merchant}%"),
+            Transaction.transaction_id != (case.transaction_id or ""),
+        ).order_by(Transaction.transaction_date.asc()).all()
+        if not prior_txns:
+            beneficiary_age_days = 0
+            dormant_risk = True
+            first_date_str = "First transaction (no prior history)"
+        else:
+            from datetime import timezone as _tz
+            first_dt = prior_txns[0].transaction_date
+            if first_dt.tzinfo is None:
+                first_dt = first_dt.replace(tzinfo=_tz.utc)
+            try:
+                from datetime import datetime
+                txn_dt_str = f"{case.transaction_date or ''} {case.transaction_time or ''}".strip()
+                txn_dt = datetime.strptime(txn_dt_str, "%Y-%m-%d %H:%M") if txn_dt_str else datetime.now(_tz.utc)
+                if txn_dt.tzinfo is None:
+                    txn_dt = txn_dt.replace(tzinfo=_tz.utc)
+            except Exception:
+                from datetime import datetime
+                txn_dt = datetime.now(_tz.utc)
+            beneficiary_age_days = (txn_dt - first_dt).days
+            dormant_risk = beneficiary_age_days < 7
+            first_date_str = first_dt.strftime("%Y-%m-%d")
+        return (
+            "DORMANT BENEFICIARY RISK REPORT\n"
+            f"  Beneficiary          : {merchant}\n"
+            f"  First Transaction    : {first_date_str}\n"
+            f"  Beneficiary Age      : {beneficiary_age_days} days\n"
+            f"  Dormant Risk         : {'Yes' if dormant_risk else 'No'}\n"
+            f"  Assessment           : {'Very new beneficiary — possible freshly-created fraud account.' if dormant_risk else 'Beneficiary has established transaction history.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"analyze_dormant_beneficiary_risk failed: {exc}")
+        return f"DORMANT BENEFICIARY RISK REPORT\n  Error: {exc}\n  Dormant Risk: No"
+    finally:
+        db.close()
+
+
+# ── Internet / Mobile Banking Fraud Intelligence Tools ─────────────────────────
+
+@tool
+def detect_impossible_login_travel(case_id: str) -> str:
+    """Detect impossible login/transaction travel — login from distant location within
+    impossibly short time suggests account compromise."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, Transaction
+    from datetime import datetime, timezone, timedelta
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "IMPOSSIBLE LOGIN TRAVEL\n  Impossible Travel: No"
+        customer_id = case.customer_id or ""
+        meta = case.transaction_metadata or {}
+        current_location = meta.get("transaction_location") or ""
+        try:
+            txn_dt_str = f"{case.transaction_date or ''} {case.transaction_time or ''}".strip()
+            curr_dt = datetime.strptime(txn_dt_str, "%Y-%m-%d %H:%M") if txn_dt_str else datetime.now(timezone.utc)
+            if curr_dt.tzinfo is None:
+                curr_dt = curr_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            curr_dt = datetime.now(timezone.utc)
+        window_start = curr_dt - timedelta(hours=2)
+        recent_txns = db.query(Transaction).filter(
+            Transaction.customer_id == customer_id.upper(),
+            Transaction.transaction_date >= window_start,
+            Transaction.transaction_id != (case.transaction_id or ""),
+        ).order_by(Transaction.transaction_date.desc()).limit(5).all()
+        impossible_travel = False
+        conflict_location = ""
+        time_diff_str = ""
+        if _is_location_known(current_location):
+            for t in recent_txns:
+                if _is_location_known(t.location or "") and not _same_city(current_location, t.location or ""):
+                    t_dt = t.transaction_date
+                    if t_dt.tzinfo is None:
+                        t_dt = t_dt.replace(tzinfo=timezone.utc)
+                    diff_h = abs((curr_dt - t_dt).total_seconds()) / 3600
+                    if diff_h < 2:
+                        impossible_travel = True
+                        conflict_location = t.location or ""
+                        time_diff_str = f"{round(diff_h * 60)} minutes"
+                        break
+        return (
+            "IMPOSSIBLE LOGIN TRAVEL REPORT\n"
+            f"  Current Location     : {current_location or 'Not provided'}\n"
+            f"  Conflicting Location : {conflict_location or 'None'}\n"
+            f"  Time Difference      : {time_diff_str or 'N/A'}\n"
+            f"  Impossible Travel    : {'Yes' if impossible_travel else 'No'}\n"
+            f"  Assessment           : {'Impossible geographic displacement detected — strong account compromise indicator.' if impossible_travel else 'No impossible travel detected.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"detect_impossible_login_travel failed: {exc}")
+        return f"IMPOSSIBLE LOGIN TRAVEL REPORT\n  Error: {exc}\n  Impossible Travel: No"
+    finally:
+        db.close()
+
+
+@tool
+def analyze_device_change_large_transfer(case_id: str) -> str:
+    """Detect large transfers made immediately after a device change — common ATO pattern."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, Transaction
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "DEVICE CHANGE TRANSFER ANALYSIS\n  Risk Detected: No"
+        customer_id = case.customer_id or ""
+        meta = case.transaction_metadata or {}
+        current_device = meta.get("device_id") or ""
+        amount = float(case.amount or 0)
+        prior_txns = db.query(Transaction).filter(
+            Transaction.customer_id == customer_id.upper(),
+            Transaction.transaction_id != (case.transaction_id or ""),
+        ).order_by(Transaction.transaction_date.desc()).limit(10).all()
+        prior_devices = {t.device_id for t in prior_txns if t.device_id}
+        device_changed = bool(current_device and prior_devices and current_device not in prior_devices)
+        avg_amount = sum(float(t.amount or 0) for t in prior_txns) / max(len(prior_txns), 1)
+        large_transfer = amount > max(avg_amount * 2, 25000)
+        risk_detected = device_changed and large_transfer
+        return (
+            "DEVICE CHANGE TRANSFER ANALYSIS\n"
+            f"  Current Device       : {current_device or 'Not provided'}\n"
+            f"  Prior Devices (count): {len(prior_devices)}\n"
+            f"  Device Changed       : {'Yes' if device_changed else 'No'}\n"
+            f"  Transaction Amount   : INR {amount:,.2f}\n"
+            f"  Average Amount       : INR {avg_amount:,.2f}\n"
+            f"  Large Transfer       : {'Yes' if large_transfer else 'No'}\n"
+            f"  Risk Detected        : {'Yes' if risk_detected else 'No'}\n"
+            f"  Assessment           : {'Large transfer immediately after device change — account takeover indicator.' if risk_detected else 'No device change risk detected.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"analyze_device_change_large_transfer failed: {exc}")
+        return f"DEVICE CHANGE TRANSFER ANALYSIS\n  Error: {exc}\n  Risk Detected: No"
+    finally:
+        db.close()
+
+
+@tool
+def detect_password_reset_transaction_pattern(case_id: str) -> str:
+    """Detect transactions immediately following password resets — classic ATO indicator."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "PASSWORD RESET PATTERN\n  Pattern Detected: No"
+        meta = case.transaction_metadata or {}
+        password_reset = str(meta.get("password_reset_before", "")).lower() in {"yes", "true", "1"}
+        return (
+            "PASSWORD RESET PATTERN REPORT\n"
+            f"  Password Reset Before Transaction: {'Yes' if password_reset else 'No'}\n"
+            f"  Pattern Detected                 : {'Yes' if password_reset else 'No'}\n"
+            f"  Assessment                       : {'Transaction followed password reset — high-risk ATO pattern.' if password_reset else 'No password reset pattern detected.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"detect_password_reset_transaction_pattern failed: {exc}")
+        return f"PASSWORD RESET PATTERN REPORT\n  Error: {exc}\n  Pattern Detected: No"
+    finally:
+        db.close()
+
+
+@tool
+def analyze_mobile_number_change_risk(case_id: str) -> str:
+    """Detect transactions following mobile number changes — critical ATO signal."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "MOBILE NUMBER CHANGE RISK\n  Mobile Number Changed: No\n  ATO Risk: LOW"
+        meta = case.transaction_metadata or {}
+        mobile_changed = str(meta.get("mobile_number_changed", "")).lower() in {"yes", "true", "1"}
+        ato_risk = "HIGH" if mobile_changed else "LOW"
+        return (
+            "MOBILE NUMBER CHANGE RISK REPORT\n"
+            f"  Mobile Number Changed: {'Yes' if mobile_changed else 'No'}\n"
+            f"  ATO Risk             : {ato_risk}\n"
+            f"  Assessment           : {'Mobile number changed before transaction — OTP/2FA compromise risk.' if mobile_changed else 'No mobile number change detected.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"analyze_mobile_number_change_risk failed: {exc}")
+        return f"MOBILE NUMBER CHANGE RISK REPORT\n  Error: {exc}\n  Mobile Number Changed: No\n  ATO Risk: LOW"
+    finally:
+        db.close()
+
+
+# ── ATM Fraud Intelligence Tools ───────────────────────────────────────────────
+
+@tool
+def analyze_consecutive_atm_withdrawals(case_id: str) -> str:
+    """Detect repeated ATM withdrawals in short intervals — card cloning or duress indicator."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, Transaction
+    from datetime import datetime, timezone, timedelta
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "CONSECUTIVE ATM WITHDRAWALS\n  Consecutive Pattern: No"
+        customer_id = case.customer_id or ""
+        try:
+            txn_dt_str = f"{case.transaction_date or ''} {case.transaction_time or ''}".strip()
+            curr_dt = datetime.strptime(txn_dt_str, "%Y-%m-%d %H:%M")
+            if curr_dt.tzinfo is None:
+                curr_dt = curr_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            curr_dt = datetime.now(timezone.utc)
+        window_start = curr_dt - timedelta(hours=6)
+        atm_txns = db.query(Transaction).filter(
+            Transaction.customer_id == customer_id.upper(),
+            Transaction.transaction_type.in_(["ATM", "ATM Cash", "Cash Withdrawal"]),
+            Transaction.transaction_date >= window_start,
+        ).order_by(Transaction.transaction_date.asc()).all()
+        count = len(atm_txns)
+        amount_pattern = False
+        if count >= 2:
+            amounts = [float(t.amount or 0) for t in atm_txns]
+            avg_a = sum(amounts) / len(amounts)
+            amount_pattern = all(abs(a - avg_a) / max(avg_a, 1) < 0.10 for a in amounts)
+        consecutive = count >= 3 or (count >= 2 and amount_pattern)
+        return (
+            "CONSECUTIVE ATM WITHDRAWAL REPORT\n"
+            f"  ATM Withdrawals (6h)  : {count}\n"
+            f"  Consecutive Pattern   : {'Yes' if consecutive else 'No'}\n"
+            f"  Count                 : {count}\n"
+            f"  Similar Amounts       : {'Yes' if amount_pattern else 'No'}\n"
+            f"  Assessment            : {'Consecutive ATM withdrawals detected — possible card cloning or forced withdrawal.' if consecutive else 'ATM withdrawal pattern within normal range.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"analyze_consecutive_atm_withdrawals failed: {exc}")
+        return f"CONSECUTIVE ATM WITHDRAWAL REPORT\n  Error: {exc}\n  Consecutive Pattern: No"
+    finally:
+        db.close()
+
+
+@tool
+def analyze_foreign_atm_usage(case_id: str) -> str:
+    """Detect ATM usage in foreign locations when customer normally uses domestic ATMs."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, Transaction
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "FOREIGN ATM USAGE\n  Foreign ATM Usage: No\n  Risk Level: LOW"
+        customer_id = case.customer_id or ""
+        meta = case.transaction_metadata or {}
+        current_location = (meta.get("transaction_location") or "").lower()
+        _INDIA = {"india", "mumbai", "delhi", "bangalore", "bengaluru", "chennai", "kolkata",
+                  "hyderabad", "pune", "ahmedabad", "in", "mh", "dl", "ka", "tn", "wb", "gj",
+                  "up", "rj", "mp", "haryana", "hr", "pb", "punjab", "rajasthan", "gujarat"}
+        def _is_india(loc: str) -> bool:
+            return any(ind in loc.lower() for ind in _INDIA) if loc else True
+        hist = db.query(Transaction).filter(
+            Transaction.customer_id == customer_id.upper(),
+            Transaction.transaction_type.in_(["ATM", "ATM Cash"]),
+        ).order_by(Transaction.transaction_date.desc()).limit(20).all()
+        domestic_count = sum(1 for t in hist if _is_india(t.location or ""))
+        domestic_pct = domestic_count / max(len(hist), 1) * 100
+        foreign_atm_usage = bool(current_location and not _is_india(current_location) and domestic_pct > 80)
+        risk = "HIGH" if foreign_atm_usage else "LOW"
+        return (
+            "FOREIGN ATM USAGE REPORT\n"
+            f"  Current ATM Location     : {current_location or 'Not provided'}\n"
+            f"  Historical Domestic ATM %: {domestic_pct:.1f}%\n"
+            f"  Foreign ATM Usage        : {'Yes' if foreign_atm_usage else 'No'}\n"
+            f"  Risk Level               : {risk}\n"
+            f"  Assessment               : {'Foreign ATM usage by primarily domestic customer — card cloning indicator.' if foreign_atm_usage else 'ATM usage consistent with customer location history.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"analyze_foreign_atm_usage failed: {exc}")
+        return f"FOREIGN ATM USAGE REPORT\n  Error: {exc}\n  Foreign ATM Usage: No\n  Risk Level: LOW"
+    finally:
+        db.close()
+
+
+@tool
+def detect_sim_swap_atm_pattern(case_id: str) -> str:
+    """Detect ATM withdrawals shortly after SIM swap — strongest ATM fraud signal."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "SIM SWAP ATM PATTERN\n  Risk Level: LOW"
+        meta = case.transaction_metadata or {}
+        sim_swap = str(meta.get("sim_swap_suspected", "")).lower() in {"yes", "true", "1"}
+        mobile_changed = str(meta.get("mobile_number_changed", "")).lower() in {"yes", "true", "1"}
+        sim_swap_detected = sim_swap or mobile_changed
+        risk = "CRITICAL" if sim_swap_detected else "LOW"
+        return (
+            "SIM SWAP ATM PATTERN REPORT\n"
+            f"  SIM Swap Suspected           : {'Yes' if sim_swap else 'No'}\n"
+            f"  Mobile Number Changed        : {'Yes' if mobile_changed else 'No'}\n"
+            f"  ATM Withdrawal After Swap    : {'Yes' if sim_swap_detected else 'No'}\n"
+            f"  Risk Level                   : {risk}\n"
+            f"  Assessment                   : {'CRITICAL: SIM swap before ATM withdrawal — OTP bypass + card fraud combination.' if sim_swap_detected else 'No SIM swap ATM pattern detected.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"detect_sim_swap_atm_pattern failed: {exc}")
+        return f"SIM SWAP ATM PATTERN REPORT\n  Error: {exc}\n  Risk Level: LOW"
+    finally:
+        db.close()
+
+
+# ── Universal Fraud Intelligence Tools ────────────────────────────────────────
+
+@tool
+def evaluate_historical_fraud_victim_score(case_id: str) -> str:
+    """Determine if customer has been a previous fraud victim — repeat targeting indicator."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, DisputeHistory
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "HISTORICAL FRAUD VICTIM SCORE\n  Victim Score: NONE"
+        customer_id = case.customer_id or ""
+        prior_fraud = db.query(DisputeCase).filter(
+            DisputeCase.customer_id == customer_id.upper(),
+            DisputeCase.fraud_suspicion == True,
+            DisputeCase.case_id != case_id,
+        ).count()
+        hist_fraud = db.query(DisputeHistory).filter(
+            DisputeHistory.customer_id == customer_id.upper(),
+            DisputeHistory.fraud_claim == True,
+        ).count()
+        total = prior_fraud + hist_fraud
+        victim_score = "HIGH" if total >= 3 else "MEDIUM" if total >= 1 else "NONE"
+        return (
+            "HISTORICAL FRAUD VICTIM SCORE\n"
+            f"  Prior Fraud Cases (Live) : {prior_fraud}\n"
+            f"  Historical Fraud Claims  : {hist_fraud}\n"
+            f"  Total Fraud History      : {total}\n"
+            f"  Victim Score             : {victim_score}\n"
+            f"  Assessment               : {'High repeat-fraud victim — elevated targeting risk.' if victim_score == 'HIGH' else 'Prior fraud history noted.' if victim_score == 'MEDIUM' else 'No prior fraud history.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"evaluate_historical_fraud_victim_score failed: {exc}")
+        return f"HISTORICAL FRAUD VICTIM SCORE\n  Error: {exc}\n  Victim Score: NONE"
+    finally:
+        db.close()
+
+
+@tool
+def detect_account_takeover_pattern(case_id: str) -> str:
+    """Detect account takeover by combining ATO signals: password reset, device change,
+    phone change, SIM swap — multiple signals indicate coordinated compromise."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "ACCOUNT TAKEOVER PATTERN\n  Account Takeover Risk: LOW"
+        meta = case.transaction_metadata or {}
+        def _yes(k: str) -> bool:
+            return str(meta.get(k, "")).lower() in {"yes", "true", "1"}
+        password_reset = _yes("password_reset_before")
+        device_changed = _yes("new_device")
+        phone_changed = _yes("mobile_number_changed")
+        sim_swap = _yes("sim_swap_suspected")
+        ato_signals = sum([password_reset, device_changed, phone_changed, sim_swap])
+        ato_risk = ("CRITICAL" if ato_signals >= 3 else "HIGH" if ato_signals >= 2
+                    else "MEDIUM" if ato_signals == 1 else "LOW")
+        return (
+            "ACCOUNT TAKEOVER PATTERN REPORT\n"
+            f"  Password Reset Before : {'Yes' if password_reset else 'No'}\n"
+            f"  New Device Detected   : {'Yes' if device_changed else 'No'}\n"
+            f"  Mobile Number Changed : {'Yes' if phone_changed else 'No'}\n"
+            f"  SIM Swap Suspected    : {'Yes' if sim_swap else 'No'}\n"
+            f"  ATO Signal Count      : {ato_signals}\n"
+            f"  Account Takeover Risk : {ato_risk}\n"
+            f"  Assessment            : {'CRITICAL account takeover — multiple compromise indicators.' if ato_risk == 'CRITICAL' else 'High ATO risk — multiple signals detected.' if ato_risk == 'HIGH' else 'Moderate ATO signal detected.' if ato_risk == 'MEDIUM' else 'No account takeover pattern detected.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"detect_account_takeover_pattern failed: {exc}")
+        return f"ACCOUNT TAKEOVER PATTERN REPORT\n  Error: {exc}\n  Account Takeover Risk: LOW"
+    finally:
+        db.close()
+
+
+@tool
+def analyze_mule_account_indicators(case_id: str) -> str:
+    """Detect mule account behavior — rapid pass-through of funds indicating money laundering."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, Transaction
+    from datetime import datetime, timezone, timedelta
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "MULE ACCOUNT INDICATORS\n  Mule Account Suspected: No"
+        customer_id = case.customer_id or ""
+        now = datetime.now(timezone.utc)
+        txns_24h = db.query(Transaction).filter(
+            Transaction.customer_id == customer_id.upper(),
+            Transaction.transaction_date >= now - timedelta(hours=24),
+            Transaction.status == "Success",
+        ).all()
+        total_24h = len(txns_24h)
+        high_velocity = total_24h >= 8
+        txns_2h = [t for t in txns_24h if t.transaction_date and (now - (t.transaction_date.replace(tzinfo=timezone.utc) if t.transaction_date.tzinfo is None else t.transaction_date)).total_seconds() <= 7200]
+        unique_merchants_2h = len({t.merchant_name for t in txns_2h if t.merchant_name})
+        scatter_pattern = unique_merchants_2h >= 5
+        mule_suspected = high_velocity or scatter_pattern
+        return (
+            "MULE ACCOUNT INDICATORS REPORT\n"
+            f"  Transactions (24h)    : {total_24h}\n"
+            f"  Unique Merchants (2h) : {unique_merchants_2h}\n"
+            f"  High Velocity (24h)   : {'Yes' if high_velocity else 'No'}\n"
+            f"  Scatter Pattern (2h)  : {'Yes' if scatter_pattern else 'No'}\n"
+            f"  Mule Account Suspected: {'Yes' if mule_suspected else 'No'}\n"
+            f"  Assessment            : {'Mule account behavior detected — rapid fund pass-through pattern.' if mule_suspected else 'No mule account pattern detected.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"analyze_mule_account_indicators failed: {exc}")
+        return f"MULE ACCOUNT INDICATORS REPORT\n  Error: {exc}\n  Mule Account Suspected: No"
+    finally:
+        db.close()
+
+
+@tool
+def detect_historical_case_similarity(case_id: str) -> str:
+    """Compare current dispute against historical database to identify known fraud patterns."""
+    from database.database import SessionLocal
+    from database.models import DisputeCase, DisputeHistory
+    from datetime import datetime, timezone, timedelta
+    db = SessionLocal()
+    try:
+        case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
+        if not case:
+            return "HISTORICAL CASE SIMILARITY\n  Pattern Risk: LOW"
+        merchant = (case.merchant or "").lower()
+        dispute_category = case.dispute_category or ""
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=90)
+        hist_all = db.query(DisputeHistory).filter(DisputeHistory.created_at >= cutoff).all()
+        similar_cases = len(hist_all)
+        same_merchant = sum(1 for h in hist_all if merchant and merchant in (h.merchant_id or "").lower())
+        fraud_cases = sum(1 for h in hist_all if h.fraud_claim)
+        cat_matches = sum(1 for h in hist_all if (h.dispute_category or "") == dispute_category)
+        similarity_score = min(1.0, (same_merchant * 0.4 + fraud_cases * 0.4 + cat_matches * 0.2) / max(similar_cases, 10))
+        pattern_risk = "HIGH" if similarity_score > 0.6 else "MEDIUM" if similarity_score > 0.3 else "LOW"
+        return (
+            "HISTORICAL CASE SIMILARITY REPORT\n"
+            f"  Similar Cases Found     : {similar_cases}\n"
+            f"  Same Merchant Disputes  : {same_merchant}\n"
+            f"  Fraud-Flagged Cases     : {fraud_cases}\n"
+            f"  Similarity Score        : {similarity_score:.2f}\n"
+            f"  Pattern Risk            : {pattern_risk}\n"
+            f"  Assessment              : {'High similarity to known fraud patterns — strong historical match.' if pattern_risk == 'HIGH' else 'Moderate pattern similarity detected.' if pattern_risk == 'MEDIUM' else 'No significant pattern match in historical cases.'}"
+        )
+    except Exception as exc:
+        agent_logger.warning(f"detect_historical_case_similarity failed: {exc}")
+        return f"HISTORICAL CASE SIMILARITY REPORT\n  Error: {exc}\n  Pattern Risk: LOW"
+    finally:
+        db.close()
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 TOOL_REGISTRY: dict = {
@@ -1736,4 +2369,24 @@ TOOL_REGISTRY: dict = {
     "evaluate_mcc_risk":                   evaluate_mcc_risk,
     "analyze_decline_success_pattern":     analyze_decline_success_pattern,
     "check_refund_reversal_absence":       check_refund_reversal_absence,
+    # UPI intelligence
+    "analyze_new_beneficiary_risk":           analyze_new_beneficiary_risk,
+    "detect_upi_collect_request_fraud":       detect_upi_collect_request_fraud,
+    "analyze_beneficiary_velocity":           analyze_beneficiary_velocity,
+    "evaluate_upi_handle_reputation":         evaluate_upi_handle_reputation,
+    "analyze_dormant_beneficiary_risk":       analyze_dormant_beneficiary_risk,
+    # Internet / Mobile Banking intelligence
+    "detect_impossible_login_travel":             detect_impossible_login_travel,
+    "analyze_device_change_large_transfer":       analyze_device_change_large_transfer,
+    "detect_password_reset_transaction_pattern":  detect_password_reset_transaction_pattern,
+    "analyze_mobile_number_change_risk":          analyze_mobile_number_change_risk,
+    # ATM intelligence
+    "analyze_consecutive_atm_withdrawals":  analyze_consecutive_atm_withdrawals,
+    "analyze_foreign_atm_usage":            analyze_foreign_atm_usage,
+    "detect_sim_swap_atm_pattern":          detect_sim_swap_atm_pattern,
+    # Universal
+    "evaluate_historical_fraud_victim_score": evaluate_historical_fraud_victim_score,
+    "detect_account_takeover_pattern":        detect_account_takeover_pattern,
+    "analyze_mule_account_indicators":        analyze_mule_account_indicators,
+    "detect_historical_case_similarity":      detect_historical_case_similarity,
 }

@@ -70,19 +70,22 @@ def build_context_node(state: FraudReasoningAgentState) -> dict:
 
     # ── Channel routing ────────────────────────────────────────────────────────
     _txn = transaction_type.lower().strip()
-    _DIGITAL  = {"upi", "net banking", "internet banking", "mobile banking", "imps",
-                 "neft", "rtgs", "netbanking", "online transfer"}
-    _CARD_POS = {"debit card", "credit card", "debit card pos", "credit card pos"}
-    _ATM      = {"atm", "atm cash", "atm withdrawal", "cash withdrawal"}
+    _UPI             = {"upi"}
+    _INTERNET_MOBILE = {"net banking", "internet banking", "mobile banking", "imps",
+                        "neft", "rtgs", "netbanking", "online transfer"}
+    _CARD_POS        = {"debit card", "credit card", "debit card pos", "credit card pos"}
+    _ATM             = {"atm", "atm cash", "atm withdrawal", "cash withdrawal"}
 
-    if _txn in _DIGITAL:
-        channel = "DIGITAL"
+    if _txn in _UPI:
+        channel = "UPI"
+    elif _txn in _INTERNET_MOBILE:
+        channel = "INTERNET_BANKING"
     elif _txn in _CARD_POS:
         channel = "CARD_POS"
     elif _txn in _ATM:
         channel = "ATM"
     else:
-        channel = "DIGITAL"  # safe fallback — device-based checks
+        channel = "UPI"  # safe fallback for unknown digital transactions
 
     # ── Build tool set per channel ─────────────────────────────────────────────
     _common_merchant = ("evaluate_merchant_risk_intelligence", {
@@ -91,28 +94,53 @@ def build_context_node(state: FraudReasoningAgentState) -> dict:
     })
     _common_spending = ("analyze_spending_behavior", {"customer_id": customer_id, "amount": amount})
     _common_behavior = ("analyze_behavioral_patterns", {"customer_id": customer_id})
+    _digital_core = {
+        "detect_transaction_anomalies": (
+            TOOL_REGISTRY["detect_transaction_anomalies"],
+            {"customer_id": customer_id, "transaction_time": transaction_time, "transaction_date": transaction_date}
+        ),
+        "evaluate_location_velocity": (
+            TOOL_REGISTRY["evaluate_location_velocity"],
+            {"customer_id": customer_id, "location": location, "transaction_date": transaction_date, "transaction_time": transaction_time}
+        ),
+        "analyze_spending_behavior": (TOOL_REGISTRY["analyze_spending_behavior"], _common_spending[1]),
+        "verify_kyc_match": (
+            TOOL_REGISTRY["verify_kyc_match"],
+            {"customer_id": customer_id, "name": customer_name, "email": email, "phone": phone, "dispute_category": d.get("dispute_category", "")}
+        ),
+        "evaluate_device_fingerprint": (
+            TOOL_REGISTRY["evaluate_device_fingerprint"],
+            {"customer_id": customer_id, "device_id": device_id, "location": location}
+        ),
+        "analyze_behavioral_patterns": (TOOL_REGISTRY["analyze_behavioral_patterns"], _common_behavior[1]),
+        "evaluate_merchant_risk_intelligence": (TOOL_REGISTRY["evaluate_merchant_risk_intelligence"], _common_merchant[1]),
+    }
+    _universal_tools = {
+        "evaluate_historical_fraud_victim_score": (TOOL_REGISTRY["evaluate_historical_fraud_victim_score"], {"case_id": case_id}),
+        "detect_account_takeover_pattern":        (TOOL_REGISTRY["detect_account_takeover_pattern"],        {"case_id": case_id}),
+        "analyze_mule_account_indicators":        (TOOL_REGISTRY["analyze_mule_account_indicators"],        {"case_id": case_id}),
+        "detect_historical_case_similarity":      (TOOL_REGISTRY["detect_historical_case_similarity"],      {"case_id": case_id}),
+    }
 
-    if channel == "DIGITAL":
+    if channel == "UPI":
         task_defs = {
-            "detect_transaction_anomalies": (
-                TOOL_REGISTRY["detect_transaction_anomalies"],
-                {"customer_id": customer_id, "transaction_time": transaction_time, "transaction_date": transaction_date}
-            ),
-            "evaluate_location_velocity": (
-                TOOL_REGISTRY["evaluate_location_velocity"],
-                {"customer_id": customer_id, "location": location, "transaction_date": transaction_date, "transaction_time": transaction_time}
-            ),
-            "analyze_spending_behavior": (TOOL_REGISTRY["analyze_spending_behavior"], _common_spending[1]),
-            "verify_kyc_match": (
-                TOOL_REGISTRY["verify_kyc_match"],
-                {"customer_id": customer_id, "name": customer_name, "email": email, "phone": phone, "dispute_category": d.get("dispute_category", "")}
-            ),
-            "evaluate_device_fingerprint": (
-                TOOL_REGISTRY["evaluate_device_fingerprint"],
-                {"customer_id": customer_id, "device_id": device_id, "location": location}
-            ),
-            "analyze_behavioral_patterns": (TOOL_REGISTRY["analyze_behavioral_patterns"], _common_behavior[1]),
-            "evaluate_merchant_risk_intelligence": (TOOL_REGISTRY["evaluate_merchant_risk_intelligence"], _common_merchant[1]),
+            **_digital_core,
+            "analyze_new_beneficiary_risk":     (TOOL_REGISTRY["analyze_new_beneficiary_risk"],     {"case_id": case_id}),
+            "detect_upi_collect_request_fraud": (TOOL_REGISTRY["detect_upi_collect_request_fraud"], {"case_id": case_id}),
+            "analyze_beneficiary_velocity":     (TOOL_REGISTRY["analyze_beneficiary_velocity"],     {"case_id": case_id}),
+            "evaluate_upi_handle_reputation":   (TOOL_REGISTRY["evaluate_upi_handle_reputation"],   {"case_id": case_id}),
+            "analyze_dormant_beneficiary_risk": (TOOL_REGISTRY["analyze_dormant_beneficiary_risk"], {"case_id": case_id}),
+            **_universal_tools,
+        }
+
+    elif channel == "INTERNET_BANKING":
+        task_defs = {
+            **_digital_core,
+            "detect_impossible_login_travel":            (TOOL_REGISTRY["detect_impossible_login_travel"],            {"case_id": case_id}),
+            "analyze_device_change_large_transfer":      (TOOL_REGISTRY["analyze_device_change_large_transfer"],      {"case_id": case_id}),
+            "detect_password_reset_transaction_pattern": (TOOL_REGISTRY["detect_password_reset_transaction_pattern"], {"case_id": case_id}),
+            "analyze_mobile_number_change_risk":         (TOOL_REGISTRY["analyze_mobile_number_change_risk"],         {"case_id": case_id}),
+            **_universal_tools,
         }
 
     elif channel == "CARD_POS":
@@ -145,6 +173,7 @@ def build_context_node(state: FraudReasoningAgentState) -> dict:
             "evaluate_mcc_risk":                    (TOOL_REGISTRY["evaluate_mcc_risk"],                    {"case_id": case_id}),
             "analyze_decline_success_pattern":      (TOOL_REGISTRY["analyze_decline_success_pattern"],      {"case_id": case_id}),
             "check_refund_reversal_absence":        (TOOL_REGISTRY["check_refund_reversal_absence"],        {"case_id": case_id}),
+            **_universal_tools,
         }
 
     else:  # ATM
@@ -164,6 +193,10 @@ def build_context_node(state: FraudReasoningAgentState) -> dict:
                 TOOL_REGISTRY["analyze_cash_withdrawal_patterns"],
                 {"customer_id": customer_id, "amount": amount}
             ),
+            "analyze_consecutive_atm_withdrawals": (TOOL_REGISTRY["analyze_consecutive_atm_withdrawals"], {"case_id": case_id}),
+            "analyze_foreign_atm_usage":           (TOOL_REGISTRY["analyze_foreign_atm_usage"],           {"case_id": case_id}),
+            "detect_sim_swap_atm_pattern":         (TOOL_REGISTRY["detect_sim_swap_atm_pattern"],         {"case_id": case_id}),
+            **_universal_tools,
         }
 
     def _run_one(name: str, tool_fn, args: dict) -> tuple:
@@ -177,7 +210,7 @@ def build_context_node(state: FraudReasoningAgentState) -> dict:
 
     tool_results: dict = {}
     tools_used: list = []
-    max_workers = min(len(task_defs), 16)
+    max_workers = min(len(task_defs), 20)
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = {
             ex.submit(_run_one, name, fn, args): name
@@ -190,14 +223,27 @@ def build_context_node(state: FraudReasoningAgentState) -> dict:
 
     # Build prompt context — include all tools that ran
     _TOOL_ORDER = [
+        # Core digital
         "detect_transaction_anomalies", "evaluate_location_velocity", "analyze_spending_behavior",
         "verify_kyc_match", "evaluate_device_fingerprint", "analyze_behavioral_patterns",
         "evaluate_merchant_risk_intelligence",
+        # Card POS
         "analyze_card_velocity", "evaluate_atm_pos_distance", "analyze_foreign_usage", "analyze_card_present_anomalies",
-        "analyze_atm_velocity", "evaluate_atm_geovelocity", "analyze_cash_withdrawal_patterns",
         "detect_merchant_compromise_pattern", "analyze_first_time_merchant", "evaluate_merchant_resolution_history",
         "detect_card_testing_pattern", "analyze_multi_merchant_burst", "evaluate_mcc_risk",
         "analyze_decline_success_pattern", "check_refund_reversal_absence",
+        # ATM
+        "analyze_atm_velocity", "evaluate_atm_geovelocity", "analyze_cash_withdrawal_patterns",
+        "analyze_consecutive_atm_withdrawals", "analyze_foreign_atm_usage", "detect_sim_swap_atm_pattern",
+        # UPI
+        "analyze_new_beneficiary_risk", "detect_upi_collect_request_fraud", "analyze_beneficiary_velocity",
+        "evaluate_upi_handle_reputation", "analyze_dormant_beneficiary_risk",
+        # Internet Banking
+        "detect_impossible_login_travel", "analyze_device_change_large_transfer",
+        "detect_password_reset_transaction_pattern", "analyze_mobile_number_change_risk",
+        # Universal
+        "evaluate_historical_fraud_victim_score", "detect_account_takeover_pattern",
+        "analyze_mule_account_indicators", "detect_historical_case_similarity",
     ]
     tool_section = f"\n\n## PRE-COMPUTED TOOL RESULTS (Channel: {channel})\n(All tools executed — synthesise and produce JSON now)\n"
     for name in _TOOL_ORDER:
@@ -608,6 +654,80 @@ def finalize_node(state: FraudReasoningAgentState) -> dict:
     if decline_success_pattern:                 prob += 0.20
     if refund_claim_unverified:                 prob += 0.15
 
+    # ── UPI intelligence ─────────────────────────────────────────────────────
+    _nbr_report  = str(tool_results.get("analyze_new_beneficiary_risk", ""))
+    _ucr_report  = str(tool_results.get("detect_upi_collect_request_fraud", ""))
+    _bv_report   = str(tool_results.get("analyze_beneficiary_velocity", ""))
+    _uhr_report  = str(tool_results.get("evaluate_upi_handle_reputation", ""))
+    _dbr_report  = str(tool_results.get("analyze_dormant_beneficiary_risk", ""))
+
+    new_beneficiary_risk  = any("New Beneficiary Risk" in l and "Yes" in l for l in _nbr_report.split("\n"))
+    upi_collect_fraud     = any("Collect Request Detected" in l and "Yes" in l for l in _ucr_report.split("\n"))
+    beneficiary_vel_flag  = any("Velocity Flag" in l and "Yes" in l for l in _bv_report.split("\n"))
+    upi_reputation        = "LOW_RISK"
+    for _l in _uhr_report.split("\n"):
+        if "UPI Handle Reputation" in _l:
+            if "HIGH_RISK" in _l:    upi_reputation = "HIGH_RISK"
+            elif "MEDIUM_RISK" in _l: upi_reputation = "MEDIUM_RISK"
+    dormant_beneficiary   = any("Dormant Risk" in l and "Yes" in l for l in _dbr_report.split("\n"))
+
+    if new_beneficiary_risk:                    prob += 0.20
+    if upi_collect_fraud:                       prob += 0.30
+    if beneficiary_vel_flag:                    prob += 0.30
+    if upi_reputation == "HIGH_RISK":           prob += 0.35
+    if dormant_beneficiary:                     prob += 0.20
+
+    # ── Internet / Mobile Banking intelligence ────────────────────────────────
+    _ilt_report  = str(tool_results.get("detect_impossible_login_travel", ""))
+    _dct_report  = str(tool_results.get("analyze_device_change_large_transfer", ""))
+    _prt_report  = str(tool_results.get("detect_password_reset_transaction_pattern", ""))
+    _mnc_report  = str(tool_results.get("analyze_mobile_number_change_risk", ""))
+
+    impossible_login       = any("Impossible Travel" in l and "Yes" in l for l in _ilt_report.split("\n"))
+    device_change_transfer = any("Risk Detected" in l and "Yes" in l for l in _dct_report.split("\n"))
+    pwd_reset_pattern      = any("Pattern Detected" in l and "Yes" in l for l in _prt_report.split("\n"))
+    mobile_change_risk     = any("Mobile Number Changed" in l and "Yes" in l for l in _mnc_report.split("\n"))
+
+    if impossible_login:                        prob += 0.35
+    if device_change_transfer:                  prob += 0.30
+    if pwd_reset_pattern:                       prob += 0.30
+    if mobile_change_risk:                      prob += 0.35
+
+    # ── ATM advanced intelligence ─────────────────────────────────────────────
+    _caw_report  = str(tool_results.get("analyze_consecutive_atm_withdrawals", ""))
+    _fau_report  = str(tool_results.get("analyze_foreign_atm_usage", ""))
+    _ssa_report  = str(tool_results.get("detect_sim_swap_atm_pattern", ""))
+
+    consecutive_atm = any("Consecutive Pattern" in l and "Yes" in l for l in _caw_report.split("\n"))
+    foreign_atm     = any("Foreign ATM Usage" in l and "Yes" in l for l in _fau_report.split("\n"))
+    sim_swap_atm    = any("Risk Level" in l and "CRITICAL" in l for l in _ssa_report.split("\n"))
+
+    if consecutive_atm:                         prob += 0.25
+    if foreign_atm:                             prob += 0.35
+    if sim_swap_atm:                            prob += 0.40
+
+    # ── Universal intelligence ────────────────────────────────────────────────
+    _hfv_report  = str(tool_results.get("evaluate_historical_fraud_victim_score", ""))
+    _ato_report  = str(tool_results.get("detect_account_takeover_pattern", ""))
+    _mule_report = str(tool_results.get("analyze_mule_account_indicators", ""))
+    _hcs_report  = str(tool_results.get("detect_historical_case_similarity", ""))
+
+    prior_fraud_victim = any("Victim Score" in l and ("HIGH" in l or "MEDIUM" in l) for l in _hfv_report.split("\n"))
+    ato_risk_level     = "LOW"
+    for _l in _ato_report.split("\n"):
+        if "Account Takeover Risk" in _l:
+            if "CRITICAL" in _l: ato_risk_level = "CRITICAL"
+            elif "HIGH" in _l:   ato_risk_level = "HIGH"
+            elif "MEDIUM" in _l: ato_risk_level = "MEDIUM"
+    mule_suspected      = any("Mule Account Suspected" in l and "Yes" in l for l in _mule_report.split("\n"))
+    case_similarity_high = any("Pattern Risk" in l and "HIGH" in l for l in _hcs_report.split("\n"))
+
+    if prior_fraud_victim:                      prob += 0.15
+    if ato_risk_level == "CRITICAL":            prob += 0.40
+    elif ato_risk_level == "HIGH":              prob += 0.25
+    if mule_suspected:                          prob += 0.40
+    if case_similarity_high:                    prob += 0.20
+
     fraud_probability = round(max(0.00, min(1.00, prob)), 2)
 
     # Calibrate Risk Level
@@ -678,6 +798,26 @@ def finalize_node(state: FraudReasoningAgentState) -> dict:
         "mcc_risk_level":             mcc_risk_level,
         "decline_success_pattern":    decline_success_pattern,
         "refund_claim_unverified":    refund_claim_unverified,
+        # UPI intelligence
+        "new_beneficiary_risk":       new_beneficiary_risk,
+        "upi_collect_fraud":          upi_collect_fraud,
+        "beneficiary_vel_flag":       beneficiary_vel_flag,
+        "upi_handle_reputation":      upi_reputation,
+        "dormant_beneficiary":        dormant_beneficiary,
+        # Internet Banking intelligence
+        "impossible_login_travel":    impossible_login,
+        "device_change_transfer":     device_change_transfer,
+        "pwd_reset_pattern":          pwd_reset_pattern,
+        "mobile_change_risk":         mobile_change_risk,
+        # ATM advanced intelligence
+        "consecutive_atm":            consecutive_atm,
+        "foreign_atm_usage":          foreign_atm,
+        "sim_swap_atm":               sim_swap_atm,
+        # Universal intelligence
+        "prior_fraud_victim":         prior_fraud_victim,
+        "ato_risk_level":             ato_risk_level,
+        "mule_suspected":             mule_suspected,
+        "case_similarity_high":       case_similarity_high,
     }
 
     log_workflow_event(

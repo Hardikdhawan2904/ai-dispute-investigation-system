@@ -590,10 +590,12 @@ export default function CaseWorkspace() {
             const toolSignals  = (fd as any).tool_signals       ?? {};
             const channel      = (fd as any).channel            ?? "DIGITAL";
 
-            const txnTypeLower = (caseData.transaction_type || "").toLowerCase();
-            const isDigital    = ["upi","net banking","internet banking","mobile banking","imps","neft","rtgs"].some(t => txnTypeLower.includes(t));
-            const isCardPOS    = ["debit card","credit card"].some(t => txnTypeLower.includes(t)) && !txnTypeLower.includes("atm");
-            const isATM        = txnTypeLower.includes("atm") || txnTypeLower.includes("cash withdrawal");
+            const txnTypeLower      = (caseData.transaction_type || "").toLowerCase();
+            const isUPI             = txnTypeLower.includes("upi");
+            const isInternetBanking = ["net banking","internet banking","mobile banking","imps","neft","rtgs"].some(t => txnTypeLower.includes(t));
+            const isDigital         = isUPI || isInternetBanking;
+            const isCardPOS         = ["debit card","credit card"].some(t => txnTypeLower.includes(t)) && !txnTypeLower.includes("atm");
+            const isATM             = txnTypeLower.includes("atm") || txnTypeLower.includes("cash withdrawal");
 
             const channelLabel = isCardPOS ? "Card POS" : isATM ? "ATM" : "UPI / Mobile / Internet";
             const channelColor = isCardPOS ? "#7C3AED" : isATM ? "#D97706" : "#2563EB";
@@ -788,6 +790,118 @@ export default function CaseWorkspace() {
                   </Panel>
                 )}
 
+                {/* ── UPI Fraud Intelligence ───────────────────────────── */}
+                {isUPI && (() => {
+                  const rows = [
+                    { label: "New Beneficiary Risk",    value: toolSignals.new_beneficiary_risk ? "Detected" : "Clear",  flag: !!toolSignals.new_beneficiary_risk,  desc: "Large transfer to a first-time beneficiary" },
+                    { label: "UPI Collect Request",     value: toolSignals.upi_collect_fraud    ? "Detected" : "Clear",  flag: !!toolSignals.upi_collect_fraud,     desc: "Customer approved a fraudulent collect request" },
+                    { label: "Beneficiary Velocity",    value: toolSignals.beneficiary_vel_flag ? "Detected" : "Clear",  flag: !!toolSignals.beneficiary_vel_flag,  desc: "Multiple customers sending to this beneficiary" },
+                    { label: "UPI Handle Reputation",   value: toolSignals.upi_handle_reputation ?? "LOW_RISK",          flag: toolSignals.upi_handle_reputation === "HIGH_RISK", desc: "Beneficiary appears in fraud dispute history" },
+                    { label: "Dormant Beneficiary",     value: toolSignals.dormant_beneficiary  ? "Detected" : "Clear",  flag: !!toolSignals.dormant_beneficiary,   desc: "Beneficiary registered very recently before transfer" },
+                  ];
+                  const visible = rows.filter(r => r.flag);
+                  if (visible.length === 0) return null;
+                  return (
+                    <Panel>
+                      <SectionTitle>UPI Fraud Intelligence</SectionTitle>
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        {visible.map(({ label, value, desc }) => (
+                          <div key={label} style={{ display: "flex", flexDirection: "column", padding: "0.5rem 0", borderBottom: "1px solid #1E293B" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: "0.7rem", color: "#64748B" }}>{label}</span>
+                              <span style={{ fontSize: "0.68rem", fontWeight: 600, padding: "1px 8px", borderRadius: 3, backgroundColor: "rgba(239,68,68,0.1)", color: "#FCA5A5", border: "1px solid rgba(239,68,68,0.3)" }}>{value}</span>
+                            </div>
+                            <span style={{ fontSize: "0.62rem", color: "#334155", marginTop: 2 }}>{desc}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Panel>
+                  );
+                })()}
+
+                {/* ── Internet Banking Intelligence ─────────────────────── */}
+                {isInternetBanking && (() => {
+                  const rows = [
+                    { label: "Impossible Login Travel",        value: toolSignals.impossible_login_travel  ? "Detected" : "Clear", flag: !!toolSignals.impossible_login_travel,  desc: "Login from different city within 2 hours" },
+                    { label: "Device Change + Large Transfer", value: toolSignals.device_change_transfer   ? "Detected" : "Clear", flag: !!toolSignals.device_change_transfer,   desc: "Large transfer immediately after new device login" },
+                    { label: "Password Reset Pattern",         value: toolSignals.pwd_reset_pattern        ? "Detected" : "Clear", flag: !!toolSignals.pwd_reset_pattern,         desc: "Transfer made shortly after password reset" },
+                    { label: "Mobile Number Change Risk",      value: toolSignals.mobile_change_risk       ? "Detected" : "Clear", flag: !!toolSignals.mobile_change_risk,        desc: "Mobile number changed before this transaction" },
+                  ];
+                  const visible = rows.filter(r => r.flag);
+                  if (visible.length === 0) return null;
+                  return (
+                    <Panel>
+                      <SectionTitle>Internet Banking Intelligence</SectionTitle>
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        {visible.map(({ label, value, desc }) => (
+                          <div key={label} style={{ display: "flex", flexDirection: "column", padding: "0.5rem 0", borderBottom: "1px solid #1E293B" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: "0.7rem", color: "#64748B" }}>{label}</span>
+                              <span style={{ fontSize: "0.68rem", fontWeight: 600, padding: "1px 8px", borderRadius: 3, backgroundColor: "rgba(239,68,68,0.1)", color: "#FCA5A5", border: "1px solid rgba(239,68,68,0.3)" }}>{value}</span>
+                            </div>
+                            <span style={{ fontSize: "0.62rem", color: "#334155", marginTop: 2 }}>{desc}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Panel>
+                  );
+                })()}
+
+                {/* ── ATM Advanced Intelligence ─────────────────────────── */}
+                {isATM && (() => {
+                  const rows = [
+                    { label: "Consecutive ATM Withdrawals", value: toolSignals.consecutive_atm  ? "Detected" : "Clear", flag: !!toolSignals.consecutive_atm,  desc: "3+ withdrawals in short intervals — possible card cloning" },
+                    { label: "Foreign ATM Usage",           value: toolSignals.foreign_atm_usage ? "Detected" : "Clear", flag: !!toolSignals.foreign_atm_usage, desc: "ATM used abroad by primarily domestic customer" },
+                    { label: "SIM Swap + ATM Pattern",      value: toolSignals.sim_swap_atm      ? "Detected" : "Clear", flag: !!toolSignals.sim_swap_atm,      desc: "ATM withdrawal after SIM swap — strongest ATM fraud signal" },
+                  ];
+                  const visible = rows.filter(r => r.flag);
+                  if (visible.length === 0) return null;
+                  return (
+                    <Panel>
+                      <SectionTitle>ATM Fraud Intelligence</SectionTitle>
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        {visible.map(({ label, value, desc }) => (
+                          <div key={label} style={{ display: "flex", flexDirection: "column", padding: "0.5rem 0", borderBottom: "1px solid #1E293B" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: "0.7rem", color: "#64748B" }}>{label}</span>
+                              <span style={{ fontSize: "0.68rem", fontWeight: 600, padding: "1px 8px", borderRadius: 3, backgroundColor: "rgba(239,68,68,0.1)", color: "#FCA5A5", border: "1px solid rgba(239,68,68,0.3)" }}>{value}</span>
+                            </div>
+                            <span style={{ fontSize: "0.62rem", color: "#334155", marginTop: 2 }}>{desc}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Panel>
+                  );
+                })()}
+
+                {/* ── Universal Fraud Intelligence ──────────────────────── */}
+                {(() => {
+                  const rows = [
+                    { label: "Prior Fraud Victim",       value: toolSignals.prior_fraud_victim ? "Detected" : "Clear", flag: !!toolSignals.prior_fraud_victim, desc: "Customer has been a fraud victim before — repeat targeting risk" },
+                    { label: "Account Takeover Risk",    value: toolSignals.ato_risk_level ?? "LOW",                   flag: toolSignals.ato_risk_level === "HIGH" || toolSignals.ato_risk_level === "CRITICAL", desc: "Password reset + device change + SIM swap combination" },
+                    { label: "Mule Account Suspected",   value: toolSignals.mule_suspected ? "Detected" : "Clear",    flag: !!toolSignals.mule_suspected,    desc: "Rapid fund pass-through pattern — possible money mule" },
+                    { label: "Historical Case Similarity", value: toolSignals.case_similarity_high ? "Detected" : "Clear", flag: !!toolSignals.case_similarity_high, desc: "Current fraud pattern matches known historical fraud cases" },
+                  ];
+                  const visible = rows.filter(r => r.flag);
+                  if (visible.length === 0) return null;
+                  return (
+                    <Panel>
+                      <SectionTitle>Universal Fraud Intelligence</SectionTitle>
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        {visible.map(({ label, value, desc }) => (
+                          <div key={label} style={{ display: "flex", flexDirection: "column", padding: "0.5rem 0", borderBottom: "1px solid #1E293B" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: "0.7rem", color: "#64748B" }}>{label}</span>
+                              <span style={{ fontSize: "0.68rem", fontWeight: 600, padding: "1px 8px", borderRadius: 3, backgroundColor: "rgba(239,68,68,0.1)", color: "#FCA5A5", border: "1px solid rgba(239,68,68,0.3)" }}>{value}</span>
+                            </div>
+                            <span style={{ fontSize: "0.62rem", color: "#334155", marginTop: 2 }}>{desc}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Panel>
+                  );
+                })()}
+
                 {/* ── Identity Verification + Device + Behavioral ───────── */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.875rem" }}>
 
@@ -829,7 +943,7 @@ export default function CaseWorkspace() {
                   </Panel>
 
                   {/* Device Fingerprint + Location — only relevant for digital channels */}
-                  {(isDigital || (!isCardPOS && !isATM)) && <Panel>
+                  {(isDigital) && <Panel>
                     <SectionTitle>Device &amp; Location</SectionTitle>
                     <div style={{ display: "flex", flexDirection: "column" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
