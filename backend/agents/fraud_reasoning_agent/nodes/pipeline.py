@@ -776,22 +776,33 @@ def finalize_node(state: FraudReasoningAgentState) -> dict:
         r'\s*(or\s+)?merchant[\-\s]favour\s+rates?\s*\([\d.]+%\)', _re.IGNORECASE
     )
 
-    def _clean_bullets(bullets: list) -> list:
+    # Correct merchant tier misattribution — LLM confuses MCC category risk with merchant profile tier
+    _merchant_tier_pattern = _re.compile(
+        r'merchant\s+(risk\s+)?tier\s*[:—]\s*\w+', _re.IGNORECASE
+    )
+
+    def _clean_bullets(bullets: list, channel_ctx: str = "", merch_level: str = "") -> list:
         cleaned = []
         for b in bullets:
             if not b or not b.strip():
                 continue
             b = _weight_pattern.sub("", b)
             b = _favour_rate_pattern.sub("", b)
+            # Correct any "Merchant risk tier: HIGH/CRITICAL" when actual level is different
+            if merch_level and _merchant_tier_pattern.search(b):
+                b = _merchant_tier_pattern.sub(f"Merchant risk tier: {merch_level}", b)
+            # Remove Card POS-specific wrong language
+            if channel_ctx == "CARD_POS":
+                b = _re.sub(r'social engineering transfer', 'unauthorized card transaction', b, flags=_re.IGNORECASE)
             b = b.strip().rstrip(".")
             if b:
                 cleaned.append(b + ".")
         return cleaned
 
     if "fraud_reasoning" in parsed and isinstance(parsed["fraud_reasoning"], list):
-        parsed["fraud_reasoning"] = _clean_bullets(parsed["fraud_reasoning"])
+        parsed["fraud_reasoning"] = _clean_bullets(parsed["fraud_reasoning"], channel, merchant_risk_level)
     if "trust_reasoning" in parsed and isinstance(parsed["trust_reasoning"], list):
-        parsed["trust_reasoning"] = _clean_bullets(parsed["trust_reasoning"])
+        parsed["trust_reasoning"] = _clean_bullets(parsed["trust_reasoning"], channel, merchant_risk_level)
 
     # Merge verified scores into final output
     parsed["fraud_probability"] = fraud_probability
