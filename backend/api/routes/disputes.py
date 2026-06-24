@@ -334,7 +334,13 @@ async def upload_customer_documents(
     upload_dir = _UPLOAD_ROOT / case_id.upper()
     upload_dir.mkdir(parents=True, exist_ok=True)
 
+    from services.document_matching_service import match_document_type
+    from utils.extractor import extract_text
+    from datetime import datetime, timezone
+
     saved = []
+    matched_map: dict[str, str] = {}   # filename → matched document_type
+
     for file in files:
         ext = Path(file.filename or "").suffix.lower()
         if ext not in _ALLOWED_EXTENSIONS:
@@ -347,26 +353,46 @@ async def upload_customer_documents(
         dest.write_bytes(content)
         saved.append(safe_name)
 
-        # Mark the oldest unfulfilled document request as fulfilled
-        pending_req = (
+        # Extract OCR text for matching
+        ocr_text = ""
+        try:
+            ocr_text = extract_text(str(dest))
+        except Exception:
+            pass
+
+        # Get all still-unfulfilled requests
+        pending_reqs = (
             db.query(DocumentRequest)
             .filter(DocumentRequest.case_id == case_id.upper(), DocumentRequest.fulfilled == False)
             .order_by(DocumentRequest.created_at)
-            .first()
+            .all()
         )
-        if pending_req:
-            from datetime import datetime, timezone
-            pending_req.fulfilled    = True
-            pending_req.fulfilled_at = datetime.now(timezone.utc)
+        pending_types = [r.document_type for r in pending_reqs]
+
+        # Smart match: find best matching request by filename + OCR content
+        matched_type = match_document_type(safe_name, ocr_text, pending_types)
+
+        # Find and fulfill the matched request (or oldest if no match)
+        target_req = None
+        if matched_type:
+            target_req = next((r for r in pending_reqs if r.document_type == matched_type), None)
+        if not target_req and pending_reqs:
+            target_req = pending_reqs[0]   # fallback: sequential
+
+        if target_req:
+            target_req.fulfilled    = True
+            target_req.fulfilled_at = datetime.now(timezone.utc)
+            matched_map[safe_name]  = target_req.document_type
 
     if saved:
+        match_summary = [f"{f} → {matched_map[f]}" if f in matched_map else f for f in saved]
         db.add(AuditLog(
             case_id    = case_id.upper(),
             event_type = "DOCUMENT_UPLOADED",
             stage      = "customer_action",
             actor      = "customer",
-            message    = f"Customer uploaded {len(saved)} document(s): {', '.join(saved)}",
-            payload    = {"files": saved},
+            message    = f"Customer uploaded {len(saved)} document(s): {', '.join(match_summary)}",
+            payload    = {"files": saved, "matched": matched_map},
         ))
         db.commit()
 
