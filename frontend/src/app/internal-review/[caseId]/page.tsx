@@ -2083,13 +2083,26 @@ export default function CaseWorkspace() {
                         </div>
                       </div>
                     ) : (
-                      <div style={{ width: 120, height: 80, flexShrink: 0, borderRadius: 3, border: "1px solid #334155", backgroundColor: "#111827", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <FileText style={{ width: 24, height: 24, color: "#64748B" }} />
-                      </div>
+                      <a href={`http://localhost:8000${file.url}`} target="_blank" rel="noopener noreferrer"
+                        style={{ width: 120, height: 80, flexShrink: 0, borderRadius: 3, border: "1px solid #334155", backgroundColor: "#111827", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.375rem", cursor: "pointer", textDecoration: "none", transition: "border-color 0.15s" }}
+                        onMouseEnter={e => (e.currentTarget.style.borderColor = "#2563EB")}
+                        onMouseLeave={e => (e.currentTarget.style.borderColor = "#334155")}
+                      >
+                        <FileText style={{ width: 24, height: 24, color: "#60A5FA" }} />
+                        <span style={{ fontSize: "0.55rem", color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          {file.name.split(".").pop()?.toUpperCase()}
+                        </span>
+                      </a>
                     )}
                     <div>
                       <p style={{ fontSize: "0.8rem", fontWeight: 600, color: "#F8FAFC", marginBottom: 4 }}>{file.name}</p>
                       <p style={{ fontSize: "0.7rem", color: "#64748B" }}>{file.is_image ? "Image document" : "Document"} — text extracted and included in case analysis.</p>
+                      {!file.is_image && (
+                        <a href={`http://localhost:8000${file.url}`} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: "0.65rem", color: "#2563EB", textDecoration: "none", marginTop: 4, display: "inline-block" }}>
+                          Open document →
+                        </a>
+                      )}
                     </div>
                   </div>
                 </Panel>
