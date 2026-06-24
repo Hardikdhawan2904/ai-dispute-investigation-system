@@ -107,6 +107,8 @@ def build_evidence_node(state: DisputeAgentState) -> dict:
     })
     fraud_score = score_fraud_indicators.invoke({
         "customer_comment":   masked_comment,
+        "customer_id":        d.get("customer_id", ""),
+        "transaction_id":     d.get("transaction_id", ""),
         "otp_received":       yn(meta.get("otp_received")),
         "otp_shared":         yn(meta.get("otp_shared")),
         "bank_impersonation": yn(meta.get("bank_impersonation")),

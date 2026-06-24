@@ -162,6 +162,8 @@ _FRAUD_KEYWORDS = {
 @tool
 def score_fraud_indicators(
     customer_comment: str,
+    customer_id: str = "",
+    transaction_id: str = "",
     otp_received: str = "Not provided",
     otp_shared: str = "Not provided",
     bank_impersonation: str = "Not provided",
@@ -173,114 +175,170 @@ def score_fraud_indicators(
     bank_contacted: str = "Not provided",
     card_blocked: str = "Not provided",
 ) -> str:
-    """Score fraud indicators using RBI/I4C taxonomy.
-    Calibrated to Indian cyber fraud patterns (NPCI Annual Fraud Report 2024).
-    OTP sharing is the #1 fraud vector in India (42% of all digital fraud cases).
-    Call this for EVERY dispute. Pass 'Yes', 'No', or 'Not provided' for flags."""
+    """Score fraud indicators using RBI/I4C taxonomy with DB-first evidence.
+    Queries bank system records (account_events, customer_devices, transactions)
+    first. Form answers are secondary confirmation — DB-verified signals carry
+    full weight, form-only signals carry reduced weight (customer claims unverified).
+    Calibrated to Indian cyber fraud patterns (NPCI Annual Fraud Report 2024)."""
 
     def is_yes(v: str) -> bool:
         return str(v).strip().lower() in {"yes", "true", "1"}
 
-    score:      float      = 0.0
-    indicators: list[str]  = []
+    score:      float     = 0.0
+    indicators: list[str] = []
     comment_lower = customer_comment.lower()
 
-    # ── Keyword scan ──────────────────────────────────────────────────────────
+    # ── Step 1: Query DB for bank-observed signals ────────────────────────────
+    db_sim_swap     = False
+    db_device_new   = False
+    db_mobile_change = False
+    db_device_id    = ""
+
+    if customer_id:
+        try:
+            from database.database import SessionLocal
+            from database.models import AccountEvent, CustomerDevice, Transaction
+            from datetime import datetime, timezone, timedelta
+            _db = SessionLocal()
+            try:
+                now = datetime.now(timezone.utc)
+                cutoff = now - timedelta(days=30)
+
+                events = _db.query(AccountEvent).filter(
+                    AccountEvent.customer_id == customer_id.upper(),
+                    AccountEvent.event_timestamp >= cutoff,
+                ).all()
+                event_types = {e.event_type for e in events}
+
+                db_sim_swap      = "SIM_SWAP_DETECTED" in event_types
+                db_mobile_change = "MOBILE_NUMBER_CHANGED" in event_types
+                db_device_new    = "DEVICE_REGISTERED" in event_types
+
+                # Check if transaction device is unregistered
+                if transaction_id:
+                    txn = _db.query(Transaction).filter(
+                        Transaction.transaction_id == transaction_id
+                    ).first()
+                    if txn and txn.device_id:
+                        db_device_id = txn.device_id
+                        dev = _db.query(CustomerDevice).filter(
+                            CustomerDevice.customer_id == customer_id.upper(),
+                            CustomerDevice.device_id == txn.device_id,
+                            CustomerDevice.trusted == True,
+                        ).first()
+                        if not dev:
+                            db_device_new = True
+            finally:
+                _db.close()
+        except Exception:
+            pass   # DB unavailable — fall through to form-only
+
+    def _score_signal(
+        db_confirmed: bool,
+        form_value: str,
+        full_score: float,
+        label_verified: str,
+        label_form: str,
+    ) -> float:
+        """Score a signal: full weight if DB confirms, 60% if form-only."""
+        if db_confirmed and is_yes(form_value):
+            indicators.append(f"{label_verified} [DB VERIFIED + CUSTOMER CONFIRMED]")
+            return full_score
+        elif db_confirmed:
+            indicators.append(f"{label_verified} [DB VERIFIED]")
+            return full_score
+        elif is_yes(form_value):
+            indicators.append(f"{label_form} [CUSTOMER REPORTED — unverified]")
+            return round(full_score * 0.6, 1)   # 40% discount for unverified claim
+        return 0.0
+
+    # ── Step 2: Keyword scan (from customer narrative) ────────────────────────
     matched = [kw for kw in _FRAUD_KEYWORDS if kw in comment_lower]
     if matched:
-        kw_score = min(len(matched) * 2.0, 6.0)   # each keyword worth 2 points, cap at 6
+        kw_score = min(len(matched) * 2.0, 6.0)
         score += kw_score
-        indicators.append(f"Fraud language pattern: {', '.join(matched[:6])} (+{kw_score:.0f})")
+        indicators.append(f"Fraud language in description: {', '.join(matched[:6])}")
 
-    # ── I4C Tier-1 indicators — each alone is sufficient to reach HIGH signal ──
-    # Weights are calibrated so a single Tier-1 indicator ≥ HIGH threshold (7.0).
-    # Based on RBI/I4C published data on confirmed high-risk fraud vectors.
+    # ── Step 3: I4C Tier-1 signals — DB-first ────────────────────────────────
 
-    if is_yes(otp_shared):
-        score += 8.0   # #1 India fraud vector — alone = HIGH
-        indicators.append(
-            "OTP shared with third party (+8.0) — confirmed social engineering; "
-            "bank bears zero-liability per RBI Circular 2017"
-        )
+    # SIM Swap — DB: SIM_SWAP_DETECTED event | Form: sim_swap_suspected
+    score += _score_signal(
+        db_sim_swap, sim_swap_suspected, 8.0,
+        "SIM swap confirmed by bank telecom records — OTP bypass; RBI mandates zero liability",
+        "SIM swap suspected by customer — OTP bypass possible; requires telecom verification",
+    )
 
+    # Bank Impersonation — no DB source (human call), form-only but with keyword boost
     if is_yes(bank_impersonation):
-        score += 8.0   # vishing — alone = HIGH
-        indicators.append(
-            "Bank impersonation call (+8.0) — vishing attack confirmed; "
-            "victim manipulated to share credentials or approve transfer"
-        )
+        boost = 2.0 if any(k in comment_lower for k in ("call", "phone", "fraud", "impersonation", "vishing")) else 0.0
+        s = round(8.0 * 0.6 + boost, 1)
+        score += s
+        indicators.append(f"Bank impersonation call reported by customer [CUSTOMER REPORTED — keyword {'confirmed' if boost else 'not found'}]")
 
-    if is_yes(sim_swap_suspected):
-        score += 8.0   # telecom account takeover — alone = HIGH
-        indicators.append(
-            "SIM swap suspected (+8.0) — telecom account takeover; "
-            "OTP bypass mechanism; RBI mandates bank liability"
-        )
+    # OTP Shared — no DB source (human action), form-only
+    if is_yes(otp_shared):
+        score += round(8.0 * 0.6, 1)
+        indicators.append("OTP shared with third party [CUSTOMER REPORTED — social engineering vector]")
 
-    # ── I4C Tier-2 indicators (medium certainty, +4.0 each) ──────────────────
+    # ── Step 4: I4C Tier-2 signals ────────────────────────────────────────────
 
+    # New/unregistered device — DB: customer_devices + account_events
+    score += _score_signal(
+        db_device_new, "Not provided", 4.0,
+        f"New or unregistered device '{db_device_id}' — not in trusted device registry",
+        "New device reported by customer",
+    )
+
+    # Mobile number change — DB: account_events
+    score += _score_signal(
+        db_mobile_change, "Not provided", 4.0,
+        "Mobile number changed in last 30 days — OTP interception risk",
+        "Mobile change reported",
+    )
+
+    # Remote access — form-only (AnyDesk/TeamViewer)
     if is_yes(remote_access):
-        score += 4.0
-        indicators.append(
-            "Remote access app installed (+4.0) — device compromise; "
-            "attacker had full account control"
-        )
+        score += round(4.0 * 0.6, 1)
+        indicators.append("Remote access app installed [CUSTOMER REPORTED — device fully compromised if true]")
 
+    # Phishing link — form-only
     if is_yes(phishing_link):
-        score += 4.0
-        indicators.append(
-            "Phishing link clicked (+4.0) — credential theft; "
-            "check for fake bank portal or UPI phishing app"
-        )
+        score += round(4.0 * 0.6, 1)
+        indicators.append("Phishing link clicked [CUSTOMER REPORTED — credential theft possible]")
 
-    # ── I4C Tier-3 indicators (physical threat, +2.5 each) ───────────────────
-
+    # ── Step 5: I4C Tier-3 (physical) ─────────────────────────────────────────
     if is_yes(card_lost):
         score += 2.5
-        indicators.append(
-            "Card lost or stolen (+2.5) — physical theft vector; "
-            "check for PIN shoulder-surfing at ATM or POS"
-        )
-
+        indicators.append("Card lost or stolen [CUSTOMER REPORTED]")
     if is_yes(device_lost):
         score += 2.5
-        indicators.append(
-            "Device lost or stolen (+2.5) — physical access to authenticated apps"
-        )
+        indicators.append("Device lost or stolen [CUSTOMER REPORTED]")
 
-    # ── Combination: OTP received but customer denies initiating ─────────────
+    # ── OTP received but denies initiating ────────────────────────────────────
     if is_yes(otp_received) and any(
         k in comment_lower for k in ("didn't do", "not me", "unauthorized", "did not", "i never")
     ):
         score += 3.5
-        indicators.append(
-            "OTP received but customer denies initiating (+3.5) — "
-            "classic social engineering; bank bears liability per RBI 2017"
-        )
+        indicators.append("OTP received but customer denies initiating — classic social engineering pattern")
 
-    # ── Protective actions taken (signals legitimacy, no score impact) ────────
+    # ── Protective actions ────────────────────────────────────────────────────
     protective: list[str] = []
     if is_yes(bank_contacted):
         protective.append("bank contacted within reporting window")
     if is_yes(card_blocked):
         protective.append("card / account blocked")
 
-    # ── Signal level classification (I4C fraud severity tiers) ───────────────
-    # Tier-1 alone (8.0) → HIGH; two Tier-1s (16.0) → CRITICAL
+    # ── Signal level ──────────────────────────────────────────────────────────
     level = (
-        "CRITICAL" if score >= 14 else   # 2+ Tier-1 indicators = organised fraud
-        "HIGH"     if score >= 7  else   # 1 Tier-1 or multiple Tier-2 = serious
-        "MEDIUM"   if score >= 3  else   # keyword hits or minor indicators
+        "CRITICAL" if score >= 14 else
+        "HIGH"     if score >= 7  else
+        "MEDIUM"   if score >= 3  else
         "LOW"      if score >= 1  else
         "NONE"
     )
 
-    # ── RBI liability assessment ──────────────────────────────────────────────
     if level in ("CRITICAL", "HIGH"):
-        liability = (
-            "BANK LIABILITY — fraud reported within RBI zero-liability window; "
-            "credit within 10 working days required"
-        )
+        liability = "BANK LIABILITY — fraud reported within RBI zero-liability window; credit within 10 working days"
     elif level == "MEDIUM":
         liability = "REQUIRES ASSESSMENT — analyst to determine contributory negligence"
     else:
@@ -289,8 +347,9 @@ def score_fraud_indicators(
     indicators_str = "\n".join(f"  • {i}" for i in indicators) if indicators else "  None detected"
 
     return (
-        "FRAUD INDICATOR ANALYSIS (I4C / RBI Taxonomy)\n"
-        f"  Fraud Signal Level   : {level} (score: {score:.1f} / max ~20)\n"
+        "FRAUD INDICATOR ANALYSIS (I4C / RBI Taxonomy — DB-First)\n"
+        f"  Fraud Signal Level   : {level} (score: {score:.1f})\n"
+        f"  Evidence Mode        : {'DB-VERIFIED' if (db_sim_swap or db_device_new or db_mobile_change) else 'CUSTOMER-REPORTED'}\n"
         f"  Active Indicators:\n{indicators_str}\n"
         f"  Protective Steps     : {', '.join(protective) if protective else 'None taken'}\n"
         f"  RBI Liability        : {liability}"
