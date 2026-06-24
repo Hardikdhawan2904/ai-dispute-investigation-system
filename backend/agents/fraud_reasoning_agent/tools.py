@@ -188,8 +188,9 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 # Speed thresholds (km/h)
-_SPEED_SUSPICIOUS   = 300   # faster than high-speed train — suspicious
-_SPEED_IMPOSSIBLE   = 900   # faster than commercial aircraft — impossible
+_SPEED_MEDIUM       = 150   # unusually fast ground travel — worth flagging
+_SPEED_HIGH         = 500   # only achievable by aircraft — strong signal
+_SPEED_CRITICAL     = 900   # faster than commercial aircraft — physically impossible
 
 
 # ── Tool 2 — Location Velocity (GPS-based Geovelocity) ────────────────────────
@@ -290,22 +291,30 @@ def evaluate_location_velocity(customer_id: str, location: str, transaction_date
             if dist_km < 5:
                 continue
 
-            if speed_kmh >= _SPEED_IMPOSSIBLE:
+            if speed_kmh >= _SPEED_CRITICAL:
                 geovelocity_breach = True
                 risk = "CRITICAL"
                 conflict_txn       = t
                 conflict_speed_kmh = round(speed_kmh, 0)
                 conflict_dist_km   = round(dist_km, 1)
                 time_diff_hours    = round(diff_hours, 2)
-                break   # worst case found
-            elif speed_kmh >= _SPEED_SUSPICIOUS and not geovelocity_breach:
+                break   # worst case found — stop scanning
+            elif speed_kmh >= _SPEED_HIGH and risk != "CRITICAL":
                 geovelocity_breach = True
                 risk = "HIGH"
                 conflict_txn       = t
                 conflict_speed_kmh = round(speed_kmh, 0)
                 conflict_dist_km   = round(dist_km, 1)
                 time_diff_hours    = round(diff_hours, 2)
-                # Keep scanning for impossible case
+                # Keep scanning — might find CRITICAL
+            elif speed_kmh >= _SPEED_MEDIUM and risk not in ("CRITICAL", "HIGH"):
+                geovelocity_breach = True
+                risk = "MEDIUM"
+                conflict_txn       = t
+                conflict_speed_kmh = round(speed_kmh, 0)
+                conflict_dist_km   = round(dist_km, 1)
+                time_diff_hours    = round(diff_hours, 2)
+                # Keep scanning — might find HIGH or CRITICAL
 
         if geovelocity_breach and conflict_txn:
             verdict = "impossible" if risk == "CRITICAL" else "highly suspicious"

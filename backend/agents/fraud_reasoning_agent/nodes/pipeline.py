@@ -430,10 +430,10 @@ def finalize_node(state: FraudReasoningAgentState) -> dict:
         if "Velocity Breach" in line and "Yes" in line:
             velocity_anomaly = True
 
-    geovelocity_breach = False
-    for line in geovelocity_report.split("\n"):
-        if "Geovelocity Breach" in line and "Yes" in line:
-            geovelocity_breach = True
+    geovelocity_breach = any(
+        "Geovelocity Breach" in line and "Yes" in line
+        for line in geovelocity_report.split("\n")
+    )
 
     # Parse KYC Match
     kyc_status = "VERIFIED"
@@ -608,7 +608,16 @@ def finalize_node(state: FraudReasoningAgentState) -> dict:
         prob += 0.25 if deviation_factor > 5.0 else 0.15
     if time_anomaly:         prob += 0.15
     if velocity_anomaly:     prob += 0.30
-    if geovelocity_breach:   prob += 0.35
+    # Geovelocity is graded by severity now
+    _geo_risk = "LOW"
+    for line in geovelocity_report.split("\n"):
+        if "Geovelocity Risk" in line:
+            if "CRITICAL" in line: _geo_risk = "CRITICAL"
+            elif "HIGH" in line:   _geo_risk = "HIGH"
+            elif "MEDIUM" in line: _geo_risk = "MEDIUM"
+    if _geo_risk == "CRITICAL":   prob += 0.35
+    elif _geo_risk == "HIGH":     prob += 0.25
+    elif _geo_risk == "MEDIUM":   prob += 0.15
     if unrecognized_device:  prob += 0.30
     if location_mismatch:    prob += 0.20
 
