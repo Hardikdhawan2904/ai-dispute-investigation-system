@@ -669,18 +669,37 @@ export default function CaseWorkspace() {
                       <div style={{ height: "100%", width: `${behavRiskPct}%`, backgroundColor: behavColor, borderRadius: 2 }} />
                     </div>
                   </Panel>
-                  {/* Identity Status */}
-                  <Panel>
-                    <Label>Identity Status</Label>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: 2 }}>
-                      <div style={{ padding: "0.25rem 0.625rem", backgroundColor: idBg, border: `1px solid ${idBorder}`, borderRadius: 3, display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
-                        {idStatus === "VERIFIED"
-                          ? <CheckCircle style={{ width: 12, height: 12, color: idColor }} />
-                          : <AlertTriangle style={{ width: 12, height: 12, color: idColor }} />}
-                        <span style={{ fontSize: "0.72rem", fontWeight: 700, color: idColor }}>{idStatus}</span>
+                  {/* 4th card: Card Authentication for Card POS, Identity Status for digital */}
+                  {(isCardPOS || isATM) ? (() => {
+                    const entryMode  = toolSignals.card_entry_mode ?? "UNKNOWN";
+                    const entryRisk  = toolSignals.entry_mode_risk ?? "LOW";
+                    const emodeColor = entryRisk === "HIGH" ? "#F87171" : entryRisk === "MEDIUM" ? "#FBBF24" : "#4ADE80";
+                    const emodeBg    = entryRisk === "HIGH" ? "rgba(248,113,113,0.1)" : entryRisk === "MEDIUM" ? "rgba(251,191,36,0.1)" : "rgba(74,222,128,0.1)";
+                    const emodeBorder= entryRisk === "HIGH" ? "rgba(248,113,113,0.3)" : entryRisk === "MEDIUM" ? "rgba(251,191,36,0.3)" : "rgba(74,222,128,0.3)";
+                    return (
+                      <Panel>
+                        <Label>Card Authentication</Label>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", marginTop: 2 }}>
+                          <div style={{ padding: "0.25rem 0.625rem", backgroundColor: emodeBg, border: `1px solid ${emodeBorder}`, borderRadius: 3, display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                            <span style={{ fontSize: "0.72rem", fontWeight: 700, color: emodeColor }}>{entryMode.replace(/_/g, " ")}</span>
+                          </div>
+                          <span style={{ fontSize: "0.62rem", color: emodeColor, opacity: 0.8 }}>{entryRisk} Risk</span>
+                        </div>
+                      </Panel>
+                    );
+                  })() : (
+                    <Panel>
+                      <Label>Identity Status</Label>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: 2 }}>
+                        <div style={{ padding: "0.25rem 0.625rem", backgroundColor: idBg, border: `1px solid ${idBorder}`, borderRadius: 3, display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                          {idStatus === "VERIFIED"
+                            ? <CheckCircle style={{ width: 12, height: 12, color: idColor }} />
+                            : <AlertTriangle style={{ width: 12, height: 12, color: idColor }} />}
+                          <span style={{ fontSize: "0.72rem", fontWeight: 700, color: idColor }}>{idStatus}</span>
+                        </div>
                       </div>
-                    </div>
-                  </Panel>
+                    </Panel>
+                  )}
                 </div>
 
                 {/* ── Merchant Risk (all channels) ─────────────────────── */}
