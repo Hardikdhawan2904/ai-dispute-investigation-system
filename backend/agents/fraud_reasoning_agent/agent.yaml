@@ -49,6 +49,9 @@ agent:
 
     pipeline:
       entry_point: validate
+      # agent_tools is kept empty — FRIA pre-executes all 35 tools server-side
+      # in parallel before the LLM call. The LLM does not call tools itself.
+      agent_tools: []
       nodes:
         - validate        # extract case_id
         - build_context   # run all channel tools in parallel via ThreadPoolExecutor
