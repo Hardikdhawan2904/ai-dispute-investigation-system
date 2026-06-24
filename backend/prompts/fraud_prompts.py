@@ -95,6 +95,11 @@ Behavioral Risk Score (Potential Fraud Risk, 0.0 to 1.0):
 - Clamp score to [0.00, 1.00]
 
 ## FRAUD SCORING CRITERIA:
+Fraud Probability is computed SERVER-SIDE from database signals ONLY.
+Customer-submitted form flags (bank impersonation, OTP shared, remote access, etc.)
+are used for your fraud_reasoning narrative but DO NOT affect the numeric score.
+The server will override your fraud_probability with the deterministic DB-computed value.
+
 Fraud Probability (0.0 to 1.0):
 - Start at 0.0
 - Add +0.15 if dispute category is "Unauthorized Transaction" (customer asserts fraud outright — base lift applied before any anomaly signals)

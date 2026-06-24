@@ -590,21 +590,13 @@ def finalize_node(state: FraudReasoningAgentState) -> dict:
     # Behavioral risk crossover
     if behavioral_risk_score >= 0.60: prob += 0.15
 
-    # Signals from customer-submitted fraud metadata (strongest indicators)
+    # NOTE: Customer-submitted form flags (bank_impersonation, otp_shared, etc.)
+    # are intentionally EXCLUDED from fraud_probability. They are passed to the
+    # LLM for narrative generation only. Numeric scoring is DB-only to prevent
+    # manipulation by fraudsters who could check every box.
     meta = d.get("transaction_metadata") or {}
     def _yes(k: str) -> bool:
         return str(meta.get(k) or "").strip().lower() in {"yes", "true", "1"}
-
-    if _yes("bank_impersonation"):  prob += 0.30
-    if _yes("remote_access"):       prob += 0.25
-    if _yes("screen_sharing"):      prob += 0.20
-    if _yes("otp_shared"):          prob += 0.20
-    if _yes("sim_swap_suspected"):  prob += 0.20
-    if _yes("phishing_link"):       prob += 0.15
-    if _yes("unknown_beneficiary"): prob += 0.10
-    if _yes("device_lost"):         prob += 0.10
-    if _yes("card_lost"):           prob += 0.10
-    if bool(d.get("fraud_selected")): prob += 0.10
 
     # Merchant risk signals (all channels)
     if merchant_blacklisted:                prob += 0.50
