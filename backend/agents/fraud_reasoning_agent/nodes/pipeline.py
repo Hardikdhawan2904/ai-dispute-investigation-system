@@ -62,9 +62,31 @@ def build_context_node(state: FraudReasoningAgentState) -> dict:
     currency         = d.get("currency", "INR")
     transaction_date = d.get("transaction_date", "")
     transaction_time = d.get("transaction_time", "")
-    location         = meta.get("transaction_location") or d.get("location") or ""
-    device_id        = meta.get("device_id") or d.get("device_id") or ""
     dispute_reason   = d.get("dispute_reason", "")
+
+    # Pull device_id and location from the actual Transaction record (DB) for
+    # digital channels — not from the customer's self-reported form values.
+    location  = ""
+    device_id = ""
+    if transaction_id:
+        try:
+            from database.database import SessionLocal as _SL
+            from database.models import Transaction as _Txn
+            _db = _SL()
+            try:
+                _txn = _db.query(_Txn).filter(_Txn.transaction_id == transaction_id).first()
+                if _txn:
+                    location  = _txn.location or ""
+                    device_id = _txn.device_id or ""  # NULL for Card POS / ATM
+            finally:
+                _db.close()
+        except Exception:
+            pass
+    # Fallback to form metadata only if DB has no data
+    if not location:
+        location  = meta.get("transaction_location") or d.get("location") or ""
+    if not device_id:
+        device_id = meta.get("device_id") or d.get("device_id") or ""
 
     # ── Channel routing ────────────────────────────────────────────────────────
     _txn = transaction_type.lower().strip()
