@@ -727,8 +727,13 @@ export default function CaseWorkspace() {
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.75rem" }}>
                         <div style={{ padding: "0.625rem", backgroundColor: riskBg(bankAtoRisk), border: `1px solid ${riskBdr(bankAtoRisk)}`, borderRadius: 4 }}>
-                          <div style={{ fontSize: "0.6rem", color: "#64748B", marginBottom: 3 }}>ATO SEQUENCE (BANK)</div>
+                          <div style={{ fontSize: "0.6rem", color: "#64748B", marginBottom: 3 }}>ACCOUNT TAKEOVER INDICATORS</div>
                           <div style={{ fontSize: "0.75rem", fontWeight: 700, color: riskColor(bankAtoRisk) }}>{bankAtoRisk}</div>
+                          {bankAtoRisk === "LOW" && (
+                            <div style={{ fontSize: "0.58rem", color: "#475569", marginTop: 3 }}>
+                              No password resets, SIM swaps, device registrations or beneficiary additions detected.
+                            </div>
+                          )}
                         </div>
                         <div style={{ padding: "0.625rem", backgroundColor: riskBg(bankDeviceStatus), border: `1px solid ${riskBdr(bankDeviceStatus)}`, borderRadius: 4 }}>
                           <div style={{ fontSize: "0.6rem", color: "#64748B", marginBottom: 3 }}>DEVICE INTELLIGENCE</div>
