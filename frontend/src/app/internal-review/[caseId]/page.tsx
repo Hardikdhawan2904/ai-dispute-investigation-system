@@ -1839,7 +1839,11 @@ export default function CaseWorkspace() {
                                 : "#60A5FA";
 
             const nextReview    = wfPlan.next_agent ? (reviewLabels[wfPlan.next_agent] ?? { label: wfPlan.next_agent, color: "#94A3B8", action: "Review this case" }) : null;
-            const nextAction    = nextReview?.action ?? "No further reviews required — case is ready for resolution.";
+            const isEscalated   = wfPlan.escalation_required === true || (wfPlan.escalation_level && wfPlan.escalation_level !== "NONE");
+            const nextAction    = nextReview?.action
+              ?? (isEscalated
+                  ? "Assign to Senior Fraud Analyst for final review and decision."
+                  : "No further specialist reviews required — case is ready for resolution decision.");
 
             // Reconstruct workflow_path when null — build from completed + next + remaining
             // Also inject FRAUD_AGENT into completed when fraud data exists but path is missing
@@ -1906,9 +1910,16 @@ export default function CaseWorkspace() {
                       : <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#4ADE80" }}>Not Required</div>}
                   </Panel>
                   <Panel>
-                    <Label>Human Review</Label>
-                    {wfPlan.manual_review_required
-                      ? <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#FCA5A5" }}>Required</div>
+                    <Label>{isEscalated ? "Senior Review" : "Analyst Approval"}</Label>
+                    {(wfPlan.manual_review_required || isEscalated)
+                      ? <div>
+                          <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#FCA5A5" }}>
+                            {isEscalated ? "Required" : "Required"}
+                          </div>
+                          {isEscalated && (
+                            <div style={{ fontSize: "0.65rem", color: "#FCD34D", marginTop: 3 }}>Pending senior analyst</div>
+                          )}
+                        </div>
                       : <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#4ADE80" }}>Not Required</div>}
                   </Panel>
                 </div>
@@ -1971,7 +1982,11 @@ export default function CaseWorkspace() {
                     ) : (
                       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                         <CheckCircle style={{ width: 14, height: 14, color: "#4ADE80", flexShrink: 0 }} />
-                        <span style={{ fontSize: "0.75rem", color: "#4ADE80" }}>No further reviews required — case is ready for resolution.</span>
+                        <span style={{ fontSize: "0.75rem", color: isEscalated ? "#FCD34D" : "#4ADE80" }}>
+                          {isEscalated
+                            ? "Assign to Senior Fraud Analyst for final review and decision."
+                            : "No further specialist reviews required — case is ready for resolution decision."}
+                        </span>
                       </div>
                     )}
                     <div style={{ marginTop: "0.75rem", paddingTop: "0.5rem", borderTop: "1px solid #1E293B" }}>
@@ -2029,10 +2044,10 @@ export default function CaseWorkspace() {
                   </Panel>
                 )}
 
-                {/* ── Row 5: Case Routing Summary ── */}
+                {/* ── Row 5: Case Assessment Summary ── */}
                 {(wfPlan.workflow_reasoning ?? []).length > 0 && (
                   <Panel>
-                    <SectionTitle>Case Routing Summary</SectionTitle>
+                    <SectionTitle>Case Assessment Summary</SectionTitle>
                     <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
                       {wfPlan.workflow_reasoning.map((r, i) => (
                         <div key={i} style={{ display: "flex", gap: "0.625rem", alignItems: "flex-start", padding: "0.45rem 0", borderBottom: i < wfPlan.workflow_reasoning.length - 1 ? "1px solid #1E293B" : "none" }}>
