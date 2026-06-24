@@ -1,32 +1,37 @@
 agent:
   name: FRIA
-  full_name: Fraud Reasoning Agent
-  version: "1.0.0"
+  full_name: Fraud Reasoning Intelligence Agent
+  version: "3.0.0"
   domain: BFSI — Banking, Financial Services & Insurance
 
   role: >
-    Senior Fraud Analytics and Behavioral AI Expert at a BFSI bank.
-    FRIA evaluates transaction frequencies, geovelocity travel feasibility,
-    and historical spend trends to calculate a calibrated fraud probability
-    and determine the fraud risk level of a dispute case.
+    Channel-aware Fraud Intelligence Agent at a BFSI bank. FRIA runs 30 parallel
+    fraud detection tools calibrated to the specific transaction channel (UPI, Internet
+    Banking, Card POS, or ATM). All numeric fraud scores are computed deterministically
+    from database evidence. The LLM synthesises analyst-facing reasoning narratives only.
 
   goal: >
-    Perform transaction anomaly detection, travel speed geovelocity verification,
-    and statistical spending analysis by calling pre-computed tools. Synthesise these findings
-    into a structured fraud intelligence brief containing fraud_probability,
-    fraud_risk_level, and breakdowns of geovelocity consistency and spending outliers.
-    FRIA coordinates with transactional ledger databases to calculate anomaly metrics.
+    Produce a structured fraud intelligence brief containing:
+    fraud_probability (0.0–1.0), fraud_risk_level (LOW/MEDIUM/HIGH/CRITICAL),
+    user_trust_score, behavioral_risk_score, identity_verification_status,
+    merchant risk intelligence, channel-specific fraud signals, and bank-verified
+    account security events. All scores are server-computed — the LLM never sets numbers.
 
   backstory: >
-    FRIA was developed to prevent friendly fraud, account takeover, and social engineering.
-    By checking geographical velocities, amount deviations (z-scores), and atypical transaction
-    hours, FRIA calculates risk weights to verify if a dispute claim represents actual fraud.
+    FRIA evolved from a 6-tool generic fraud scorer into a 30-tool channel-aware
+    fraud intelligence platform. It now reads from six database tables
+    (transactions, dispute_history, merchant_profiles, account_events,
+    customer_devices, beneficiaries) and uses GPS Haversine distance calculation
+    for geovelocity, bank-registered device trust for ATO detection, and
+    weighted event scoring for account takeover sequences.
 
   constraints:
-    - Never classify the dispute category — that belongs to Agent 2
-    - Never suggest manual queue routing — that belongs to Agent 3/4
-    - Base all conclusions strictly on pre-computed tool inputs and database records
+    - Never classify dispute category — that belongs to ARIA (Agent 1)
+    - Never route cases to queues — that belongs to WOA (Agent 3)
+    - Base all fraud_probability on pre-computed DB tool results only
+    - Customer form answers are narrative context only — never direct fraud scores
     - Return ONLY valid parseable JSON — no prose, no markdown
+    - Universal tool contribution capped at 0.60 — channel tools always contribute
 
   # ── LLM config ───────────────────────────────────────────────────────────────
   llm:
@@ -34,104 +39,314 @@ agent:
     model: llama-3.1-8b-instant
     temperature: 0
     max_tokens: 1024
+    retry_attempts: 2
 
   # ── LangGraph ─────────────────────────────────────────────────────────────────
   langgraph:
     framework: LangGraph (StateGraph)
-    pattern: ReAct — Agent-Tools Loop
+    pattern: Pre-execution pipeline — tools run in parallel BEFORE the LLM call
     state_schema: FraudReasoningAgentState
 
     pipeline:
       entry_point: validate
+      nodes:
+        - validate        # extract case_id
+        - build_context   # run all channel tools in parallel via ThreadPoolExecutor
+        - agent           # LLM synthesises narrative from pre-computed tool results
+        - finalize        # deterministic score computation overwrites LLM numbers
 
-      # Tools are routed by channel — not all tools run on every case.
-      # Channel routing: DIGITAL | CARD_POS | ATM (determined from transaction_type)
-      agent_tools:
-        # DIGITAL channel (UPI / Net Banking / Mobile Banking / IMPS / NEFT)
-        - detect_transaction_anomalies
-        - evaluate_location_velocity
-        - analyze_spending_behavior
-        - verify_kyc_match
-        - evaluate_device_fingerprint
-        - analyze_behavioral_patterns
-        # All channels
-        - evaluate_merchant_risk_intelligence
-        # CARD_POS channel (Debit Card / Credit Card POS)
-        - analyze_card_velocity
-        - evaluate_atm_pos_distance
-        - analyze_foreign_usage
-        - analyze_card_present_anomalies
-        # ATM channel
-        - analyze_atm_velocity
-        - evaluate_atm_geovelocity
-        - analyze_cash_withdrawal_patterns
+    channel_routing:
+      # transaction_type → channel → tool set
+      UPI:              [upi]
+      INTERNET_BANKING: [net banking, internet banking, mobile banking, imps, neft, rtgs]
+      CARD_POS:         [debit card, credit card, debit card pos, credit card pos]
+      ATM:              [atm, atm cash, atm withdrawal, cash withdrawal]
+      fallback:         UPI   # unknown types default to digital
 
-  # ── Tools ────────────────────────────────────────────────────────────────────
+  # ── Tool Registry (30 tools) ─────────────────────────────────────────────────
   tools:
+
+    # ── Core Digital Tools (UPI + Internet Banking) ───────────────────────────
     - name: detect_transaction_anomalies
-      description: Evaluates transaction frequencies, off-hours execution, and velocity spikes.
-      inputs: [customer_id: string, transaction_time: string, transaction_date: string]
-      output: velocity breaches and off-hours reports
+      channels: [UPI, INTERNET_BANKING]
+      description: Off-hours flag (11PM–5AM) + rapid-fire velocity (< 15 seconds between transactions)
+      inputs: [customer_id, transaction_time, transaction_date]
 
     - name: evaluate_location_velocity
-      description: Scans consecutive transactions to detect geovelocity travel inconsistencies.
-      inputs: [customer_id: string, location: string, transaction_date: string, transaction_time: string]
-      output: travel speed travel feasibility checks
+      channels: [UPI, INTERNET_BANKING]
+      description: >
+        GPS Haversine geovelocity — calculates distance (km) between transaction GPS
+        coordinates and previous transactions. Flags impossible travel speeds:
+        MEDIUM ≥ 150 km/h, HIGH ≥ 500 km/h, CRITICAL ≥ 900 km/h.
+        Reads latitude/longitude from transactions table (digital channels only).
+      inputs: [customer_id, location, transaction_date, transaction_time]
 
     - name: analyze_spending_behavior
-      description: Evaluates statistical behavioral deviations (amount standard deviation relative to customer average).
-      inputs: [customer_id: string, amount: float]
-      output: spend average and standard deviation anomaly checks
+      channels: [ALL]
+      description: Z-score deviation from customer's 30-transaction average. +0.15 (2–5×) / +0.25 (>5×)
+      inputs: [customer_id, amount]
 
     - name: verify_kyc_match
-      description: Compare dispute submission details against bank internal KYC CIF database.
-      inputs: [customer_id: string, name: string, email: string, phone: string]
-      output: joining date and match status
+      channels: [UPI, INTERNET_BANKING]
+      description: >
+        CIF record comparison. For Unauthorized Transaction disputes where all fields
+        match, raises Compromise Risk HIGH (+0.20) — fraudster may have device/email access.
+      inputs: [customer_id, name, email, phone, dispute_category]
 
     - name: evaluate_device_fingerprint
-      description: Scans logs to check device ID recognition and location consistency.
-      inputs: [customer_id: string, device_id: string, location: string]
-      output: device familiarity and risk assessment
+      channels: [UPI, INTERNET_BANKING]
+      description: >
+        Device ID familiarity check against transaction history.
+        device_id and location read from transactions table (bank record),
+        not customer form input. NULL for Card POS and ATM.
+      inputs: [customer_id, device_id, location]
 
     - name: analyze_behavioral_patterns
-      description: Scans prior dispute counts and resolution history to calculate behavioral risk.
-      inputs: [customer_id: string]
-      output: prior dispute count, velocity alerts, friendly fraud risk
+      channels: [ALL]
+      description: >
+        Prior dispute count, 30-day dispute velocity (deduplicated across
+        dispute_cases and dispute_history), friendly fraud rate.
+      inputs: [customer_id]
 
-  # ── Output schema ─────────────────────────────────────────────────────────────
+    - name: evaluate_merchant_risk_intelligence
+      channels: [ALL]
+      description: >
+        Merchant profile risk from merchant_profiles table.
+        Blacklisted +0.50, CRITICAL +0.30, HIGH +0.15.
+        Distinct from MCC category risk.
+      inputs: [merchant_id, merchant_name]
+
+    # ── UPI-Specific Tools ────────────────────────────────────────────────────
+    - name: analyze_new_beneficiary_risk
+      channels: [UPI]
+      description: First-time high-value transfer to beneficiary not in transaction history. +0.20
+
+    - name: detect_upi_collect_request_fraud
+      channels: [UPI]
+      description: UPI collect/payment request fraud detection (India's most common UPI vector). +0.30
+
+    - name: analyze_beneficiary_velocity
+      channels: [UPI]
+      description: 5+ different customers sending to same UPI ID — fraud hub detection. +0.30
+
+    - name: evaluate_upi_handle_reputation
+      channels: [UPI]
+      description: UPI handle with 5+ historical fraud reports in dispute_history. +0.35
+
+    - name: analyze_dormant_beneficiary_risk
+      channels: [UPI]
+      description: Beneficiary first used < 7 days ago — throwaway account pattern. +0.20
+
+    # ── Internet Banking / Mobile Banking Tools ───────────────────────────────
+    - name: detect_impossible_login_travel
+      channels: [INTERNET_BANKING]
+      description: Different city transaction within 2 hours — credential compromise. +0.35
+
+    - name: analyze_device_change_large_transfer
+      channels: [INTERNET_BANKING]
+      description: New device + amount > 2× average — ATO pattern. +0.30
+
+    - name: detect_password_reset_transaction_pattern
+      channels: [INTERNET_BANKING]
+      description: Transaction immediately after password reset from metadata. +0.30
+
+    - name: analyze_mobile_number_change_risk
+      channels: [INTERNET_BANKING]
+      description: Mobile number changed before transaction — OTP bypass possible. +0.35
+
+    # ── Card POS Tools ────────────────────────────────────────────────────────
+    - name: analyze_card_velocity
+      channels: [CARD_POS]
+      description: 3+ card transactions within 5-minute window — stolen card testing. +0.25
+
+    - name: evaluate_atm_pos_distance
+      channels: [CARD_POS]
+      description: Different city ATM + POS within 1 hour — card cloning. +0.35
+
+    - name: analyze_foreign_usage
+      channels: [CARD_POS]
+      description: International card use when 90%+ history is domestic. +0.30
+
+    - name: analyze_card_present_anomalies
+      channels: [CARD_POS]
+      description: Late-night / high-risk merchant category / amount 3× POS average. +0.15–0.25
+
+    - name: detect_merchant_compromise_pattern
+      channels: [CARD_POS]
+      description: 10+ disputes at merchant in 7 days — possible skimming device. HIGH +0.25 / CRITICAL +0.40
+
+    - name: analyze_first_time_merchant
+      channels: [CARD_POS]
+      description: Never used this merchant + amount > 1.5× average. +0.15
+
+    - name: evaluate_merchant_resolution_history
+      channels: [CARD_POS]
+      description: Customer-favor dispute rate > 70% = merchant fault pattern. +0.15 / >85% +0.25
+
+    - name: detect_card_testing_pattern
+      channels: [CARD_POS]
+      description: ≤₹50 micro-transactions before main fraud transaction. +0.30
+
+    - name: analyze_multi_merchant_burst
+      channels: [CARD_POS]
+      description: 4+ different merchants within 30 minutes — stolen card hopping. +0.25
+
+    - name: evaluate_mcc_risk
+      channels: [CARD_POS]
+      description: >
+        Merchant category risk (Electronics/Travel/Crypto/Gift Cards = HIGH).
+        Distinct from merchant_profiles risk level.
+        HIGH +0.10 / CRITICAL +0.20
+
+    - name: analyze_decline_success_pattern
+      channels: [CARD_POS]
+      description: 2+ declined attempts before successful authorization — card testing. +0.20
+
+    - name: check_refund_reversal_absence
+      channels: [CARD_POS]
+      description: Refund claimed but no Reversed transaction in records. +0.15
+
+    # ── ATM Tools ─────────────────────────────────────────────────────────────
+    - name: analyze_atm_velocity
+      channels: [ATM]
+      description: 3+ ATM withdrawals within 1-hour window. +0.25
+
+    - name: evaluate_atm_geovelocity
+      channels: [ATM]
+      description: Different city ATM within 2 hours — card cloning. +0.35
+
+    - name: analyze_cash_withdrawal_patterns
+      channels: [ATM]
+      description: Amount > 3× average or 3+ withdrawals in 24h. +0.15
+
+    - name: analyze_consecutive_atm_withdrawals
+      channels: [ATM]
+      description: 3+ same-amount withdrawals in short interval. +0.25
+
+    - name: analyze_foreign_atm_usage
+      channels: [ATM]
+      description: International ATM when 80%+ history is domestic. +0.35
+
+    - name: detect_sim_swap_atm_pattern
+      channels: [ATM]
+      description: SIM swap + ATM withdrawal — strongest ATM signal. +0.40
+
+    # ── Universal Tools (run on ALL channels) ─────────────────────────────────
+    - name: evaluate_historical_fraud_victim_score
+      channels: [ALL]
+      description: Prior fraud cases in dispute_cases and dispute_history. +0.10
+      reads: [dispute_cases, dispute_history]
+
+    - name: detect_account_takeover_pattern
+      channels: [ALL]
+      description: >
+        NARRATIVE ONLY — form-based ATO indicators (password_reset_before,
+        new_device, mobile_number_changed, sim_swap_suspected).
+        Does NOT contribute to fraud_probability.
+        Use verify_account_takeover_sequence for actual scoring.
+
+    - name: analyze_mule_account_indicators
+      channels: [ALL]
+      description: 8+ transactions/24h or 5+ different beneficiaries/2h — money laundering pass-through. +0.30
+      reads: [transactions]
+
+    - name: detect_historical_case_similarity
+      channels: [ALL]
+      description: Same merchant + same fraud pattern in dispute_history — weighted similarity score. +0.15
+      reads: [dispute_history]
+
+    - name: detect_linked_fraud_network
+      channels: [ALL]
+      description: Same phone/email/beneficiary across 3+ customers' disputes — organised fraud ring. +0.20
+      reads: [dispute_cases, dispute_history]
+
+    - name: detect_rapid_case_creation
+      channels: [ALL]
+      description: 3+ disputes in 30 days or 5+ in 90 days — friendly fraud / abuse pattern. +0.15
+      reads: [dispute_cases, dispute_history]
+
+    # ── Bank-Verified Account Intelligence (ALL channels) ────────────────────
+    - name: verify_account_takeover_sequence
+      channels: [ALL]
+      description: >
+        Reads account_events table for bank-observed security events within 30 days
+        before transaction. Weighted scoring by event severity:
+        SIM_SWAP(3.0), ACCOUNT_LOCKED(2.5), FRAUD_ALERT(2.5),
+        MOBILE_NUMBER_CHANGED(2.0), DEVICE_REGISTERED(1.5), BENEFICIARY_ADDED(1.5),
+        DEVICE_REMOVED(1.0), DEVICE_TRUST_CHANGED(1.5), PASSWORD_RESET(1.0).
+        Score ≥ 5.0 = CRITICAL (+0.30), ≥ 3.0 = HIGH (+0.20), ≥ 1.0 = MEDIUM (+0.10).
+      reads: [account_events]
+
+    - name: verify_device_intelligence
+      channels: [ALL]
+      description: >
+        Reads customer_devices table (7,494+ registered devices).
+        NEW_DEVICE + large transfer = CRITICAL (+0.40).
+        NEW_DEVICE = HIGH (+0.30).
+        Trusted devices = LOW (no score).
+      reads: [customer_devices, transactions]
+
+    - name: verify_mobile_change
+      channels: [ALL]
+      description: >
+        Reads account_events for MOBILE_NUMBER_CHANGED within 7 days.
+        Fraudsters change registered mobile to intercept OTPs.
+        Detected = +0.35.
+      reads: [account_events]
+
+    - name: verify_new_beneficiary_activity
+      channels: [ALL]
+      description: >
+        Reads beneficiaries table (9,347+ known payees).
+        Payee not in beneficiaries = new/unknown payee. +0.10
+      reads: [beneficiaries, account_events]
+
+    - name: validate_customer_security_claims
+      channels: [ALL]
+      description: >
+        Cross-references customer form claims vs bank account_events.
+        Returns VERIFIED / PARTIALLY_VERIFIED / UNVERIFIED.
+        NARRATIVE AND CONFIDENCE ONLY — no direct fraud probability impact.
+      reads: [account_events, customer_devices]
+
+  # ── Fraud Scoring Summary ────────────────────────────────────────────────────
+  scoring:
+    approach: >
+      All numeric scores are deterministic server-side calculations.
+      LLM generates narrative only. Customer form answers affect narrative
+      and investigation context but never contribute to fraud_probability.
+
+    universal_cap: 0.60
+    note: >
+      Universal tool contributions are capped at 0.60 total.
+      Channel-specific tools always contribute meaningfully on top.
+
+    risk_levels:
+      LOW:      "fraud_probability < 0.15"
+      MEDIUM:   "fraud_probability < 0.40"
+      HIGH:     "fraud_probability < 0.75"
+      CRITICAL: "fraud_probability >= 0.75"
+
+  # ── Output Schema ─────────────────────────────────────────────────────────────
   output:
-    format: JSON dict (FraudReport)
+    format: JSON dict (FraudIntelligenceBrief)
     fields:
-      case_id:                    "Unique case ID string"
-      fraud_probability:          "Float [0.0, 1.0] — Calibrated probability of fraud"
-      fraud_risk_level:           "LOW | MEDIUM | HIGH | CRITICAL — risk categorization"
-      anomaly_detection:
-        amount_anomaly:           "Boolean — True if transaction amount is unusually high"
-        time_anomaly:             "Boolean — True if transacted at unusual off-hours"
-        velocity_anomaly:         "Boolean — True if high frequency velocity flags hit"
-      device_location_risk:
-        unrecognized_device:      "Boolean — True if transaction device ID has no prior matching logs"
-        location_mismatch:        "Boolean — True if transaction location deviates from customer profile"
-      spending_history_analysis:
-        average_amount:           "Float — average transaction amount in historical records"
-        deviation_factor:         "Float — standard deviations from average amount (z-score)"
-      fraud_reasoning:            "Ordered list of reasoning points explaining the fraud evaluation"
-      fraud_summary:              "2-3 sentence summary of the anomalies and risk findings"
-      # Trust & Identity fields (merged from ITIA)
-      user_trust_score:           "Float [0.0, 1.0] — Calibrated trust score (higher is more trusted)"
-      behavioral_risk_score:      "Float [0.0, 1.0] — Calibrated behavioral risk score"
-      identity_verification:      "VERIFIED | SUSPICIOUS | FAILED — verification status"
-      kyc_checks:
-        name_match:               "Boolean — True if name matches bank records"
-        contact_match:            "Boolean — True if contact details match bank records"
-        join_date:                "String — bank joining date"
-      device_fingerprint:
-        recognized_device:        "Boolean — True if device has prior transaction history"
-        location_consistent:      "Boolean — True if location is within customer profile area"
-        device_risk:              "LOW | MEDIUM | HIGH — device risk rating"
-      dispute_behavior:
-        prior_dispute_count:      "Integer — count of previous dispute claims"
-        velocity_breach_detected: "Boolean — True if frequent claims are made in 30 days"
-        friendly_fraud_risk:      "LOW | MEDIUM | HIGH — history risk score"
-      trust_reasoning:            "Ordered list of reasoning points explaining trust baseline"
-      trust_summary:              "2-3 sentence summary of the trust and identity checks"
+      case_id:                  "Unique case ID"
+      fraud_probability:        "Float [0.0, 1.0] — deterministic server-computed score"
+      fraud_risk_level:         "LOW | MEDIUM | HIGH | CRITICAL"
+      anomaly_detection:        "amount_anomaly, time_anomaly, velocity_anomaly"
+      device_location_risk:     "unrecognized_device, location_mismatch"
+      spending_history_analysis: "average_amount, deviation_factor"
+      merchant_risk:            "merchant_risk_level, merchant_blacklisted"
+      channel:                  "UPI | INTERNET_BANKING | CARD_POS | ATM"
+      tool_signals:             "All channel-specific and universal signal flags"
+      fraud_reasoning:          "LLM-generated analyst findings (bank-verified events first)"
+      fraud_summary:            "2–3 sentence summary"
+      user_trust_score:         "Float [0.0, 1.0]"
+      behavioral_risk_score:    "Float [0.0, 1.0]"
+      identity_verification:    "VERIFIED | PARTIALLY_VERIFIED | UNVERIFIED"
+      kyc_checks:               "name_match, contact_match, join_date"
+      device_fingerprint:       "recognized_device, location_consistent, device_risk"
+      dispute_behavior:         "prior_dispute_count, velocity_breach_detected, friendly_fraud_risk"
+      trust_reasoning:          "LLM-generated trust analysis"
+      trust_summary:            "2–3 sentence summary"
