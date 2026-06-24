@@ -845,7 +845,8 @@ def finalize_node(state: FraudReasoningAgentState) -> dict:
             elif "MEDIUM" in _l: bank_ato_risk = "MEDIUM"
 
     bank_device_critical = any("CRITICAL" in l and "Fraud Signal" in l for l in _vdi_report.split("\n"))
-    bank_device_high     = any("HIGH" in l and "Fraud Signal" in l for l in _vdi_report.split("\n"))
+    bank_device_high     = any("HIGH" in l and "Fraud Signal" in l and "CRITICAL" not in l for l in _vdi_report.split("\n"))
+    bank_device_medium   = any("MEDIUM" in l and "Fraud Signal" in l for l in _vdi_report.split("\n"))
     bank_mobile_changed  = any("Mobile Change Detected" in l and "Yes" in l for l in _vmc_report.split("\n"))
     bank_new_bene        = any("New Beneficiary" in l and "Yes" in l for l in _vnb_report.split("\n"))
 
@@ -872,6 +873,7 @@ def finalize_node(state: FraudReasoningAgentState) -> dict:
     elif bank_ato_risk == "MEDIUM":             universal_prob += 0.10
     if bank_device_critical:                    universal_prob += 0.40
     elif bank_device_high:                      universal_prob += 0.30
+    elif bank_device_medium:                    universal_prob += 0.15
     if bank_mobile_changed:                     universal_prob += 0.35
     if bank_new_bene:                           universal_prob += 0.10
 
@@ -1030,7 +1032,7 @@ def finalize_node(state: FraudReasoningAgentState) -> dict:
         "rapid_dispute_pattern":      rapid_dispute,
         # Bank-verified signals
         "bank_ato_risk":              bank_ato_risk,
-        "bank_device_status":         "CRITICAL" if bank_device_critical else "HIGH" if bank_device_high else "LOW",
+        "bank_device_status":         "CRITICAL" if bank_device_critical else "HIGH" if bank_device_high else "MEDIUM" if bank_device_medium else "LOW",
         "bank_mobile_changed":        bank_mobile_changed,
         "bank_new_beneficiary":       bank_new_bene,
         "identity_verified_status":   identity_verified_status,

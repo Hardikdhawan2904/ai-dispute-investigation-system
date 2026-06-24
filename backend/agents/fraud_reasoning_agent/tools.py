@@ -2841,11 +2841,13 @@ def verify_device_intelligence(case_id: str) -> str:
         large_transfer = float(case.amount or 0) > avg * 2 and avg > 0
 
         ds = status["device_status"]
-        if ds == "NEW_DEVICE" and large_transfer:
+        # RECENTLY_REGISTERED (untrusted) is as suspicious as NEW_DEVICE
+        # — device was registered just before the transaction
+        if (ds in ("NEW_DEVICE", "RECENTLY_REGISTERED")) and large_transfer:
             fraud_signal = "CRITICAL"
-        elif ds == "NEW_DEVICE":
+        elif ds in ("NEW_DEVICE", "RECENTLY_REGISTERED"):
             fraud_signal = "HIGH"
-        elif ds == "RECENTLY_REGISTERED":
+        elif ds == "KNOWN_DEVICE" and not status.get("trusted"):
             fraud_signal = "MEDIUM"
         else:
             fraud_signal = "LOW"
