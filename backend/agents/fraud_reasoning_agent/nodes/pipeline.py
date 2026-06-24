@@ -547,12 +547,24 @@ def finalize_node(state: FraudReasoningAgentState) -> dict:
     trust = 1.0
     if kyc_status == "SUSPICIOUS":    trust -= 0.30
     elif kyc_status == "FAILED":      trust -= 0.70
-    
+
     if device_risk == "MEDIUM":       trust -= 0.20
     elif device_risk == "HIGH":       trust -= 0.50
-    
+
     if prior_disputes >= 3:           trust -= 0.10
     if friendly_fraud_risk == "HIGH" or velocity_breach_detected: trust -= 0.20
+
+    # Severe account compromise indicators from customer form — these are ATO signals
+    # that directly impact how much we can trust the account holder's identity
+    _meta_trust = d.get("transaction_metadata") or {}
+    def _ytrust(k: str) -> bool:
+        return str(_meta_trust.get(k) or "").strip().lower() in {"yes", "true", "1"}
+
+    if _ytrust("remote_access"):      trust -= 0.15   # device fully compromised
+    if _ytrust("otp_shared"):         trust -= 0.10   # credentials handed over
+    if _ytrust("sim_swap_suspected"): trust -= 0.15   # telecom-level compromise
+    if _ytrust("bank_impersonation"): trust -= 0.05   # social engineering confirmed
+
     trust_score = round(max(0.00, min(1.00, trust)), 2)
 
     # Recalculate Behavioral Risk Score

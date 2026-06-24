@@ -1018,27 +1018,47 @@ export default function CaseWorkspace() {
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column" }}>
+                        {/* Identity Status */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
+                          <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Identity Status</span>
+                          <span style={{ fontSize: "0.68rem", fontWeight: 700, color: idStatus === "VERIFIED" ? "#4ADE80" : idStatus === "PARTIALLY_VERIFIED" ? "#FCD34D" : "#FCA5A5" }}>
+                            {idStatus === "VERIFIED" ? "✓ VERIFIED" : idStatus === "PARTIALLY_VERIFIED" ? "⚠ PARTIAL" : "✗ UNVERIFIED"}
+                          </span>
+                        </div>
+                        {/* KYC field matches */}
                         {[
-                          { label: "KYC Match — Name",    ok: kycData.name_match },
-                          { label: "KYC Match — Contact", ok: kycData.contact_match },
+                          { label: "Name Match",    ok: kycData.name_match },
+                          { label: "Phone Match",   ok: kycData.contact_match },
+                          { label: "Email Match",   ok: kycData.contact_match },
                         ].map(({ label, ok }) => (
-                          <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid #1E293B" }}>
-                            <span style={{ fontSize: "0.7rem", color: "#64748B" }}>{label}</span>
-                            {ok ? (
-                              <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#4ADE80", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                                <CheckCircle style={{ width: 12, height: 12 }} /> Match
-                              </span>
-                            ) : (
-                              <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "#FCA5A5", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                                <AlertTriangle style={{ width: 12, height: 12 }} /> Mismatch
-                              </span>
-                            )}
+                          <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.35rem 0", borderBottom: "1px solid #1E293B" }}>
+                            <span style={{ fontSize: "0.68rem", color: "#64748B" }}>{label}</span>
+                            <span style={{ fontSize: "0.65rem", fontWeight: 600, color: ok ? "#4ADE80" : "#FCA5A5" }}>
+                              {ok ? "✓" : "✗"}
+                            </span>
                           </div>
                         ))}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0" }}>
-                          <span style={{ fontSize: "0.7rem", color: "#64748B" }}>Customer Since</span>
-                          <span style={{ fontSize: "0.72rem", color: "#F8FAFC", fontFamily: "ui-monospace, monospace" }}>{kycData.join_date || "—"}</span>
-                        </div>
+                        {/* Recent Security Events */}
+                        {(() => {
+                          const ts = (caseData as any).tool_signals ?? {};
+                          const secEvents = [
+                            { label: "Password Reset",       flag: ts.bank_ato_risk !== "LOW" && (fd as any)?.tool_signals?.bank_ato_risk !== undefined, detected: false },
+                            { label: "Mobile Number Change", flag: !!ts.bank_mobile_changed },
+                            { label: "SIM Swap",             flag: ts.sim_swap_atm === true || (ts.bank_ato_risk === "CRITICAL") },
+                            { label: "New Device Registered",flag: ts.bank_device_status === "HIGH" || ts.bank_device_status === "CRITICAL" || !(devData.recognized_device) },
+                          ];
+                          return (
+                            <div style={{ marginTop: "0.5rem" }}>
+                              <div style={{ fontSize: "0.58rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "#475569", marginBottom: "0.375rem" }}>Recent Security Events</div>
+                              {secEvents.map(({ label, flag }) => (
+                                <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0" }}>
+                                  <span style={{ fontSize: "0.65rem", color: "#64748B" }}>{label}</span>
+                                  <span style={{ fontSize: "0.65rem", fontWeight: 600, color: flag ? "#FCA5A5" : "#475569" }}>{flag ? "Detected" : "No"}</span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </Panel>
