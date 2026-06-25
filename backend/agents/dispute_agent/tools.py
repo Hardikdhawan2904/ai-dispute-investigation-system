@@ -189,10 +189,15 @@ def score_fraud_indicators(
     comment_lower = customer_comment.lower()
 
     # ── Step 1: Query DB for bank-observed signals ────────────────────────────
-    db_sim_swap     = False
-    db_device_new   = False
-    db_mobile_change = False
-    db_device_id    = ""
+    db_sim_swap       = False
+    db_device_new     = False
+    db_mobile_change  = False
+    db_device_id      = ""
+    db_card_lost      = False
+    db_card_blocked   = False
+    db_otp_delivered  = False
+    db_bank_contacted = False
+    db_collect_req    = False
 
     if customer_id:
         try:
@@ -210,9 +215,15 @@ def score_fraud_indicators(
                 ).all()
                 event_types = {e.event_type for e in events}
 
-                db_sim_swap      = "SIM_SWAP_DETECTED" in event_types
-                db_mobile_change = "MOBILE_NUMBER_CHANGED" in event_types
-                db_device_new    = "DEVICE_REGISTERED" in event_types
+                # Bank-observed signals (primary source of truth)
+                db_sim_swap       = "SIM_SWAP_DETECTED"           in event_types
+                db_mobile_change  = "MOBILE_NUMBER_CHANGED"        in event_types
+                db_device_new     = "DEVICE_REGISTERED"            in event_types
+                db_card_lost      = "CARD_LOST_REPORTED"           in event_types
+                db_card_blocked   = "CARD_BLOCKED"                 in event_types
+                db_otp_delivered  = "OTP_DELIVERED"                in event_types
+                db_bank_contacted = "CUSTOMER_CONTACT_LOGGED"      in event_types
+                db_collect_req    = "UPI_COLLECT_REQUEST_RECEIVED" in event_types
 
                 # Check if transaction device is unregistered
                 if transaction_id:
@@ -306,27 +317,44 @@ def score_fraud_indicators(
         score += round(4.0 * 0.6, 1)
         indicators.append("Phishing link clicked [CUSTOMER REPORTED — credential theft possible]")
 
-    # ── Step 5: I4C Tier-3 (physical) ─────────────────────────────────────────
-    if is_yes(card_lost):
-        score += 2.5
-        indicators.append("Card lost or stolen [CUSTOMER REPORTED]")
+    # ── Step 5: I4C Tier-3 (physical) — DB first ─────────────────────────────
+    score += _score_signal(
+        db_card_lost, card_lost, 2.5,
+        "Card lost/stolen confirmed in bank records — physical theft vector; check PIN shoulder-surfing",
+        "Card lost or stolen [CUSTOMER REPORTED — unverified]",
+    )
     if is_yes(device_lost):
-        score += 2.5
-        indicators.append("Device lost or stolen [CUSTOMER REPORTED]")
+        score += round(2.5 * 0.6, 1)
+        indicators.append("Device lost or stolen [CUSTOMER REPORTED — no bank record available]")
 
-    # ── OTP received but denies initiating ────────────────────────────────────
-    if is_yes(otp_received) and any(
-        k in comment_lower for k in ("didn't do", "not me", "unauthorized", "did not", "i never")
-    ):
+    # ── OTP received but denies initiating — DB preferred ────────────────────
+    # Check DB first: OTP_DELIVERED event confirms bank did send an OTP
+    otp_deny = any(k in comment_lower for k in ("didn't do", "not me", "unauthorized", "did not", "i never"))
+    if db_otp_delivered and otp_deny:
         score += 3.5
-        indicators.append("OTP received but customer denies initiating — classic social engineering pattern")
+        indicators.append("OTP delivery confirmed by bank records — customer denies initiating transaction [DB VERIFIED]")
+    elif is_yes(otp_received) and otp_deny:
+        score += round(3.5 * 0.7, 1)
+        indicators.append("OTP received (customer reported) but transaction denied — classic social engineering [CUSTOMER REPORTED]")
 
-    # ── Protective actions ────────────────────────────────────────────────────
+    # ── UPI Collect Request — DB first ───────────────────────────────────────
+    if db_collect_req:
+        score += 4.0
+        indicators.append("UPI collect request confirmed by bank payment records [DB VERIFIED] — victim approved outgoing transfer")
+    elif is_yes(collect_request):
+        score += round(4.0 * 0.6, 1)
+        indicators.append("UPI collect request fraud reported by customer [CUSTOMER REPORTED — unverified]")
+
+    # ── Protective actions — DB preferred ────────────────────────────────────
     protective: list[str] = []
-    if is_yes(bank_contacted):
-        protective.append("bank contacted within reporting window")
-    if is_yes(card_blocked):
-        protective.append("card / account blocked")
+    if db_bank_contacted:
+        protective.append("bank contact logged in CRM records [DB VERIFIED]")
+    elif is_yes(bank_contacted):
+        protective.append("bank contacted (customer reported)")
+    if db_card_blocked:
+        protective.append("card block confirmed in bank card management system [DB VERIFIED]")
+    elif is_yes(card_blocked):
+        protective.append("card / account blocked (customer reported)")
 
     # ── Signal level ──────────────────────────────────────────────────────────
     level = (

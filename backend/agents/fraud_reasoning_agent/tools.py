@@ -1836,19 +1836,36 @@ def detect_upi_collect_request_fraud(case_id: str) -> str:
         case = db.query(DisputeCase).filter(DisputeCase.case_id == case_id).first()
         if not case:
             return "UPI COLLECT REQUEST ANALYSIS\n  Collect Request Detected: No"
-        meta = case.transaction_metadata or {}
-        dispute_reason = (case.dispute_reason or "").lower()
-        comment = (case.customer_comment or "").lower()
-        from_meta = str(meta.get("collect_request", "")).lower() in {"yes", "true", "1"}
-        from_reason = "collect" in dispute_reason
-        from_comment = "collect" in comment or "money request" in comment or "payment request" in comment
-        detected = from_meta or from_reason or from_comment
-        method = ("transaction metadata" if from_meta else "dispute reason" if from_reason else "customer description" if from_comment else "not detected")
+
+        # DB-first: check account_events for UPI_COLLECT_REQUEST_RECEIVED
+        from database.models import AccountEvent
+        from datetime import datetime, timezone, timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        db_event = db.query(AccountEvent).filter(
+            AccountEvent.customer_id == case.customer_id.upper(),
+            AccountEvent.event_type == "UPI_COLLECT_REQUEST_RECEIVED",
+            AccountEvent.event_timestamp >= cutoff,
+        ).first()
+
+        if db_event:
+            detected = True
+            method = "BANK PAYMENT RECORDS [DB VERIFIED]"
+        else:
+            # Fallback: check form metadata and narrative
+            meta = case.transaction_metadata or {}
+            dispute_reason = (case.dispute_reason or "").lower()
+            comment = (case.customer_comment or "").lower()
+            from_meta = str(meta.get("collect_request", "")).lower() in {"yes", "true", "1"}
+            from_reason = "collect" in dispute_reason
+            from_comment = "collect" in comment or "money request" in comment or "payment request" in comment
+            detected = from_meta or from_reason or from_comment
+            method = ("form metadata" if from_meta else "dispute reason" if from_reason else "customer description" if from_comment else "not detected") + " [CUSTOMER REPORTED]"
+
         return (
             "UPI COLLECT REQUEST ANALYSIS\n"
             f"  Collect Request Detected : {'Yes' if detected else 'No'}\n"
             f"  Detection Method         : {method}\n"
-            f"  Assessment               : {'UPI collect request fraud detected — customer approved fraudulent payment request.' if detected else 'No collect request fraud pattern detected.'}"
+            f"  Assessment               : {'UPI collect request fraud — customer approved fraudulent payment request.' if detected else 'No collect request fraud pattern detected.'}"
         )
     except Exception as exc:
         agent_logger.warning(f"detect_upi_collect_request_fraud failed: {exc}")
