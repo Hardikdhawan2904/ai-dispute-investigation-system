@@ -465,9 +465,22 @@ def finalize_node(state: DisputeAgentState) -> dict:
     _dispute_reason_lc = (d.get("dispute_reason") or "").lower()
     _has_recurring = any(kw in comment_lc or kw in _dispute_reason_lc for kw in _RECURRING_SIGNALS)
 
+    # Detect transaction channel for channel-specific tag stripping
+    _txn_type_lc = (d.get("transaction_type") or "").lower().strip()
+    _CARD_POS_TYPES = {"debit card", "credit card", "debit card pos", "credit card pos", "pos"}
+    _ATM_TYPES      = {"atm", "atm cash", "atm withdrawal", "cash withdrawal"}
+    _is_card_pos    = _txn_type_lc in _CARD_POS_TYPES
+    _is_atm         = _txn_type_lc in _ATM_TYPES
+
     # Strip tags when deterministically invalid
     if amount < 50_000:
         tags.discard("HIGH_VALUE_TRANSACTION")
+
+    # DEVICE_MISMATCH is a digital channel signal — POS terminals and ATMs
+    # are merchant/bank hardware, not the customer's device. Strip it for
+    # Card POS and ATM transaction types.
+    if _is_card_pos or _is_atm:
+        tags.discard("DEVICE_MISMATCH")
     if not (is_intl or is_foreign):
         tags.discard("INTERNATIONAL_TRANSACTION")
     if not fraud_flag:
