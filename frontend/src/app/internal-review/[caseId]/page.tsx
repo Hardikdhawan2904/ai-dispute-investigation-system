@@ -207,6 +207,15 @@ export default function CaseWorkspace() {
       const updated = await updateCaseStatus(caseData.case_id, newStatus);
       setCaseData(updated);
       toast.success(`Status → ${newStatus}`);
+      // Email fires async — poll for it after a short delay then again later
+      const refreshComms = async () => {
+        try {
+          const res = await getCommunications(caseData.case_id);
+          setCommunications(res.communications || []);
+        } catch {}
+      };
+      setTimeout(refreshComms, 2000);   // first check — email usually lands within 2s
+      setTimeout(refreshComms, 6000);   // second check — fallback if email was slow
     } catch (err: unknown) {
       toast.error((err as Error).message || "Update failed");
     } finally { setUpdatingStatus(false); }
