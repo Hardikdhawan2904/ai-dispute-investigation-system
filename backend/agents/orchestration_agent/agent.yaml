@@ -1,38 +1,32 @@
 agent:
   name: WOA
   full_name: Workflow Orchestration Agent
-  version: "1.0.0"
+  version: "1.1.0"
   domain: BFSI — Banking, Financial Services & Insurance
 
   role: >
     Senior AI Workflow Orchestrator embedded in the bank's multi-agent dispute
-    resolution platform. WOA receives the combined output of Agent 1 (ARIA) and
-    Agent 2 (IIA) from the database and decides which specialist agents must run,
-    in what order, and what escalation path the case requires.
+    resolution platform. WOA reads ARIA + IIA output from the database and decides
+    which specialist agents must run, in what order, and what escalation path the
+    case requires. WOA coordinates — it does not investigate.
 
   goal: >
     Evaluate case complexity, determine required specialist agents, generate an
     ordered execution plan, assess escalation need, estimate workload, and
-    identify the immediate next execution step. WOA is the brain of the
-    multi-agent platform — it coordinates, it does not investigate.
-
-  backstory: >
-    WOA was designed when the platform outgrew two agents. As Agent 4 (Fraud),
-    Agent 5 (Merchant), Agent 6 (Evidence), and Agent 7 (Compliance) were being
-    built, the platform needed a coordinator that could decide which agents are
-    relevant, in what order they should fire, and what the next step is at any
-    point in the workflow. WOA never duplicates Agent 1 or Agent 2 work — it
-    reads their persisted results and orchestrates forward from there.
+    identify the immediate next execution step.
 
   constraints:
-    - Never reclassify disputes — classification belongs to Agent 1
-    - Never build investigation plans — that belongs to Agent 2
+    - Never reclassify disputes — classification belongs to ARIA
+    - Never build investigation plans — that belongs to IIA
     - Never make approval or resolution decisions
     - If a tool fails, continue and note the failure
-    - Return ONLY valid parseable JSON — no prose, no markdown
-    - All routing decisions must cite specific evidence from tool results
+    - Returns ONLY valid parseable JSON — no prose, no markdown
+    - All 6 tools read exclusively from dispute_cases — no form data
+    - COMPLIANCE_AGENT has been removed — high-risk tags trigger escalation only
+    - workflow_reasoning must use factual/past tense ("was activated", "triggered")
+      NOT action/future tense ("is required", "must be done")
 
-  # ── LLM config ───────────────────────────────────────────────────────────────
+  # ── LLM config ────────────────────────────────────────────────────────────────
   llm:
     provider: Groq
     model: llama-3.1-8b-instant
@@ -49,8 +43,6 @@ agent:
 
     pipeline:
       entry_point: agent
-
-      # Each name must exist as a key in tools.py → TOOL_REGISTRY
       agent_tools:
         - evaluate_case_complexity
         - determine_required_agents
@@ -59,80 +51,88 @@ agent:
         - estimate_workload
         - determine_next_execution_step
 
-  # ── Tools ────────────────────────────────────────────────────────────────────
+  # ── Tools ─────────────────────────────────────────────────────────────────────
   tools:
     - name: evaluate_case_complexity
-      description: Reads case from DB and computes orchestration complexity based on amount, category, fraud signals, and Agent 2's investigation_complexity.
-      inputs: [case_id: string]
-      output: complexity level LOW|MEDIUM|HIGH|CRITICAL with reasoning
+      description: >
+        Reads case from dispute_cases. Computes orchestration complexity from:
+        IIA's investigation_complexity (strongest signal), amount tier, fraud flags,
+        high-risk tags. Outputs LOW | MEDIUM | HIGH | CRITICAL.
+      inputs: [case_id]
+      reads: [dispute_cases]
 
     - name: determine_required_agents
-      description: Identifies which specialist agents must run for this case based on dispute category, fraud indicators, evidence gaps, and regulatory tags.
-      inputs: [case_id: string]
-      output: list of required specialist agent identifiers
+      description: >
+        Identifies required specialist agents based on dispute_category, fraud_suspicion,
+        evidence_match, and risk_tags. Routes to FRAUD_AGENT, EVIDENCE_AGENT,
+        MERCHANT_AGENT only. COMPLIANCE_AGENT has been removed.
+        High-risk tags (VELOCITY_BREACH, SUSPICIOUS_BEHAVIOR, MERCHANT_BLACKLISTED,
+        DEVICE_MISMATCH, OTP_COMPROMISED) now trigger escalation, not a compliance agent.
+      inputs: [case_id]
+      reads: [dispute_cases]
+      routing_table:
+        FRAUD_AGENT:    "Unauthorized Transaction, Friendly Fraud, fraud_suspicion=true"
+        MERCHANT_AGENT: "Merchant Dispute, Refund Not Received, Product Not Received, Subscription Abuse, Duplicate Transaction, Friendly Fraud"
+        EVIDENCE_AGENT: "evidence_match != true, required_documents present, ATM Cash Issue, Other"
 
     - name: recommend_workflow_path
-      description: Builds an ordered execution sequence for the required specialist agents, respecting dependency rules.
-      inputs: [case_id: string]
-      output: ordered workflow path list
+      description: >
+        Builds ordered execution sequence for required agents.
+        Dependency rule: FRAUD_AGENT always runs first when required.
+      inputs: [case_id]
+      reads: [dispute_cases]
 
     - name: assess_escalation_need
-      description: Evaluates whether the case requires escalation, and at what level, based on complexity, fraud indicators, and regulatory signals.
-      inputs: [case_id: string]
-      output: escalation_required boolean and escalation_level
+      description: >
+        Evaluates whether case requires escalation based on complexity, fraud indicators,
+        risk tags. High-risk tags now trigger escalation (not COMPLIANCE_AGENT).
+      inputs: [case_id]
+      reads: [dispute_cases]
 
     - name: estimate_workload
-      description: Estimates investigation effort in hours and required analyst seniority level based on case complexity and specialist agents needed.
-      inputs: [case_id: string]
-      output: estimated_hours integer and analyst_level string
+      description: >
+        Estimates investigation hours and analyst seniority based on complexity.
+        LOW=1h/JUNIOR, MEDIUM=2h/STANDARD, HIGH=4h/SENIOR, CRITICAL=8h/LEAD.
+      inputs: [case_id]
+      reads: [dispute_cases]
 
     - name: determine_next_execution_step
       description: >
-        Identifies the immediate next specialist agent to execute. Reads the
-        existing workflow_plan (if any) to determine completed agents, then
-        returns the next unexecuted step. Returns null next_agent when no
-        further specialist agents are required.
-      inputs: [case_id: string]
-      output: next_agent name or null, reason, blocking_dependencies list
+        Reads existing workflow_plan (if re-analysis) to find completed agents,
+        returns next unexecuted agent. Returns null when all agents complete.
+      inputs: [case_id]
+      reads: [dispute_cases]
+
+  # ── Specialist agents ─────────────────────────────────────────────────────────
+  specialist_agents:
+    FRAUD_AGENT:    "Handles Unauthorized Transaction, fraud indicators, identity theft"
+    MERCHANT_AGENT: "Handles Merchant Dispute, Refund Not Received, Product Not Received, Subscription Abuse, Duplicate Transaction"
+    EVIDENCE_AGENT: "Handles missing evidence, evidence_match=false, ATM Cash Issue, Other"
+    # COMPLIANCE_AGENT — REMOVED. High-risk tags trigger escalation instead.
 
   # ── Output schema ─────────────────────────────────────────────────────────────
   output:
     format: JSON dict (WorkflowPlan)
     fields:
       workflow_complexity:            "LOW | MEDIUM | HIGH | CRITICAL"
-      required_agents:               "Ordered list of specialist agent identifiers needed"
-      workflow_path:                 "Ordered execution sequence for required agents"
-      workflow_status:               "READY | IN_PROGRESS | WAITING | COMPLETED | ESCALATED — server-stamped from execution state"
-      next_agent:                    "Identifier of the immediate next agent to execute, or null"
-      remaining_agents:              "List of agents still to execute after next_agent"
-      escalation_required:           "Boolean — true if case needs escalation"
+      required_agents:               "Ordered list of specialist agent identifiers"
+      workflow_path:                 "Ordered execution sequence"
+      workflow_status:               "READY | IN_PROGRESS | WAITING | COMPLETED | ESCALATED"
+      next_agent:                    "Next agent to execute, or null"
+      remaining_agents:              "Agents still to execute after next_agent"
+      escalation_required:           "Boolean"
       escalation_level:              "CRITICAL | HIGH | MEDIUM | null"
-      manual_review_required:        "Boolean — true if human review is mandatory"
-      estimated_investigation_hours: "Integer — total estimated analyst hours"
+      manual_review_required:        "Boolean"
+      estimated_investigation_hours: "Integer"
       analyst_level:                 "JUNIOR | STANDARD | SENIOR | LEAD"
-      workflow_reasoning:            "Ordered list of reasoning points explaining routing decisions"
-      tool_decisions:                "List of {tool, reason} explaining each tool call"
-      tools_used:                    "Server-stamped list of tool names actually executed"
-      agent_metadata:                "Server-stamped agent identity, model, version, timestamp, duration"
-      metrics:                       "Server-stamped execution metrics"
-      workflow_execution_id:         "Server-stamped unique execution identifier"
-      workflow_version:              "Server-stamped workflow schema version"
-      fallback_mode:                 "true when LLM output could not be parsed"
-      failure_reason:                "Failure code string or null"
+      workflow_reasoning:            "Factual past-tense rationale for routing decisions"
+      completed_agents:              "Agents that have already run (from prior analysis)"
 
-  # ── Specialist agent registry ──────────────────────────────────────────────
-  specialist_agents:
-    FRAUD_AGENT:      "Handles Unauthorized Transaction, fraud indicators, identity theft"
-    MERCHANT_AGENT:   "Handles Merchant Dispute, Refund Not Received, Product Not Received, Subscription Abuse"
-    EVIDENCE_AGENT:   "Handles missing evidence, evidence_match=false, document gaps"
-    COMPLIANCE_AGENT: "Handles VELOCITY_BREACH, SUSPICIOUS_BEHAVIOR, MERCHANT_BLACKLISTED tags, regulatory flags"
-
-  # ── Invocation ───────────────────────────────────────────────────────────────
+  # ── Invocation ────────────────────────────────────────────────────────────────
   invocation:
     entry_function: run_orchestration_agent
     file: agents/orchestration_agent/__init__.py
     signature: "run_orchestration_agent(case_id: str) -> dict"
     called_from:
-      - "workflows/dispute_workflow.py → orchestration_node (after investigation_node)"
-      - "api/routes/ops_cases.py → direct call (ops re-analysis endpoint)"
-      - "api/routes/disputes.py → direct call (_reanalyse_after_upload)"
+      - "workflows/dispute_workflow.py → orchestration_node"
+      - "api/routes/ops_cases.py → reanalyse endpoint"

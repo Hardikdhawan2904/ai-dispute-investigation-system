@@ -1,49 +1,76 @@
 agent:
   name: CCA
   full_name: Customer Communication Agent
-  version: "1.0"
+  version: "1.1.0"
   domain: BFSI — Banking, Financial Services & Insurance
 
   role: >
     Customer-facing communication specialist for the dispute resolution platform.
-    CCA translates internal workflow events into professional, empathetic emails
-    that keep customers informed throughout the dispute lifecycle.
+    CCA translates internal workflow events into professional, empathetic HTML emails
+    that keep customers informed throughout the dispute lifecycle. Never exposes
+    internal AI terminology, fraud scores, or investigation details.
 
   goal: >
-    Generate clear, reassuring, customer-friendly email notifications for every
-    significant dispute lifecycle event. Never expose internal AI terminology,
-    fraud scores, risk signals, or investigation details to the customer.
+    Generate clear, customer-friendly email notifications for every significant
+    dispute lifecycle event. Triggered by status changes, document requests,
+    and resolution events. All emails delivered via Outlook SMTP.
 
   constraints:
-    - Never use words: Agent, AI, LLM, Fraud Score, Risk Score, Trust Score, Workflow Path
-    - Never mention "fraud" in FRAUD_REVIEW_STARTED notifications
-    - Always include the dispute tracking link in every email
-    - Return only valid JSON with "subject" and "body" keys
+    - Never use: Agent, AI, LLM, Fraud Score, Risk Score, Trust Score, Workflow Path
+    - Never mention "fraud" in INVESTIGATION_STARTED notifications
+    - Always include the dispute tracking reference (case_id) in every email
+    - Returns only valid JSON with "subject" and "body" (HTML) keys
     - Keep tone professional, empathetic, and reassuring
+    - In demo mode, all mail is redirected to NOTIFICATION_EMAIL env var
 
+  # ── LLM config ────────────────────────────────────────────────────────────────
   llm:
     provider: Groq
     model: llama-3.1-8b-instant
     temperature: 0.3
     max_tokens: 1024
 
+  # ── Pipeline ──────────────────────────────────────────────────────────────────
   pipeline:
     entry_point: validate
     nodes:
-      - validate   # extract case_id and notification_type
-      - generate   # LLM generates subject + HTML body
-      - deliver    # send via SMTP + persist to communication_logs
+      - validate   # extract case_id, notification_type, recipient email
+      - generate   # LLM generates subject + HTML body from case data
+      - deliver    # send via SMTP (smtp.office365.com:587 TLS) + save to communication_logs
 
+  # ── SMTP config ───────────────────────────────────────────────────────────────
+  smtp:
+    server: smtp.office365.com
+    port: 587
+    encryption: STARTTLS
+    env_vars:
+      SMTP_USERNAME: "Outlook email address"
+      SMTP_PASSWORD: "Outlook password"
+      NOTIFICATION_EMAIL: "Demo override — all mail goes here"
+
+  # ── Notification types ────────────────────────────────────────────────────────
   notification_types:
-    - CASE_RECEIVED
-    - INVESTIGATION_STARTED
-    - DOCUMENT_REQUESTED
-    - FRAUD_REVIEW_STARTED
-    - EVIDENCE_REVIEW_COMPLETED
-    - CASE_RESOLVED
-    - STATUS_CHANGED
+    CASE_RECEIVED:          "Dispute acknowledged — reference number provided"
+    INVESTIGATION_STARTED:  "Case is under active investigation (no fraud mention)"
+    DOCUMENT_REQUESTED:     "Specific documents requested with list of what's needed"
+    CASE_RESOLVED:          "Case resolved — outcome communicated"
+    CASE_REJECTED:          "Dispute not upheld — reason given"
+    CASE_REOPENED:          "Case reopened for further review"
+    STATUS_CHANGED:         "Generic status update notification"
+    CASE_RESOLVED_APPROVED: "Resolution approved and credit/refund initiated"
 
+  # ── Deduplication ─────────────────────────────────────────────────────────────
+  deduplication:
+    window_hours: 24
+    key: "case_id + notification_type"
+    override: "_skip_dedup: true in context (used for batch document requests)"
+
+  # ── Invocation ────────────────────────────────────────────────────────────────
   invocation:
     entry_function: run_communication_agent
     file: agents/communication_agent/__init__.py
     signature: "run_communication_agent(case_id, notification_type, case_data, context) -> dict"
+    called_from:
+      - "services/communication_service.py → trigger_communication_async (background)"
+      - "api/routes/communications.py → POST /{case_id}/send (manual trigger)"
+      - "services/document_request_service.py → after document request created"

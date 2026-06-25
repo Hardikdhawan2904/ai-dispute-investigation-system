@@ -6,31 +6,30 @@ agent:
 
   role: >
     Senior AI Investigation Planner embedded in the bank's internal dispute operations
-    platform. IIA receives the structured classification output from Agent 1 and builds
-    a complete investigation intelligence brief by querying internal systems, analysing
-    historical patterns, and recommending the correct operational path for human analysts.
+    platform. IIA receives ARIA's structured classification output from the database
+    and builds a complete investigation intelligence brief by querying internal DB tables.
 
   goal: >
-    Gather investigative intelligence on every classified dispute by calling relevant
-    tools, synthesise findings into a structured investigation plan, recommend the
-    correct queue and required documents, and flag manual review requirements.
-    IIA does NOT reclassify disputes — classification is Agent 1's responsibility.
-
-  backstory: >
-    IIA was designed to bridge the gap between AI classification and human investigation.
-    After Agent 1 understands what the customer reported, IIA answers the questions the
-    customer did not — What is this customer's history? Is this merchant known? Has this
-    transaction already been disputed? What documents are needed? The human analyst receives
-    a complete intelligence brief, not just a category label.
+    Gather investigative intelligence on every classified dispute by calling 4 DB tools,
+    synthesise findings into a structured investigation plan, recommend the correct
+    queue and required documents, and flag manual review requirements.
+    IIA does NOT reclassify disputes — classification is ARIA's responsibility.
 
   constraints:
-    - Never reclassify or override Agent 1 dispute_category
+    - Never reclassify or override ARIA dispute_category
     - Never give legal or financial advice
     - If a tool fails, continue investigation and note the failure
     - Express uncertainty via a lower confidence_score — never suppress it
-    - Return ONLY valid parseable JSON — no prose, no markdown
+    - Returns ONLY valid parseable JSON — no prose, no markdown
+    - All 4 tools read exclusively from DB — no form data used
 
-  # ── LLM config ───────────────────────────────────────────────────────────────
+  data_sources:
+    - dispute_history:   "600+ pre-seeded historical resolved disputes"
+    - dispute_cases:     "Live cases submitted through the system"
+    - merchant_profiles: "Bank merchant risk profiles with complaint stats"
+    - transactions:      "11,000+ customer transaction records"
+
+  # ── LLM config ────────────────────────────────────────────────────────────────
   llm:
     provider: Groq
     model: llama-3.1-8b-instant
@@ -47,80 +46,84 @@ agent:
 
     pipeline:
       entry_point: agent
-
-      # Each name must exist as a key in tools.py → TOOL_REGISTRY
       agent_tools:
         - lookup_customer_history
         - check_merchant_risk
         - find_duplicate_transaction
         - lookup_related_cases
 
-  # ── Tools ────────────────────────────────────────────────────────────────────
+  # ── Tools ─────────────────────────────────────────────────────────────────────
   tools:
     - name: lookup_customer_history
-      description: Queries dispute_cases for this customer's prior disputes, fraud-flag rate, and risk level. Active case is automatically excluded server-side.
-      inputs: [customer_id: string]
-      output: customer risk profile report
+      description: >
+        Queries dispute_cases + dispute_history for this customer's full dispute record.
+        Returns: total disputes, fraud-flag count, 30-day velocity, top categories,
+        resolution rate, and risk level (LOW/MEDIUM/HIGH/CRITICAL).
+        Active case is automatically excluded server-side.
+      inputs: [customer_id]
+      reads: [dispute_cases, dispute_history]
 
     - name: check_merchant_risk
-      description: Queries dispute_cases for complaints against this merchant plus blacklist pattern check.
-      inputs: [merchant_name: string]
-      output: merchant risk profile report
+      description: >
+        Queries merchant_profiles for risk tier, then cross-checks dispute_cases
+        and dispute_history for customer complaints against this merchant.
+        Returns: fraud_complaint_count, resolution_rate, risk_level, blacklisted flag.
+      inputs: [merchant_name]
+      reads: [merchant_profiles, dispute_cases, dispute_history]
 
     - name: find_duplicate_transaction
-      description: Detects duplicate or near-duplicate disputes by transaction_id or customer+merchant+amount within 72h.
-      inputs: [transaction_id: string, customer_id: string, amount: float, merchant: string]
-      output: duplicate detection result
+      description: >
+        Detects duplicate or near-duplicate disputes by exact transaction_id match,
+        or by customer + merchant + amount within a 72-hour window.
+        Returns: duplicate_found (bool) + related_case_id if found.
+      inputs: [transaction_id, customer_id, amount, merchant]
+      reads: [dispute_cases, transactions]
 
     - name: lookup_related_cases
-      description: Finds historical cases with the same dispute_category and returns resolution outcome statistics.
-      inputs: [dispute_category: string, merchant: string (optional)]
-      output: related case resolution statistics
+      description: >
+        Searches dispute_history and dispute_cases for cases with the same
+        dispute_category. Optionally filters by merchant.
+        Returns: similar_case_count, resolution outcomes, resolution_rate.
+      inputs: [dispute_category, merchant (optional)]
+      reads: [dispute_history, dispute_cases]
 
   # ── Output schema ─────────────────────────────────────────────────────────────
   output:
     format: JSON dict (InvestigationReport)
     fields:
-      case_id:                    "Unique identifier from Agent 1 output"
+      case_id:                    "Unique identifier from ARIA output"
       recommended_queue:          "CRITICAL_QUEUE | FRAUD_QUEUE | HIGH_VALUE_QUEUE | MERCHANT_QUEUE | ATM_QUEUE | STANDARD_QUEUE"
-      queue_confidence:           "Float [0.0, 1.0] — IIA certainty in queue assignment"
-      queue_confidence_factors:   "List of human-readable reasons explaining queue_confidence"
+      queue_confidence:           "Float [0.0, 1.0]"
       investigation_complexity:   "LOW | MEDIUM | HIGH | CRITICAL"
-      manual_review_required:     "Boolean — true if human escalation is needed"
+      manual_review_required:     "Boolean"
       customer_risk_profile:      "Structured customer history and risk assessment"
       merchant_risk_profile:      "Structured merchant complaint history and risk level"
-      duplicate_found:            "Boolean — true if a duplicate dispute was detected"
+      duplicate_found:            "Boolean"
       related_case_id:            "Case ID of duplicate if found, else null"
       related_cases:              "Historical resolution statistics for this dispute type"
       required_documents:         "List of documents to request from customer"
       recommended_steps:          "Ordered list of investigation actions for the analyst"
-      investigation_reasoning:    "Ordered list of key findings from tool calls — no hallucination"
+      investigation_reasoning:    "Ordered list of key findings from tool calls"
       investigation_summary:      "2-3 sentence plain-language investigation brief"
-      manual_review_reason:       "List of specific reasons why manual review is required — empty when not required"
-      tool_decisions:             "LLM-generated list of {tool, reason} pairs explaining why each tool was called"
-      investigation_gaps:         "LLM-generated list of missing or unavailable intelligence discovered during tool execution"
-      data_quality_score:         "Float [0.0, 1.0] — completeness and reliability of investigation data gathered"
-      data_quality_factors:       "List of sentences explaining what drove the data quality score"
-      investigation_coverage:     "Server-stamped dict: boolean flag per tool indicating whether it was called"
-      tools_used:                 "Server-stamped list of tool names actually executed"
-      agent_metadata:             "Server-stamped agent identity, model, version, timestamp, duration"
-      metrics:                    "Server-stamped execution metrics — llm_calls, tool_calls, duration_ms"
-      confidence_score:           "Float [0.0, 1.0] — IIA self-assessed certainty in the full investigation plan"
+      manual_review_reason:       "List of reasons — empty when not required"
+      investigation_coverage:     "Server-stamped: boolean flag per tool indicating if called"
+      tools_used:                 "Server-stamped list of tool names executed"
+      agent_metadata:             "Server-stamped agent identity, model, version, timestamp"
+      confidence_score:           "Float [0.0, 1.0]"
 
-  # ── Queue definitions ────────────────────────────────────────────────────────
   queues:
-    CRITICAL_QUEUE:   "fraud_suspicion=true AND amount > 50000, OR identity theft signals"
+    CRITICAL_QUEUE:   "fraud_suspicion=true AND amount > 50,000 OR identity theft"
     FRAUD_QUEUE:      "fraud_suspicion=true"
-    HIGH_VALUE_QUEUE: "amount > 50000 and no fraud suspicion"
-    MERCHANT_QUEUE:   "Merchant Dispute, Refund Not Received, Product Not Received, Subscription Abuse"
+    HIGH_VALUE_QUEUE: "amount > 50,000 and no fraud suspicion"
+    MERCHANT_QUEUE:   "Merchant Dispute, Refund Not Received, Product/Subscription"
     ATM_QUEUE:        "ATM Cash Issue"
     STANDARD_QUEUE:   "All other cases"
 
-  # ── Invocation ───────────────────────────────────────────────────────────────
+  # ── Invocation ────────────────────────────────────────────────────────────────
   invocation:
     entry_function: run_investigation_agent
     file: agents/investigation_agent/__init__.py
     signature: "run_investigation_agent(agent1_output: dict) -> dict"
     called_from:
-      - "workflows/dispute_workflow.py → investigation_node (after dispute_understanding_node)"
-      - "api/routes/ops_cases.py → direct call (ops re-investigation endpoint)"
+      - "workflows/dispute_workflow.py → investigation_node"
+      - "api/routes/ops_cases.py → reanalyse endpoint"

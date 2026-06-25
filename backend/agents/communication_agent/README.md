@@ -1,110 +1,71 @@
-# Customer Communication Agent (CCA) — Agent 6
+# CCA — Customer Communication Agent (Agent 6)
 
-**Role**: Generates professional, customer-friendly HTML email notifications for dispute lifecycle events.  
-**Model**: Groq `llama-3.1-8b-instant` (configured for LLM generation; template-driven builder utilized for secure delivery)  
-**Entry Point**: `validate`  
-**Framework**: LangGraph (StateGraph)  
-
----
-
-## 🎯 Purpose
-
-CCA bridges the gap between internal technical analysis and customer engagement. It translates case state changes, specialist reviews, and investigator findings into reassuring, clear, and professional notifications. 
-
-To maintain banking compliance and account security, CCA operates under strict privacy constraints:
-- Translates risk terms into user-friendly security verbiage (e.g., hiding "fraud score" or "suspicious" flags).
-- Ensures no AI jargon, LLM metrics, internal notes, or route traces are ever leaked to the customer.
-- Always inserts tracking links to direct users to the self-service dispute tracking page.
+**Role**: Professional HTML email notifications for dispute lifecycle events
+**Model**: Groq `llama-3.1-8b-instant` (temperature 0.3 for natural tone)
+**Version**: 1.1.0
 
 ---
 
-## 📋 Workflow
+## How it works
+
+CCA is triggered asynchronously when case status changes or document requests are created. The LLM generates professional, empathetic email content. Delivery is via Outlook SMTP.
+
+**Pipeline**: `validate → generate (LLM) → deliver (SMTP + communication_logs)`
+
+---
+
+## Notification Types
+
+| Type | Trigger |
+|---|---|
+| `CASE_RECEIVED` | Dispute submission confirmed |
+| `INVESTIGATION_STARTED` | Status → Under Investigation |
+| `DOCUMENT_REQUESTED` | Analyst creates document request |
+| `CASE_RESOLVED` | Case resolved (any outcome) |
+| `CASE_REJECTED` | Dispute not upheld |
+| `CASE_REOPENED` | Case reopened for review |
+| `STATUS_CHANGED` | Generic status update |
+| `CASE_RESOLVED_APPROVED` | Resolution approved, credit/refund initiated |
+
+---
+
+## SMTP Configuration
+
+| Setting | Value |
+|---|---|
+| Server | smtp.office365.com |
+| Port | 587 (STARTTLS) |
+| Credentials | `SMTP_USERNAME` + `SMTP_PASSWORD` env vars |
+| Demo redirect | All mail → `NOTIFICATION_EMAIL` env var |
+
+---
+
+## Deduplication
+
+Emails are deduplicated per `case_id + notification_type` within 24 hours.
+Override with `_skip_dedup: true` in context (used for batch document requests).
+
+---
+
+## Constraints
+
+- Never use: Agent, AI, LLM, Fraud Score, Risk Score, Trust Score, Workflow Path
+- Never mention "fraud" in INVESTIGATION_STARTED emails
+- Always include case reference number
+- Returns JSON `{"subject": "...", "body": "<html>..."}`
+
+---
+
+## Files
 
 ```
-       ┌────────────────────────┐
-       │   Workflow Event /     │
-       │   Analyst Status Change│
-       └───────────┬────────────┘
-                   │
-           [validate Node]
-    (Check inputs, stamp start time,
-     resolve recipient email address)
-                   │
-           [generate Node]
-    (Construct subject & full HTML
-     body via secure styling template)
-                   │
-            [deliver Node]
-    (Deliver email SMTP & persist logs
-     in communication_logs DB table)
-                   │
-                  END
+communication_agent/
+├── agent.yaml       # Complete spec
+├── config.py        # Reads agent.yaml
+├── tools.py         # Email template + send helpers
+├── state.py         # CommunicationAgentState
+├── graph.py         # LangGraph StateGraph
+├── __init__.py      # run_communication_agent() entry point
+└── nodes/
+    └── pipeline.py  # validate, generate, deliver nodes
 ```
-
-CCA runs asynchronously (`trigger_communication_async`) and is wrapped in standard try/catch blocks. This ensures that any SMTP timeouts or network hiccups in delivery never block or degrade the primary dispute processing pipeline.
-
----
-
-## ── Agent Persona & Constraints ──
-
-* **Role**: Customer Communications Specialist at SecureBank.
-* **Goal**: Deliver clear, timely, and empathetic transaction dispute updates.
-* **Tone**: Professional, reassuring, and customer-centric.
-* **Constraints**:
-  - **NEVER** expose internal terms: *Agent, AI, LLM, Fraud Score, Risk Score, Trust Score, Workflow Path, Investigation Details*.
-  - **FRAUD_REVIEW_STARTED Policy**: Never use the words "fraud" or "suspicious". Instead, communicate that the case is undergoing *"additional security verification"* or *"enhanced security review"*.
-  - Every notification email must terminate with a valid tracking CTA button pointing to SecureBank's Dispute Tracker.
-  - Return clean HTML structures formatted with inline styles (matching branding guidelines: deep navy headers `#0F2A4A`, slate text `#4A5568`, and card container shapes).
-
----
-
-## ── LangGraph Pipeline Flow ──
-
-CCA's execution pipeline is composed of the following sequential nodes:
-1. **`validate`**: Sanitizes inputs (`case_id` and `notification_type`), sets default fallbacks if types mismatch, and locates the user's registered email destination.
-2. **`generate`**: Generates matching email subject headings and inline-styled HTML blocks using `build_html_email` in [communication_prompts.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/prompts/communication_prompts.py).
-3. **`deliver`**: Delivers the prepared message payload via SMTP TLS transport and records the outcome directly in the database logs.
-
----
-
-## ── State Schema ──
-
-The agent manages its execution context using `CommunicationAgentState` defined in [state.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/communication_agent/state.py):
-* `case_id`: The system-assigned unique Case ID.
-* `notification_type`: The token keyword signifying the target lifecycle milestone.
-* `case_data`: Safe key-value subset of customer attributes (name, transaction amount, merchant name).
-* `context`: Additional dynamic arguments (e.g. lists of requested documents, resolution notes, status messages).
-* `subject`: Finalized email subject line.
-* `body`: Inline-styled HTML content.
-* `recipient`: Destination email address.
-* `status`: Current delivery state (`PENDING` | `SENT` | `FAILED`).
-* `error`: Holds failure logs or traceback details if delivery fails.
-* `agent_start_time`: Stamped at intake to measure latency.
-
----
-
-## ── Notification Templates ──
-
-The system defines 7 canonical templates within [communication_prompts.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/prompts/communication_prompts.py):
-
-| Notification Type | Trigger Event | Customer Headline |
-| :--- | :--- | :--- |
-| `CASE_RECEIVED` | Initial claim ingestion | Your dispute has been received |
-| `INVESTIGATION_STARTED` | Specialist starts active review | Your case is now under active investigation |
-| `DOCUMENT_REQUESTED` | Missing documents required | Additional documents are required |
-| `FRAUD_REVIEW_STARTED` | Fraud detection rules trigger | Additional security verification in progress |
-| `EVIDENCE_REVIEW_COMPLETED`| Uploaded files successfully parsed | Your documents have been reviewed |
-| `CASE_RESOLVED` | Dispute finalized (refunded/rejected)| Your dispute has been resolved |
-| `STATUS_CHANGED` | General state fallback update | Your dispute status has been updated |
-
----
-
-## ── Invocation & Calling Context ──
-
-* **Function**: `run_communication_agent(case_id: str, notification_type: str, case_data: dict, context: Optional[dict] = None) -> dict`
-* **Module**: [__init__.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/agents/communication_agent/__init__.py)
-* **Callers**:
-  * [communication_service.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/services/communication_service.py) -> handles database interaction and async thread execution.
-  * [dispute_workflow.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/workflows/dispute_workflow.py) -> triggers intermediate verification, investigation, and review completions.
-  * [dispute_service.py](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/services/dispute_service.py) -> notifies upon initial ingestion and analyst status transitions.
-  * [communications.py (API Routes)](file:///d:/Transaction_dispute_agent/ai-dispute-resolution-system/backend/api/routes/communications.py) -> manual click-to-notify analyst triggers.

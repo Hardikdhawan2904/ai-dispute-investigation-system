@@ -1,14 +1,14 @@
 agent:
   name: ARIA
   full_name: Automated Resolution Intelligence Agent
-  version: "1.0"
+  version: "2.0.0"
   domain: BFSI — Banking, Financial Services & Insurance
 
   role: >
-    Senior AI Dispute Analyst embedded in the bank's internal dispute
-    operations platform. ARIA receives raw customer dispute submissions,
-    reasons over transaction evidence and uploaded documents, and produces
-    a structured investigation brief for the human dispute resolution team.
+    Senior AI Dispute Analyst embedded in the bank's internal dispute operations
+    platform. ARIA receives raw customer dispute submissions (already saved to DB),
+    runs 3 pre-computed tools server-side before the LLM call, and produces a
+    structured investigation brief for the human dispute resolution team.
 
   goal: >
     Classify every inbound dispute into exactly one of 9 dispute categories,
@@ -20,9 +20,10 @@ agent:
   backstory: >
     ARIA was designed after the bank's dispute operations team was overwhelmed
     by high case volumes, inconsistent manual triage, and slow fraud escalation.
-    It never gives legal advice, never fabricates data, and flags uncertainty
-    explicitly via confidence_score. Every decision is traceable through
-    structured_reasoning embedded in every case record it produces.
+    In v2.0, ARIA shifted to a DB-first evidence model — score_fraud_indicators
+    now queries account_events for bank-verified signals before trusting form
+    answers. Unverifiable customer claims (otp_shared, bank_impersonation,
+    remote_access) are still processed but carry only 60% weight.
 
   constraints:
     - Factual analysis only — no legal or financial advice
@@ -31,8 +32,15 @@ agent:
     - Every dispute treated with equal seriousness regardless of amount
     - Governed by RBI dispute resolution guidelines and BFSI audit standards
     - Confidence uncertainty expressed numerically, never suppressed
+    - COMPLIANCE_AGENT removed — high-risk tags trigger escalation, not a separate agent
 
-  # ── LLM config — read by config.py → get_llm_config() ──────────────────────
+  data_flow: >
+    Form data is saved to dispute_cases DB table BEFORE ARIA runs.
+    ARIA reads from DB (not the raw form). Customer/transaction fields
+    (email, phone, amount, merchant) are overwritten from DB at submission
+    time — ARIA never trusts user-supplied values for these fields.
+
+  # ── LLM config ────────────────────────────────────────────────────────────────
   llm:
     provider: Groq
     model: llama-3.1-8b-instant
@@ -41,74 +49,110 @@ agent:
     retry_attempts: 2
     retry_wait: exponential (min 1s, max 5s)
 
-  # ── LangGraph — read by config.py → get_entry_point() / get_agent_tool_names()
+  # ── LangGraph ─────────────────────────────────────────────────────────────────
   langgraph:
     framework: LangGraph (StateGraph)
-    pattern: ReAct — pre-processing then Agent-Tools Loop
+    pattern: Pre-execution pipeline — all 3 tools run server-side before LLM call
     state_schema: DisputeAgentState
 
     pipeline:
       entry_point: validate
-
-      # Understanding tools — pure computation, no DB queries (investigation is Agent 2's job)
       agent_tools:
         - assess_transaction_context
         - score_fraud_indicators
         - verify_evidence_match
-        - compute_confidence_score
+      # compute_confidence_score was removed — confidence is now calculated
+      # deterministically in finalize_node from parsed tool outputs
 
     nodes:
       - validate        # extract case_id from submission
-      - build_evidence  # format fraud checklist + document text + build initial messages
-      - agent           # ReAct loop start — LLM calls tools autonomously
-      - tools           # ToolNode executes whichever tools the LLM requested
-      - finalize        # parse LLM final JSON, stamp server-owned fields
+      - build_evidence  # run 3 tools server-side, format prompt, mask PII
+      - agent           # single LLM call (tools already pre-computed)
+      - finalize        # parse LLM JSON, stamp server fields, compute confidence
 
-  # ── Tools — understanding only, no DB queries ────────────────────────────────
+  # ── Tools ─────────────────────────────────────────────────────────────────────
   tools:
     - name: assess_transaction_context
-      description: Assesses full transaction context — amount tier, off-hours flag, card-not-present risk, weekend and international merchant patterns.
-      inputs: [amount, transaction_type, merchant, transaction_date, transaction_time]
-      output: structured transaction risk report with active signals
+      description: >
+        Assesses transaction context from submitted form data.
+        Checks: amount tier (RBI thresholds), off-hours flag (11PM–5AM),
+        card-not-present risk, weekend flag, international merchant patterns.
+        Reads: amount, transaction_type, merchant, transaction_date, transaction_time.
+        Source: form values (factual timestamps, not interpretable customer claims).
 
     - name: score_fraud_indicators
-      description: Scores fraud signals from metadata checklist and customer comment keywords.
-      inputs: [customer_comment, otp_received, otp_shared, bank_impersonation, remote_access, phishing_link, sim_swap_suspected, card_lost, device_lost, bank_contacted, card_blocked]
-      output: fraud signal level (NONE/LOW/MEDIUM/HIGH/CRITICAL) + active indicators list
+      description: >
+        DB-FIRST fraud signal scorer. Queries account_events table first,
+        then falls back to form flags with reduced weight.
+
+        DB signals (full weight — bank-verified):
+          SIM_SWAP_DETECTED         → sim_swap_suspected form field replaced
+          DEVICE_REGISTERED         → new device confirmation
+          MOBILE_NUMBER_CHANGED     → mobile change confirmation
+          CARD_LOST_REPORTED        → card_lost form field replaced
+          CARD_BLOCKED              → card_blocked protective action
+          OTP_DELIVERED             → otp_received form field replaced
+          CUSTOMER_CONTACT_LOGGED   → bank_contacted protective action
+          UPI_COLLECT_REQUEST_RECEIVED → collect_request form field replaced
+
+        Form-only signals (60% weight — unverifiable customer claims):
+          otp_shared, bank_impersonation, remote_access,
+          screen_sharing, phishing_link, device_lost
+
+        Output scores used for:
+          1. LLM prompt context (entire output string)
+          2. confidence_score adjustment in finalize_node:
+             CRITICAL/HIGH + fraud category = +0.15
+             MEDIUM + fraud category        = +0.08
+             CRITICAL/HIGH + wrong category = -0.12
 
     - name: verify_evidence_match
-      description: Verifies whether submitted document text supports the customer's claim using amount, merchant, and keyword matching.
-      inputs: [document_text, claimed_amount, claimed_merchant, dispute_description]
-      output: MATCH | PARTIAL_MATCH | MISMATCH | NO_DOCUMENTS + explanation
+      description: >
+        Verifies whether submitted document OCR text supports the customer's claim.
+        Uses amount matching (±5%), merchant name matching, and keyword signals.
+        Returns: MATCH | PARTIAL_MATCH | MISMATCH | NO_DOCUMENTS | CANNOT_VERIFY.
+        Source: uploaded file OCR text extracted server-side before ARIA runs.
 
-    - name: compute_confidence_score
-      description: Calibrated confidence calculator — call last with findings from the other 3 tools.
-      inputs: [fields_complete, comment_quality, fraud_signal_level, fraud_category_consistent, evidence_verdict, has_contradictions]
-      output: final confidence score (0.10–1.00) with full breakdown
+  # ── Risk Tags ─────────────────────────────────────────────────────────────────
+  risk_tags:
+    # Stamped server-side (deterministic — LLM cannot add/remove these)
+    HIGH_VALUE_TRANSACTION:    "amount >= 50,000"
+    INTERNATIONAL_TRANSACTION: "merchant country != IN or transaction_type includes foreign"
+    POSSIBLE_FRAUD:            "fraud_suspicion = true"
+    SUSPICIOUS_BEHAVIOR:       "sim_swap_suspected = true in form"
+    RECURRING_DISPUTE:         "dispute_reason contains subscription/recurring keywords"
 
-  # ── Output schema ────────────────────────────────────────────────────────────
+    # Card POS / ATM specific — stripped for Card POS and ATM channels
+    DEVICE_MISMATCH: "New device detected (stripped for Card POS and ATM)"
+
+    # LLM-generated (validated server-side — invalid ones stripped)
+    OTP_COMPROMISED:         "Customer reported OTP shared with third party"
+    FRIENDLY_FRAUD_RISK:     "Pattern of repeated disputes or delivery-confirmed returns"
+    HIGH_PRIORITY_CASE:      "Priority is CRITICAL or HIGH"
+    VELOCITY_BREACH:         "Multiple transactions in short window"
+    MERCHANT_BLACKLISTED:    "Merchant known for scam activity (keyword match)"
+    DUPLICATE_PAYMENT:       "Transaction appears to be a duplicate"
+
+  # ── Output schema ─────────────────────────────────────────────────────────────
   output:
     format: JSON dict (DisputeCase)
     fields:
       case_id:                 "Unique identifier for this dispute case"
       customer_id:             "Bank customer identifier"
       transaction_id:          "Transaction reference number"
-      transaction_type:        "UPI / NEFT / Card / ATM etc."
-      merchant:                "Merchant or payee name"
-      amount:                  "Transaction amount (float)"
-      currency:                "ISO currency code (default INR)"
       dispute_category:        "One of 9 canonical BFSI dispute categories"
       fraud_suspicion:         "Boolean — true if fraud indicators are present"
-      customer_intent_summary: "2-3 sentence plain-language summary of the customer claim"
+      fraud_selected:          "Boolean — customer ticked fraud in form"
       priority:                "CRITICAL | HIGH | MEDIUM | LOW"
-      confidence_score:        "Float [0.0, 1.0] — LLM self-assessed certainty"
+      confidence_score:        "Float [0.0, 1.0] — server-computed from tool outputs"
+      confidence_factors:      "List of human-readable lines explaining the score"
       risk_tags:               "List of applicable risk signal tags"
-      structured_reasoning:    "3-5 sentence audit-trail explanation of the classification"
-      evidence_match:          "true | false | null — document corroboration result"
+      key_findings:            "3-5 structured findings from LLM analysis"
+      case_summary:            "2-3 sentence plain-language summary of customer claim"
+      conclusion:              "Single analyst-action recommendation sentence"
+      evidence_match:          "MATCH | PARTIAL_MATCH | MISMATCH | NO_DOCUMENTS | CANNOT_VERIFY"
       evidence_match_note:     "1-2 sentence note on document relevance"
       status:                  "Always 'Dispute Raised' on initial creation"
-      workflow_ready:          "Always true — flags case as ready for analyst queue"
-      created_at:              "UTC ISO-8601 timestamp"
 
   dispute_categories:
     - Unauthorized Transaction
@@ -121,17 +165,11 @@ agent:
     - Friendly Fraud
     - Other
 
-  priority_matrix:
-    CRITICAL: "fraud_suspicion=true AND amount > 50000, OR identity theft indicators"
-    HIGH:     "fraud_suspicion=true OR amount > 50000 OR multiple high-risk tags"
-    MEDIUM:   "Moderate-confidence dispute, amounts 10000–50000, refund/product issues"
-    LOW:      "Minor merchant disputes, low amounts, clear resolution path"
-
-  # ── Invocation ───────────────────────────────────────────────────────────────
+  # ── Invocation ────────────────────────────────────────────────────────────────
   invocation:
     entry_function: run_dispute_agent
     file: agents/dispute_agent/__init__.py
     signature: "run_dispute_agent(dispute_input: dict, document_texts: List[str]) -> dict"
     called_from:
-      - "services/dispute_service.py → via workflows/dispute_workflow.py (primary path)"
-      - "api/routes/ops_cases.py     → direct call (ops analyst re-analysis endpoint)"
+      - "services/dispute_understanding_fallback_service.py (background workflow)"
+      - "api/routes/ops_cases.py → reanalyse endpoint"
