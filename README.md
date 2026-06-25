@@ -29,7 +29,7 @@ graph TD
 
     E -. "Async Event" .-> M["Agent 6 · CCA\nCustomer Communication Agent"]
     K -. "Status / Analyst Action" .-> M
-    M --> N([Email · Outlook SMTP])
+    M --> N([Email · Gmail SMTP])
 
     style A fill:#1E293B,stroke:#334155,color:#F8FAFC
     style Z fill:#1E293B,stroke:#334155,color:#F8FAFC
@@ -337,7 +337,7 @@ Generates and delivers professional HTML email notifications. Fires asynchronous
 | Frontend | Next.js 14 App Router, React 18, TypeScript |
 | Forms | React Hook Form + Zod |
 | Real-time | WebSocket (live case status push) |
-| Email | smtplib TLS (Outlook SMTP) |
+| Email | smtplib TLS (Gmail SMTP) |
 | Priority engine | Deterministic post-workflow computation |
 
 ---
