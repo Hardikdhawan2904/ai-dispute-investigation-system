@@ -2049,7 +2049,10 @@ export default function CaseWorkspace() {
                   <Panel>
                     <SectionTitle>Case Assessment Summary</SectionTitle>
                     <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
-                      {wfPlan.workflow_reasoning.map((r, i) => (
+                      {wfPlan.workflow_reasoning.filter((r: string) =>
+                        !r.toLowerCase().includes("compliance review") &&
+                        !r.toLowerCase().includes("compliance_agent")
+                      ).map((r: string, i: number) => (
                         <div key={i} style={{ display: "flex", gap: "0.625rem", alignItems: "flex-start", padding: "0.45rem 0", borderBottom: i < wfPlan.workflow_reasoning.length - 1 ? "1px solid #1E293B" : "none" }}>
                           <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#334155", flexShrink: 0, marginTop: 6 }} />
                           <span style={{ fontSize: "0.72rem", color: "#CBD5E1", lineHeight: 1.55 }}>{sanitiseReason(r)}</span>
