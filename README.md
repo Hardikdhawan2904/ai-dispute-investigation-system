@@ -81,9 +81,9 @@ Reads the customer's dispute data from `dispute_cases` (already saved). Runs 3 p
 | `DEVICE_REGISTERED` + `customer_devices` | `new_device` |
 | `MOBILE_NUMBER_CHANGED` | `mobile_number_changed` |
 | `CARD_LOST_REPORTED` | `card_lost` |
-| `CARD_BLOCKED` | `card_blocked` |
+| `CARD_BLOCKED` | `card_blocked` *(protective action — no fraud score)* |
 | `OTP_DELIVERED` | `otp_received` |
-| `CUSTOMER_CONTACT_LOGGED` | `bank_contacted` |
+| `CUSTOMER_CONTACT_LOGGED` | `bank_contacted` *(protective action — no fraud score)* |
 | `UPI_COLLECT_REQUEST_RECEIVED` | `collect_request` |
 
 **Fraud signal score → used for:**
