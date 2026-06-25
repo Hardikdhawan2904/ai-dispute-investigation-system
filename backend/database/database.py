@@ -23,7 +23,7 @@ engine = create_engine(
     echo=False,
     pool_pre_ping=True,
     # SQLite doesn't support connection pooling — use StaticPool for dev
-    **({"pool_size": 20, "max_overflow": 40, "pool_timeout": 30, "pool_recycle": 1800} if not _is_sqlite else {}),
+    **({"pool_size": 30, "max_overflow": 60, "pool_timeout": 60, "pool_recycle": 1800} if not _is_sqlite else {}),
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

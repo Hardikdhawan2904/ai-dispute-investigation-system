@@ -136,7 +136,7 @@ export async function listCases(params?: {
   category?: string;
   fraud_only?: boolean;
 }): Promise<CasesListResponse> {
-  const res = await api.get<CasesListResponse>("/api/disputes/cases", { params, timeout: 120_000 });
+  const res = await api.get<CasesListResponse>("/api/disputes/cases", { params, timeout: 180_000 });
   return res.data;
 }
 
