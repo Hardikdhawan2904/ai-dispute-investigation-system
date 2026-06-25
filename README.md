@@ -547,11 +547,11 @@ WS     /ws/disputes                                 Real-time case status push
 |---|---|
 | Unauthorized Transaction | FRAUD_AGENT → EVIDENCE_AGENT |
 | Friendly Fraud | FRAUD_AGENT → EVIDENCE_AGENT |
-| Duplicate Transaction | EVIDENCE_AGENT |
+| Duplicate Transaction | EVIDENCE_AGENT → MERCHANT_AGENT |
 | Refund Not Received | EVIDENCE_AGENT → MERCHANT_AGENT |
 | Merchant Dispute | EVIDENCE_AGENT → MERCHANT_AGENT |
 | ATM Cash Issue | EVIDENCE_AGENT |
-| Subscription Abuse | FRAUD_AGENT → EVIDENCE_AGENT |
+| Subscription Abuse | EVIDENCE_AGENT → MERCHANT_AGENT |
 | Product Not Received | EVIDENCE_AGENT → MERCHANT_AGENT |
 | Other | EVIDENCE_AGENT |
 
