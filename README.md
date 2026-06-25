@@ -300,7 +300,7 @@ Generates and delivers professional HTML email notifications. Fires asynchronous
 | `FRAUD_REVIEW_STARTED` | Internal — **suppressed** from auto-send | Manual only |
 | `EVIDENCE_REVIEW_COMPLETED` | Internal — **suppressed** from auto-send | Manual only |
 
-**Delivery:** Outlook SMTP (`smtp.office365.com:587` TLS). Demo mode redirects all mail to `NOTIFICATION_EMAIL`.
+**Delivery:** Gmail SMTP (`smtp.gmail.com:587` TLS). Demo mode redirects all mail to `NOTIFICATION_EMAIL`.
 
 ---
 
@@ -446,12 +446,12 @@ LLM_TEMPERATURE=0
 LLM_MAX_TOKENS=1024
 TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
 
-# Email — Agent 6 CCA (Outlook)
-SMTP_SERVER=smtp.office365.com
+# Email — Agent 6 CCA (Gmail)
+SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USERNAME=your_email@outlook.com
-SMTP_PASSWORD=your_password
-NOTIFICATION_EMAIL=your_email@outlook.com
+SMTP_USERNAME=your_email@gmail.com
+SMTP_PASSWORD=your_16_char_app_password
+NOTIFICATION_EMAIL=your_email@gmail.com
 
 API_HOST=0.0.0.0
 API_PORT=8000

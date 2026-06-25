@@ -12,7 +12,7 @@ from email.mime.text import MIMEText
 
 from utils.logger import api_logger
 
-_SMTP_SERVER       = os.getenv("SMTP_SERVER", "smtp.office365.com")
+_SMTP_SERVER       = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 _SMTP_PORT         = int(os.getenv("SMTP_PORT", "587"))
 _SMTP_USERNAME     = os.getenv("SMTP_USERNAME", "")
 _SMTP_PASSWORD     = os.getenv("SMTP_PASSWORD", "")
