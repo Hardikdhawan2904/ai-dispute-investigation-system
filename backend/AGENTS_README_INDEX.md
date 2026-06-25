@@ -129,7 +129,7 @@
 **Input**: Event updates, status updates, dynamic context (e.g., requested documents list)  
 **Output**: Email subject line, HTML-styled email body, delivery logs  
 **Tools**: 
-- `send_email` — Outlook SMTP/TLS delivery service
+- `send_email` — Gmail SMTP/TLS delivery service
 **Key Metrics**:
 - Successful deliveries (SENT / FAILED)
 - Latency (intake to send time)
@@ -385,4 +385,5 @@ For questions about specific agents or the system architecture:
 3. **Data dependencies**: Review the Data Flow section above
 4. **Configuration**: Check agent.yaml files
 5. **Error investigation**: Search `logs/` directory for agent_name
+
 

@@ -1,5 +1,5 @@
 """
-Email delivery service — Outlook SMTP via TLS.
+Email delivery service — Gmail SMTP via TLS.
 
 All emails in demo mode are redirected to NOTIFICATION_EMAIL regardless
 of the intended recipient. The `recipient` argument is preserved for logging
@@ -21,7 +21,7 @@ _NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL", "")
 
 def send_email(subject: str, body: str, recipient: str) -> bool:
     """
-    Send an HTML email via Outlook SMTP (TLS).
+    Send an HTML email via Gmail SMTP (TLS).
 
     In demo mode all mail goes to NOTIFICATION_EMAIL; `recipient` is kept
     for audit purposes only.  Returns True on success, False on any failure.

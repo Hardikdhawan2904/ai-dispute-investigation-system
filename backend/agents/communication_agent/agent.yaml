@@ -13,7 +13,7 @@ agent:
   goal: >
     Generate clear, customer-friendly email notifications for every significant
     dispute lifecycle event. Triggered by status changes, document requests,
-    and resolution events. All emails delivered via Outlook SMTP.
+    and resolution events. All emails delivered via Gmail SMTP.
 
   constraints:
     - Never use: Agent, AI, LLM, Fraud Score, Risk Score, Trust Score, Workflow Path
@@ -36,16 +36,16 @@ agent:
     nodes:
       - validate   # extract case_id, notification_type, recipient email
       - generate   # LLM generates subject + HTML body from case data
-      - deliver    # send via SMTP (smtp.office365.com:587 TLS) + save to communication_logs
+      - deliver    # send via SMTP (smtp.gmail.com:587 TLS) + save to communication_logs
 
   # ── SMTP config ───────────────────────────────────────────────────────────────
   smtp:
-    server: smtp.office365.com
+    server: smtp.gmail.com
     port: 587
     encryption: STARTTLS
     env_vars:
-      SMTP_USERNAME: "Outlook email address"
-      SMTP_PASSWORD: "Outlook password"
+      SMTP_USERNAME: "Gmail address"
+      SMTP_PASSWORD: "Gmail 16-char app password"
       NOTIFICATION_EMAIL: "Demo override — all mail goes here"
 
   # ── Notification types ────────────────────────────────────────────────────────

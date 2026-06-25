@@ -8,7 +8,7 @@
 
 ## How it works
 
-CCA is triggered asynchronously when case status changes or document requests are created. The LLM generates professional, empathetic email content. Delivery is via Outlook SMTP.
+CCA is triggered asynchronously when case status changes or document requests are created. The LLM generates professional, empathetic email content. Delivery is via Gmail SMTP.
 
 **Pipeline**: `validate → generate (LLM) → deliver (SMTP + communication_logs)`
 
@@ -33,7 +33,7 @@ CCA is triggered asynchronously when case status changes or document requests ar
 
 | Setting | Value |
 |---|---|
-| Server | smtp.office365.com |
+| Server | smtp.gmail.com |
 | Port | 587 (STARTTLS) |
 | Credentials | `SMTP_USERNAME` + `SMTP_PASSWORD` env vars |
 | Demo redirect | All mail → `NOTIFICATION_EMAIL` env var |
