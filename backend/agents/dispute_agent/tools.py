@@ -174,6 +174,7 @@ def score_fraud_indicators(
     device_lost: str = "Not provided",
     bank_contacted: str = "Not provided",
     card_blocked: str = "Not provided",
+    collect_request: str = "Not provided",
 ) -> str:
     """Score fraud indicators using RBI/I4C taxonomy with DB-first evidence.
     Queries bank system records (account_events, customer_devices, transactions)

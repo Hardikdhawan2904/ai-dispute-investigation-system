@@ -119,6 +119,7 @@ def build_evidence_node(state: DisputeAgentState) -> dict:
         "device_lost":        yn(meta.get("device_lost")),
         "bank_contacted":     yn(meta.get("bank_contacted")),
         "card_blocked":       yn(meta.get("card_blocked")),
+        "collect_request":    yn(meta.get("collect_request")),
     })
     if document_section != "No documents attached.":
         evidence_result = verify_evidence_match.invoke({
