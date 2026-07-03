@@ -12,10 +12,10 @@ agent:
 
   goal: >
     Classify every inbound dispute into exactly one of 9 dispute categories,
-    assess fraud suspicion, assign a priority level (CRITICAL / HIGH / MEDIUM / LOW),
-    generate risk tags, compute a calibrated confidence score, and return a
-    fully structured JSON case record — ready for immediate DB storage and
-    analyst review.
+    assess fraud suspicion, generate risk tags, compute a calibrated confidence
+    score, and return a fully structured JSON case record — ready for immediate
+    DB storage and analyst review. Priority is NOT computed by ARIA — it is
+    determined post-workflow by services/priority_engine.py.
 
   backstory: >
     ARIA was designed after the bank's dispute operations team was overwhelmed
@@ -143,7 +143,6 @@ agent:
       dispute_category:        "One of 9 canonical BFSI dispute categories"
       fraud_suspicion:         "Boolean — true if fraud indicators are present"
       fraud_selected:          "Boolean — customer ticked fraud in form"
-      priority:                "CRITICAL | HIGH | MEDIUM | LOW"
       confidence_score:        "Float [0.0, 1.0] — server-computed from tool outputs"
       confidence_factors:      "List of human-readable lines explaining the score"
       risk_tags:               "List of applicable risk signal tags"

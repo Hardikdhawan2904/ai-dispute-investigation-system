@@ -1,6 +1,6 @@
-# AI Dispute Resolution System
+# BFSI Dispute Investigation Platform
 
-Enterprise-grade, multi-agent banking fraud and dispute resolution platform. Built for BFSI operations teams — automates dispute intake, classification, investigation, fraud detection, evidence verification, orchestration, and customer communication through 6 specialized AI agents and 48 fraud intelligence tools.
+Enterprise-grade, multi-agent banking fraud and dispute investigation platform. Built for BFSI operations teams — automates dispute intake, classification, investigation, fraud detection, evidence verification, orchestration, and customer communication through 6 specialized AI agents and 48 fraud intelligence tools.
 
 ---
 
@@ -376,7 +376,7 @@ One-shot types (CASE_RECEIVED, INVESTIGATION_STARTED, CASE_RESOLVED) fire at mos
 ## Project Structure
 
 ```
-ai-dispute-resolution-system/
+agent1/
 ├── backend/
 │   ├── agents/
 │   │   ├── dispute_agent/          # Agent 1 — ARIA (3 tools, DB-first scoring)

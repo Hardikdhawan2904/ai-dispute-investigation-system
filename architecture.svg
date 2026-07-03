@@ -1,0 +1,204 @@
+<svg viewBox="0 0 1360 960" width="1360" height="960" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI',system-ui,sans-serif">
+  <rect width="1360" height="960" fill="#000000" rx="16"/>
+
+  <!-- MAIN TITLE -->
+  <text x="680" y="14" text-anchor="middle" fill="#FBBF24" font-size="18" font-weight="900" letter-spacing="3">BFSI DISPUTE INVESTIGATION — SYSTEM ARCHITECTURE</text>
+
+  <!-- USERS -->
+  <circle cx="420" cy="56" r="28" fill="#1a1a1a" stroke="#FBBF24" stroke-width="2"/>
+  <text x="420" y="50" text-anchor="middle" font-size="18">👤</text>
+  <text x="420" y="66" text-anchor="middle" fill="#FBBF24" font-size="9" font-weight="700">CUSTOMER</text>
+  <text x="456" y="58" text-anchor="start" fill="#FBBF24" font-size="8">/submit-dispute</text>
+  <line x1="420" y1="85" x2="420" y2="112" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="420,112 417,105 423,105" fill="#FBBF24"/>
+
+  <circle cx="1027" cy="56" r="28" fill="#1a1a1a" stroke="#FBBF24" stroke-width="2"/>
+  <text x="1027" y="50" text-anchor="middle" font-size="18">🕵️</text>
+  <text x="1027" y="66" text-anchor="middle" fill="#FBBF24" font-size="9" font-weight="700">ANALYST</text>
+  <text x="985" y="58" text-anchor="end" fill="#FBBF24" font-size="8">/internal-review</text>
+  <line x1="1027" y1="85" x2="1027" y2="226" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="1027,226 1024,219 1030,219" fill="#FBBF24"/>
+
+  <!-- SAVE-FIRST -->
+  <rect x="300" y="114" width="240" height="62" rx="9" fill="#1a1a1a" stroke="#FBBF24" stroke-width="2"/>
+  <text x="420" y="137" text-anchor="middle" fill="#FBBF24" font-size="13" font-weight="800">SAVE-FIRST</text>
+  <text x="420" y="154" text-anchor="middle" fill="#ccc" font-size="9.5">Form → dispute_cases DB</text>
+  <text x="420" y="168" text-anchor="middle" fill="#777" font-size="8">DB values overwrite form values</text>
+  <line x1="420" y1="176" x2="420" y2="200" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="420,200 417,193 423,193" fill="#FBBF24"/>
+
+  <!-- AGENT OS -->
+  <rect x="30" y="200" width="1140" height="570" rx="14" fill="#141414" stroke="#FBBF24" stroke-width="1.5"/>
+  <text x="52" y="218" fill="#FBBF24" font-size="9" font-weight="700" letter-spacing="2">AGENT OS</text>
+
+  <!-- LEFT: DATA LAYER -->
+  <rect x="50" y="226" width="194" height="534" rx="10" fill="#111" stroke="#FBBF24" stroke-width="1.5"/>
+  <text x="147" y="238" text-anchor="middle" fill="#FBBF24" font-size="10.5" font-weight="700">DATA LAYER</text>
+
+  <!-- DB Legend -->
+  <rect x="63" y="243" width="8" height="8" rx="1.5" fill="#60A5FA"/>
+  <text x="73" y="251" fill="#60A5FA" font-size="8" font-weight="700">Customer</text>
+  <rect x="127" y="243" width="8" height="8" rx="1.5" fill="#34D399"/>
+  <text x="137" y="251" fill="#34D399" font-size="8" font-weight="700">Merchant</text>
+  <rect x="191" y="243" width="8" height="8" rx="1.5" fill="#FBBF24"/>
+  <text x="201" y="251" fill="#FBBF24" font-size="8" font-weight="700">Core</text>
+
+  <line x1="62" y1="256" x2="232" y2="256" stroke="#FBBF24" stroke-width="1"/>
+
+  <rect x="62" y="262" width="170" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="147" y="278" text-anchor="middle" dominant-baseline="central" fill="#FBBF24" font-size="10" font-weight="600">transactions</text>
+  <rect x="62" y="300" width="170" height="32" rx="7" fill="#0f2744" stroke="#60A5FA" stroke-width="1.5"/>
+  <text x="147" y="316" text-anchor="middle" dominant-baseline="central" fill="#60A5FA" font-size="10" font-weight="600">account_events</text>
+  <rect x="62" y="338" width="170" height="32" rx="7" fill="#0f2744" stroke="#60A5FA" stroke-width="1.5"/>
+  <text x="147" y="354" text-anchor="middle" dominant-baseline="central" fill="#60A5FA" font-size="10" font-weight="600">customer_devices</text>
+  <rect x="62" y="376" width="170" height="32" rx="7" fill="#0f2b1a" stroke="#34D399" stroke-width="1.5"/>
+  <text x="147" y="392" text-anchor="middle" dominant-baseline="central" fill="#34D399" font-size="10" font-weight="600">merchant_profiles</text>
+  <rect x="62" y="414" width="170" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="147" y="430" text-anchor="middle" dominant-baseline="central" fill="#FBBF24" font-size="10" font-weight="600">dispute_history</text>
+  <rect x="62" y="452" width="170" height="32" rx="7" fill="#0f2744" stroke="#60A5FA" stroke-width="1.5"/>
+  <text x="147" y="468" text-anchor="middle" dominant-baseline="central" fill="#60A5FA" font-size="10" font-weight="600">beneficiaries</text>
+  <rect x="62" y="490" width="170" height="32" rx="7" fill="#0f2744" stroke="#60A5FA" stroke-width="1.5"/>
+  <text x="147" y="506" text-anchor="middle" dominant-baseline="central" fill="#60A5FA" font-size="10" font-weight="600">bank_customers</text>
+  <rect x="62" y="528" width="170" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="147" y="544" text-anchor="middle" dominant-baseline="central" fill="#FBBF24" font-size="10" font-weight="600">dispute_cases</text>
+  <rect x="62" y="566" width="170" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="147" y="582" text-anchor="middle" dominant-baseline="central" fill="#FBBF24" font-size="10" font-weight="600">audit_logs</text>
+  <rect x="62" y="604" width="170" height="32" rx="7" fill="#0f2744" stroke="#60A5FA" stroke-width="1.5"/>
+  <text x="147" y="620" text-anchor="middle" dominant-baseline="central" fill="#60A5FA" font-size="10" font-weight="600">communication_logs</text>
+  <rect x="62" y="642" width="170" height="32" rx="7" fill="#0f2744" stroke="#60A5FA" stroke-width="1.5"/>
+  <text x="147" y="658" text-anchor="middle" dominant-baseline="central" fill="#60A5FA" font-size="10" font-weight="600">document_requests</text>
+  <rect x="62" y="680" width="170" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="147" y="696" text-anchor="middle" dominant-baseline="central" fill="#FBBF24" font-size="10" font-weight="600">workflow_states</text>
+  <rect x="62" y="718" width="170" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="147" y="734" text-anchor="middle" dominant-baseline="central" fill="#FBBF24" font-size="10" font-weight="600">case_notes</text>
+
+  <!-- DATA LAYER → pipeline arrow -->
+  <line x1="244" y1="430" x2="267" y2="430" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="270,430 263,427 263,433" fill="#FBBF24"/>
+
+  <!-- CENTER: AGENT PIPELINE -->
+  <rect x="272" y="226" width="630" height="530" rx="10" fill="#111" stroke="#FBBF24" stroke-width="1"/>
+  <text x="587" y="246" text-anchor="middle" fill="#FBBF24" font-size="9" font-weight="700" letter-spacing="2">AGENT PIPELINE</text>
+
+  <!-- ARIA -->
+  <rect x="288" y="254" width="598" height="64" rx="9" fill="#1a1a1a" stroke="#FBBF24" stroke-width="2"/>
+  <text x="400" y="275" text-anchor="middle" fill="#FBBF24" font-size="15" font-weight="800">ARIA</text>
+  <text x="400" y="290" text-anchor="middle" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">ARIA</tspan><tspan fill="#888" font-weight="normal"> : classifies txns, scores fraud &amp; routes agents</tspan></text>
+  <text x="400" y="306" text-anchor="middle" fill="#666" font-size="7">3 tools · DB-first · classify · confidence · risk_tags</text>
+  <line x1="514" y1="259" x2="514" y2="315" stroke="#FBBF24" stroke-width="1"/>
+  <text x="522" y="272" text-anchor="start" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">assess_transaction_context</tspan><tspan fill="#888" font-weight="normal" font-size="6.5"> : DB-first txn metadata &amp; risk flags</tspan></text>
+  <text x="522" y="287" text-anchor="start" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">score_fraud_indicators</tspan><tspan fill="#888" font-weight="normal" font-size="6.5"> : fraud probability + risk_tags</tspan></text>
+  <text x="522" y="302" text-anchor="start" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">verify_evidence_match</tspan><tspan fill="#888" font-weight="normal" font-size="6.5"> : docs vs claim consistency</tspan></text>
+  <line x1="587" y1="318" x2="587" y2="331" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="587,334 584,327 590,327" fill="#FBBF24"/>
+
+  <!-- IIA -->
+  <rect x="288" y="336" width="598" height="64" rx="9" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1.5"/>
+  <text x="400" y="358" text-anchor="middle" fill="#FBBF24" font-size="15" font-weight="800">IIA</text>
+  <text x="400" y="374" text-anchor="middle" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">IIA</tspan><tspan fill="#888" font-weight="normal"> : probes customer, merchant &amp; duplicate signals</tspan></text>
+  <text x="400" y="388" text-anchor="middle" fill="#666" font-size="7">4 tools · 100% DB · customer · merchant · duplicates</text>
+  <line x1="514" y1="341" x2="514" y2="397" stroke="#FBBF24" stroke-width="1"/>
+  <text x="522" y="354" text-anchor="start" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">lookup_customer_history</tspan><tspan fill="#888" font-weight="normal" font-size="6.5"> : past disputes &amp; txn history</tspan></text>
+  <text x="522" y="369" text-anchor="start" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">check_merchant_risk</tspan><tspan fill="#888" font-weight="normal" font-size="6.5"> : chargeback &amp; fraud profile</tspan></text>
+  <text x="522" y="384" text-anchor="start" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">find_duplicate · lookup_related</tspan><tspan fill="#888" font-weight="normal" font-size="6.5"> : detect repeat &amp; linked claims</tspan></text>
+  <line x1="587" y1="400" x2="587" y2="413" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="587,416 584,409 590,409" fill="#FBBF24"/>
+
+  <!-- WOA -->
+  <rect x="288" y="418" width="598" height="64" rx="9" fill="#1a1a1a" stroke="#FBBF24" stroke-width="2"/>
+  <text x="400" y="440" text-anchor="middle" fill="#FBBF24" font-size="15" font-weight="800">WOA</text>
+  <text x="400" y="456" text-anchor="middle" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">WOA</tspan><tspan fill="#888" font-weight="normal"> : selects &amp; dispatches specialist sub-agents</tspan></text>
+  <text x="400" y="470" text-anchor="middle" fill="#666" font-size="7">6 tools · Routes agents · Escalation authority</text>
+  <line x1="514" y1="423" x2="514" y2="479" stroke="#FBBF24" stroke-width="1"/>
+  <text x="522" y="436" text-anchor="start" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">FRAUD_AGENT</tspan><tspan fill="#888" font-weight="normal" font-size="6.5"> : fraud scoring &amp; deep investigation</tspan></text>
+  <text x="522" y="451" text-anchor="start" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">EVIDENCE_AGENT</tspan><tspan fill="#888" font-weight="normal" font-size="6.5"> : document authenticity verification</tspan></text>
+  <text x="522" y="466" text-anchor="start" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">MERCHANT_AGENT</tspan><tspan fill="#888" font-weight="normal" font-size="6.5"> : merchant txn confirmation</tspan></text>
+
+  <!-- WOA → FRIA (diagonal down-left) -->
+  <line x1="430" y1="482" x2="392" y2="496" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="390,498 397.6,498.2 395.4,492.6" fill="#FBBF24"/>
+
+  <!-- WOA → EIA (diagonal down-right, dashed) -->
+  <line x1="744" y1="482" x2="776" y2="496" stroke="#FBBF24" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="778,498 770.3,497.7 772.9,492.3" fill="#FBBF24"/>
+
+  <!-- FRIA -->
+  <rect x="288" y="500" width="286" height="96" rx="9" fill="#1a1a1a" stroke="#FBBF24" stroke-width="2"/>
+  <text x="378" y="522" text-anchor="middle" fill="#FBBF24" font-size="15" font-weight="800">FRIA</text>
+  <text x="378" y="538" text-anchor="middle" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">FRIA</tspan><tspan fill="#888" font-weight="normal"> : narrates fraud evidence across 4 channels</tspan></text>
+  <text x="378" y="552" text-anchor="middle" fill="#FBBF24" font-size="8.5">48 tools · 4 channels</text>
+  <text x="378" y="565" text-anchor="middle" fill="#888" font-size="8">UPI · Card POS · ATM · Internet Banking</text>
+  <text x="378" y="578" text-anchor="middle" fill="#777" font-size="7.5">Deterministic · Universal cap 0.60</text>
+
+  <!-- EIA -->
+  <rect x="586" y="500" width="300" height="96" rx="9" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1.5"/>
+  <text x="686" y="522" text-anchor="middle" fill="#FBBF24" font-size="15" font-weight="800">EIA</text>
+  <text x="686" y="538" text-anchor="middle" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">EIA</tspan><tspan fill="#888" font-weight="normal"> : validates doc completeness &amp; evidence strength</tspan></text>
+  <text x="686" y="552" text-anchor="middle" fill="#FBBF24" font-size="8.5">5 tools · 100% DB</text>
+  <text x="686" y="565" text-anchor="middle" fill="#888" font-size="8">completeness · consistency</text>
+  <text x="686" y="578" text-anchor="middle" fill="#777" font-size="7.5">missing docs · evidence strength</text>
+
+  <!-- Converge -->
+  <line x1="430" y1="596" x2="430" y2="613" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="430,616 427,609 433,609" fill="#FBBF24"/>
+  <line x1="736" y1="596" x2="736" y2="613" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="736,616 733,609 739,609" fill="#FBBF24"/>
+  <line x1="430" y1="624" x2="736" y2="624" stroke="#FBBF24" stroke-width="1"/>
+  <line x1="587" y1="624" x2="587" y2="637" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="587,640 584,633 590,633" fill="#FBBF24"/>
+
+  <rect x="398" y="642" width="378" height="22" rx="5" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="587" y="657" text-anchor="middle" fill="#FBBF24" font-size="8.5">Saves all output → dispute_cases DB</text>
+
+  <!-- RIGHT: ANALYST WORKSPACE -->
+  <rect x="916" y="226" width="222" height="472" rx="10" fill="#111" stroke="#FBBF24" stroke-width="1.5"/>
+  <text x="1027" y="246" text-anchor="middle" fill="#FBBF24" font-size="10.5" font-weight="700">ANALYST WORKSPACE</text>
+  <line x1="928" y1="254" x2="1126" y2="254" stroke="#FBBF24" stroke-width="1"/>
+  <rect x="928" y="262" width="198" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="1027" y="282" text-anchor="middle" fill="#FBBF24" font-size="10" font-weight="600">Case Analysis</text>
+  <rect x="928" y="300" width="198" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="1027" y="320" text-anchor="middle" fill="#FBBF24" font-size="10" font-weight="600">Investigation</text>
+  <rect x="928" y="338" width="198" height="44" rx="7" fill="#6B7280" stroke="#6B7280" stroke-width="2"/>
+  <text x="1027" y="354" text-anchor="middle" fill="#F9FAFB" font-size="10" font-weight="800">Fraud Review</text>
+  <text x="1027" y="368" text-anchor="middle" fill="#D1D5DB" font-size="7.5">if case is marked as fraud</text>
+  <rect x="928" y="388" width="198" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="1027" y="408" text-anchor="middle" fill="#FBBF24" font-size="10" font-weight="600">Evidence Review</text>
+  <rect x="928" y="426" width="198" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="1027" y="446" text-anchor="middle" fill="#FBBF24" font-size="10" font-weight="600">Case Coordination</text>
+  <rect x="928" y="464" width="198" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="1027" y="484" text-anchor="middle" fill="#FBBF24" font-size="10" font-weight="600">Evidence Files</text>
+  <rect x="928" y="502" width="198" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="1027" y="522" text-anchor="middle" fill="#FBBF24" font-size="10" font-weight="600">Communications</text>
+  <rect x="928" y="540" width="198" height="32" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1"/>
+  <text x="1027" y="560" text-anchor="middle" fill="#FBBF24" font-size="10" font-weight="600">Audit Trail</text>
+
+  <!-- Pipeline → Workspace arrow -->
+  <line x1="902" y1="450" x2="911" y2="450" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="914,450 907,447 907,453" fill="#FBBF24"/>
+
+  <!-- CCA -->
+  <rect x="288" y="674" width="598" height="66" rx="9" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1.5"/>
+  <line x1="516" y1="678" x2="516" y2="740" stroke="#FBBF24" stroke-width="1"/>
+  <text x="402" y="693" text-anchor="middle" dominant-baseline="central" fill="#FBBF24" font-size="13" font-weight="800">CCA</text>
+  <text x="402" y="710" text-anchor="middle" dominant-baseline="central" font-size="7.5"><tspan fill="#FBBF24" font-weight="600">CCA</tspan><tspan fill="#888" font-weight="normal"> : sends case status emails to customer via Gmail</tspan></text>
+  <text x="680" y="693" text-anchor="middle" dominant-baseline="central" fill="#FBBF24" font-size="9" font-weight="600">CASE_RECEIVED · INVESTIGATION_STARTED · DOCUMENT_REQUESTED</text>
+  <text x="680" y="713" text-anchor="middle" dominant-baseline="central" fill="#888" font-size="8.5">CASE_RESOLVED · STATUS_CHANGED · DOCUMENTS_RECEIVED · Gmail SMTP · async</text>
+
+  <!-- CCA → Customer Email -->
+  <line x1="886" y1="707" x2="1185" y2="707" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="1188,707 1181,704 1181,710" fill="#FBBF24"/>
+
+  <rect x="1190" y="691" width="140" height="36" rx="7" fill="#1a1a1a" stroke="#FBBF24" stroke-width="1.5"/>
+  <text x="1260" y="709" text-anchor="middle" dominant-baseline="central" fill="#FBBF24" font-size="10" font-weight="600">Customer Email</text>
+
+  <!-- Customer Email → Customer circle (dashed loop) -->
+  <line x1="1260" y1="691" x2="1260" y2="30" stroke="#FBBF24" stroke-width="1" stroke-dasharray="5,4"/>
+  <line x1="1260" y1="30" x2="453" y2="30" stroke="#FBBF24" stroke-width="1" stroke-dasharray="5,4"/>
+  <line x1="453" y1="30" x2="453" y2="49" stroke="#FBBF24" stroke-width="1" stroke-dasharray="5,4"/>
+  <polygon points="450,52 447,45 453,45" fill="#FBBF24"/>
+  <text x="860" y="25" text-anchor="middle" fill="#FBBF24" font-size="8">email sent to customer</text>
+
+  <!-- DB → CCA trigger arrow -->
+  <line x1="587" y1="664" x2="587" y2="669" stroke="#FBBF24" stroke-width="1.5"/>
+  <polygon points="587,672 584,665 590,665" fill="#FBBF24"/>
+</svg>

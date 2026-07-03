@@ -1,21 +1,24 @@
-# BFSI Dispute Resolution System - Agent Architecture & Operations Guide
+# BFSI Dispute Investigation Platform - Agent Architecture & Operations Guide
 
 **System Version**: 1.0  
-**Last Updated**: 2026-06-14  
-**Framework**: LangGraph (Multi-Agent ReAct Pattern)
+**Last Updated**: 2026-07-03  
+**Framework**: LangGraph (Multi-Agent Pipeline)
+
+> **Authoritative documentation**: The root [README.md](../README.md) is the single source of truth for the full system. This guide provides supplementary operational detail.
 
 ---
 
 ## 📑 Table of Contents
 
 1. [System Overview](#system-overview)
-2. [Agent 1: Dispute Understanding Agent (ARIA)](#agent-1-aria)
-3. [Agent 2: Investigation Intelligence Agent (IIA)](#agent-2-iia)
-4. [Agent 3: Fraud Reasoning Agent (FRA)](#agent-3-fra)
-5. [Agent 4: Evidence Intelligence Agent (EIA)](#agent-4-eia)
-6. [Agent 5: Orchestration Workflow Agent (WOA)](#agent-5-woa)
-7. [Data Flow & Dependencies](#data-flow--dependencies)
-8. [Error Handling & Fallbacks](#error-handling--fallbacks)
+2. [Agent 1: ARIA — Dispute Understanding Agent](#agent-1-aria)
+3. [Agent 2: IIA — Investigation Intelligence Agent](#agent-2-iia)
+4. [Agent 3: WOA — Workflow Orchestration Agent](#agent-3-woa)
+5. [Agent 4: FRIA — Fraud Reasoning Intelligence Agent](#agent-4-fria)
+6. [Agent 5: EIA — Evidence Intelligence Agent](#agent-5-eia)
+7. [Agent 6: CCA — Customer Communication Agent](#agent-6-cca)
+8. [Data Flow & Dependencies](#data-flow--dependencies)
+9. [Error Handling & Fallbacks](#error-handling--fallbacks)
 
 ---
 
@@ -40,15 +43,15 @@ CUSTOMER DISPUTE SUBMISSION
                  │
                  ▼
     ┌────────────────────────────┐
-    │  Agent 5: WOA              │ Orchestration
+    │  Agent 3: WOA              │ Orchestration
     │  (Workflow Coordinator)    │ Case Routing
     └────────────┬───────────────┘
                  │
         ┌────────┴────────┐
         ▼                 ▼
    ┌──────────┐     ┌──────────┐
-   │ Agent 4  │     │ Agent 3  │
-   │ EIA      │     │ FRA      │
+   │ Agent 5  │     │ Agent 4  │
+   │ EIA      │     │ FRIA     │
    │(Evidence)│     │(Fraud)   │
    └────┬─────┘     └────┬─────┘
         │                │
@@ -137,14 +140,13 @@ INPUT
 | **transaction_time** | Off-hours (11PM-5AM) | Off-hours risk: Yes/No |
 | **transaction_type** | Card-Not-Present risk | CNP risk: Yes/No (+2 points) |
 | **merchant** | International flag | International: Yes/No (+2 points) |
-| **customer_comment** | Fraud keyword scan | Keywords: [list], Score: +2 per match |
-| **otp_shared** | Tier-1 fraud indicator | Fraud Score: +8.0 (alone = HIGH) |
-| **otp_received + denial** | Combination signal | Score: +3.5 |
-| **bank_impersonation** | Tier-1 indicator | Score: +8.0 (vishing attack) |
-| **sim_swap_suspected** | Tier-1 indicator | Score: +8.0 (telecom account takeover) |
-| **remote_access** | Tier-2 indicator | Score: +4.0 (device compromise) |
-| **phishing_link** | Tier-2 indicator | Score: +4.0 (credential theft) |
-| **card_lost / device_lost** | Tier-3 indicators | Score: +2.5 each |
+| **customer_comment** | Dispute narrative context | Passed to LLM — no direct score |
+| **otp_shared** | Form-only claim (unverifiable) | 60% weight in ARIA; narrative only in FRIA |
+| **bank_impersonation** | Form-only claim (unverifiable) | 60% weight in ARIA; narrative only in FRIA |
+| **sim_swap_suspected** | Verified vs account_events | DB-verified = full weight; form-only = 60% |
+| **remote_access** | Form-only claim (unverifiable) | 60% weight in ARIA; narrative only in FRIA |
+| **phishing_link** | Form-only claim (unverifiable) | 60% weight in ARIA; narrative only in FRIA |
+| **card_lost / device_lost** | Verified vs account_events | DB-verified (CARD_LOST_REPORTED) = full weight |
 
 ### Output
 
@@ -152,7 +154,6 @@ INPUT
 {
   "case_id": "CASE-000012",
   "dispute_category": "Unauthorized Transaction",
-  "priority": "CRITICAL",
   "confidence_score": 0.92,
   "fraud_suspicion": true,
   "fraud_selected": true,
@@ -176,28 +177,18 @@ INPUT
 }
 ```
 
-### Fraud Probability Scoring
+### Fraud Signal Scoring (DB-first — v2.0)
 
-```
-TIER-1 INDICATORS (each alone = HIGH signal):
-  • OTP shared with third party:           +8.0
-  • Bank impersonation (vishing):          +8.0
-  • SIM swap suspected:                    +8.0
+ARIA uses `score_fraud_indicators` with a DB-first approach:
+- **Bank-verified events** from `account_events` → full weight
+- **Form-only unverifiable claims** (otp_shared, bank_impersonation, remote_access, screen_sharing, phishing_link, device_lost) → 60% weight (narrative context only in FRIA)
 
-TIER-2 INDICATORS (medium certainty):
-  • Remote access tool installed:          +4.0
-  • Phishing link clicked:                 +4.0
+Output: fraud signal level (CRITICAL/HIGH/MEDIUM/LOW) used to adjust `confidence_score`:
+- CRITICAL/HIGH + correct fraud category → +0.15
+- MEDIUM + correct fraud category → +0.08
+- CRITICAL/HIGH + wrong category → -0.12
 
-TIER-3 INDICATORS (physical threat):
-  • Card lost/stolen:                      +2.5
-  • Device lost:                           +2.5
-
-KEYWORD SCAN:
-  • Each fraud keyword match:              +2.0 (capped at 6.0 total)
-  Keywords: "didn't do", "unauthorized", "hacked", "stolen", "scam"
-
-COMBINATION SIGNALS:
-  • OTP received + customer denial:        +3.5
+> Full fraud probability (0–1 float) is computed by **FRIA (Agent 4)** — 48 deterministic DB tools across 4 channels. See [FRIA README](agents/fraud_reasoning_agent/README.md).
 
 FINAL THRESHOLDS:
   Score >= 8.0   → CRITICAL fraud risk

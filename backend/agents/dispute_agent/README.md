@@ -53,10 +53,11 @@ This does NOT affect `fraud_probability` — that is computed by FRIA (Agent 4).
 Structured `DisputeCase` JSON saved to `dispute_cases` table with:
 - `dispute_category` (one of 9 categories)
 - `fraud_suspicion` (boolean)
-- `priority` (CRITICAL/HIGH/MEDIUM/LOW)
 - `confidence_score` + `confidence_factors`
 - `risk_tags` (server-stamped + LLM-generated, validated)
 - `key_findings`, `case_summary`, `evidence_match`
+
+> `priority` is **not** output by ARIA. It is computed post-workflow by `services/priority_engine.py` and written to `dispute_cases` after the full agent pipeline completes.
 
 ---
 
