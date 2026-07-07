@@ -309,14 +309,16 @@ def finalize_node(state: DisputeAgentState) -> dict:
 
     def _infer_doc_type(fn: str) -> str:
         f = fn.lower()
+        tokens = re.split(r'[^a-z0-9]+', f)   # word-boundary check — "fir" must be its own token,
+                                               # not a substring match inside e.g. "confirmation"
         if ("bank" in f and "statement" in f) or "statement" in f: return "BANK_STATEMENT"
-        if "fir" in f or "police" in f or "complaint_report" in f: return "POLICE_FIR"
+        if "fir" in tokens or "police" in f or "complaint_report" in f: return "POLICE_FIR"
         if "otp" in f:                                              return "OTP_RECORD"
         if "sms" in f or "alert" in f or "debit_alert" in f:       return "TRANSACTION_ALERT"
         if "complaint" in f:                                        return "COMPLAINT_LETTER"
         if "kyc" in f or "aadhaar" in f or "aadhar" in f or "passport" in f or "pan" in f: return "IDENTITY_DOCUMENT"
-        if "source_of_funds" in f or "fund" in f or "salary" in f: return "FINANCIAL_DECLARATION"
         if "refund" in f or "email" in f or "mail" in f:           return "MERCHANT_COMMUNICATION"
+        if "source_of_funds" in f or "fund" in f or "salary" in f: return "FINANCIAL_DECLARATION"
         if "receipt" in f:                                          return "PAYMENT_RECEIPT"
         if "invoice" in f:                                          return "INVOICE"
         if "screenshot" in f or "screen" in f:                     return "TRANSACTION_SCREENSHOT"

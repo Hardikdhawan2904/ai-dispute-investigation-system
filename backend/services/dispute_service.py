@@ -464,7 +464,9 @@ class DisputeService:
                     "Dispute Raised":      "STATUS_CHANGED",
                 }
                 comm_type = _STATUS_COMM_MAP.get(new_status, "STATUS_CHANGED")
-                context = {"new_status": new_status, "resolution_status": new_status}
+                # Manual status changes always notify — bypass the one-shot-per-case
+                # dedup so re-entering a stage (e.g. Under Investigation again) still emails.
+                context = {"new_status": new_status, "resolution_status": new_status, "_skip_dedup": True}
                 if note:
                     context["resolution_summary"] = note
                 trigger_communication_async(case_id, comm_type, context=context)

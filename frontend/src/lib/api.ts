@@ -242,3 +242,7 @@ export async function sendCommunication(
   });
   return res.data;
 }
+
+export async function deleteCommunication(caseId: string, logId: number): Promise<void> {
+  await api.delete(`/api/communications/${caseId}/${logId}`);
+}

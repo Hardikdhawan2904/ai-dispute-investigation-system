@@ -9,7 +9,7 @@ import {
   RefreshCw, X, ZoomIn, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, getPriorityColor } from "@/lib/utils";
-import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads, createDocumentRequest, getCommunications, sendCommunication } from "@/lib/api";
+import { getCase, getAuditLogs, getWorkflowStates, updateCaseStatus, reanalyseCase, getCaseUploads, createDocumentRequest, getCommunications, sendCommunication, deleteCommunication } from "@/lib/api";
 import type { CommunicationLog } from "@/lib/api";
 import type { CaseUploadFile } from "@/lib/api";
 import type { DisputeCase, AuditLog, WorkflowState, CaseStatus, EvidenceAssessment } from "@/types";
@@ -1720,6 +1720,8 @@ export default function CaseWorkspace() {
                               }
                               // Send one email listing exactly the selected docs
                               await sendCommunication(caseData.case_id, "DOCUMENT_REQUESTED", { requested_documents: docsToRequest, _skip_dedup: true });
+                              const commsRes = await getCommunications(caseData.case_id);
+                              setCommunications(commsRes.communications || []);
                               setSelectedDocs(new Set());
                               toast.success(`Document request sent for ${docsToRequest.length} document${docsToRequest.length > 1 ? "s" : ""}`);
                             } catch {
@@ -2212,6 +2214,22 @@ export default function CaseWorkspace() {
                         <div style={{ fontSize: "0.62rem", color: "#475569", whiteSpace: "nowrap", flexShrink: 0 }}>
                           To: {comm.recipient} &nbsp;·&nbsp; {formatDate(comm.sent_at || comm.created_at || "")}
                         </div>
+                        {comm.status === "FAILED" && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await deleteCommunication(caseId!, comm.id);
+                                await sendCommunication(caseId!, comm.notification_type);
+                                const res = await getCommunications(caseId!);
+                                setCommunications(res.communications || []);
+                                toast.success("Removed and resent");
+                              } catch { toast.error("Retry failed"); }
+                            }}
+                            style={{ fontSize: "0.62rem", padding: "0.25rem 0.6rem", backgroundColor: "#450A0A", color: "#FCA5A5", border: "1px solid #7F1D1D", borderRadius: 4, cursor: "pointer", flexShrink: 0 }}
+                          >
+                            Remove &amp; Retry
+                          </button>
+                        )}
                       </div>
                       {/* Email body — rendered in sandboxed iframe, expanded to full width for ops preview */}
                       <iframe

@@ -107,6 +107,11 @@ def _build_human_message(case_input: dict, tool_results: dict) -> str:
     manual_req  = inv_plan.get("manual_review_required", False) if isinstance(inv_plan, dict) else False
     risk_tags   = case_input.get("risk_tags") or []
     tags_str    = ", ".join(risk_tags) if risk_tags else "None"
+    merchant_risk = "N/A"
+    customer_risk = "N/A"
+    if isinstance(inv_plan, dict):
+        merchant_risk = (inv_plan.get("merchant_risk_profile") or {}).get("merchant_risk", "N/A")
+        customer_risk = (inv_plan.get("customer_risk_profile") or {}).get("risk_level", "N/A")
 
     _TOOL_ORDER = [
         "evaluate_case_complexity",
@@ -137,6 +142,9 @@ def _build_human_message(case_input: dict, tool_results: dict) -> str:
         f"Recommended Queue         : {inv_queue}\n"
         f"Investigation Complexity  : {inv_complex}\n"
         f"Manual Review Required    : {manual_req}\n"
+        f"Merchant Risk Level       : {merchant_risk}\n"
+        f"Customer Risk Level       : {customer_risk}\n"
+        "(Cite Merchant/Customer Risk Level exactly as given above in workflow_reasoning — never invent a different level.)\n"
         + tool_section
     )
 

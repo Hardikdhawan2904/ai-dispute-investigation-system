@@ -39,6 +39,22 @@ def get_case_communications(case_id: str, db: Session = Depends(get_db)):
     }
 
 
+@router.delete("/{case_id}/{log_id}")
+def delete_communication(case_id: str, log_id: int, db: Session = Depends(get_db)):
+    """Remove a single communication log entry (e.g. a failed send) from a case."""
+    log = (
+        db.query(CommunicationLog)
+        .filter(CommunicationLog.case_id == case_id, CommunicationLog.id == log_id)
+        .first()
+    )
+    if not log:
+        raise HTTPException(status_code=404, detail="Communication log not found")
+
+    db.delete(log)
+    db.commit()
+    return {"case_id": case_id, "deleted_id": log_id}
+
+
 @router.post("/{case_id}/send")
 def send_communication(
     case_id: str,
