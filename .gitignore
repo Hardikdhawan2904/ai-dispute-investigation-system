@@ -58,8 +58,10 @@ backend/logs/
 test_tesseract.py
 *_test_temp.*
 tesseract_test_temp.png
+backend/test_neon.py
 
 
 samples/
 architecture.html
 architecture.svg
+
