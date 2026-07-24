@@ -47,19 +47,36 @@ app = FastAPI(
 
 # ── Middleware ─────────────────────────────────────────────────────────────────
 
-cors_origins = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:3002",
-    "http://localhost:3003",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-]
+raw_origins = os.getenv("CORS_ORIGINS", "*").strip()
+if raw_origins == "*":
+    allow_origins = []
+    allow_origin_regex = r"https?://.*"
+    allow_credentials = True
+elif not raw_origins:
+    allow_origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
+    allow_origin_regex = None
+    allow_credentials = True
+else:
+    origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+    for loc in ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://127.0.0.1:3000"]:
+        if loc not in origins:
+            origins.append(loc)
+    allow_origins = origins
+    allow_origin_regex = None
+    allow_credentials = True
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=True,
+    allow_origins=allow_origins,
+    allow_origin_regex=allow_origin_regex,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -84,7 +101,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     api_logger.error(f"Unhandled exception: {exc}", exc_info=True)
     origin = request.headers.get("origin", "")
     headers = {}
-    if origin in cors_origins:
+    if origin:
         headers["Access-Control-Allow-Origin"] = origin
         headers["Access-Control-Allow-Credentials"] = "true"
     return JSONResponse(

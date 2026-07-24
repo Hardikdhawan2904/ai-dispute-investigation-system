@@ -3,8 +3,9 @@ node_modules/
 .next/
 out/
 dist/
-.env.local
-.env.*.local
+frontend/.next/
+frontend/node_modules/
+frontend/out/
 
 # ── Python / Backend ──────────────────────────────────────────────────────────
 __pycache__/
@@ -13,6 +14,8 @@ __pycache__/
 .venv/
 venv/
 env/
+backend/venv/
+backend/.venv/
 *.egg-info/
 .eggs/
 dist/
@@ -27,6 +30,7 @@ htmlcov/
 
 # ── Uploads / runtime data ────────────────────────────────────────────────────
 uploads/
+backend/uploads/
 *.db
 *.db-shm
 *.db-wal
@@ -44,11 +48,18 @@ Thumbs.db
 *.swp
 *.swo
 
-# ── Secrets ───────────────────────────────────────────────────────────────────
+# ── Environment & Secrets ────────────────────────────────────────────────────
 .env
+.env.local
+.env.*.local
+*.env
+!.env.example
+!*/.env.example
 backend/.env
+frontend/.env
+frontend/.env.local
 
-# ── Local data ────────────────────────────────────────────────────────────────
+# ── Local vector storage & logs ──────────────────────────────────────────────
 chroma_db/
 backend/chroma_db/
 logs/
@@ -60,8 +71,6 @@ test_tesseract.py
 tesseract_test_temp.png
 backend/test_neon.py
 
-
 samples/
 architecture.html
 architecture.svg
-

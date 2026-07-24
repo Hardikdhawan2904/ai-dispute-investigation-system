@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -90,16 +90,18 @@ export default function TrackDisputePage() {
   const [uploadDone, setUploadDone]   = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
     if (!caseId) return;
     fetch(`${API_BASE}/api/disputes/track/${caseId}`)
       .then(r => { if (!r.ok) throw new Error("Case not found"); return r.json(); })
       .then(tracking => setData(tracking))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  };
+  }, [caseId]);
 
-  useEffect(() => { fetchData(); }, [caseId]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -164,6 +166,20 @@ export default function TrackDisputePage() {
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#0F172A", color: "#F8FAFC", fontFamily: "system-ui, sans-serif" }}>
+      {/* Top Navbar */}
+      <div style={{ borderBottom: "1px solid #1E293B", backgroundColor: "#0B1120", padding: "0.75rem 1.5rem" }}>
+        <div style={{ maxWidth: 680, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <a href="/" style={{ fontSize: "0.85rem", fontWeight: 700, color: "#F8FAFC", textDecoration: "none", display: "flex", alignItems: "center", gap: 6 }}>
+            <span>SecureBank Hub</span>
+          </a>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "0.75rem" }}>
+            <a href="/" style={{ color: "#94A3B8", textDecoration: "none" }}>Home</a>
+            <a href="/track" style={{ color: "#94A3B8", textDecoration: "none" }}>Search Case</a>
+            <a href="/internal-review" style={{ color: "#3B82F6", textDecoration: "none" }}>Bank Ops</a>
+          </div>
+        </div>
+      </div>
+
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "2rem 1rem 4rem" }}>
 
         {/* Header */}

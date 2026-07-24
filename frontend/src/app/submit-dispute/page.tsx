@@ -5,7 +5,8 @@ export const dynamic = "force-dynamic";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState, useEffect } from "react";
-import { Shield, Lock } from "lucide-react";
+import Link from "next/link";
+import { Shield, Lock, LayoutDashboard, Home as HomeIcon } from "lucide-react";
 
 import { formSchema, FormValues } from "./schema";
 import { TX_CONFIG } from "./config";
@@ -211,21 +212,38 @@ export default function SubmitDisputePage() {
     <div className="min-h-screen bg-gray-50">
 
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <header className="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3.5 sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
+          <Link href="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
+            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center shadow-sm">
               <Shield className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-gray-900">SecureBank</h1>
-              <p className="text-xs text-gray-400">Dispute Resolution Centre</p>
+              <h1 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                SecureBank <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">Customer Portal</span>
+              </h1>
+              <p className="text-xs text-gray-500">Dispute Resolution Centre</p>
             </div>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-100 rounded-full px-3 py-1.5">
-            <Lock className="w-3 h-3" />
-            <span className="font-medium hidden sm:inline">256-bit TLS Encrypted</span>
-            <span className="font-medium sm:hidden">Secure</span>
+          </Link>
+
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="text-xs font-medium text-gray-600 hover:text-blue-600 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+            >
+              <HomeIcon className="w-3.5 h-3.5" /> Home
+            </Link>
+            <Link
+              href="/internal-review"
+              className="text-xs font-medium text-slate-700 hover:text-blue-600 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors hidden sm:flex"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5 text-blue-600" /> Bank Ops
+            </Link>
+            <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 border border-green-200 rounded-full px-3 py-1.5">
+              <Lock className="w-3 h-3" />
+              <span className="font-medium hidden sm:inline">256-bit TLS Encrypted</span>
+              <span className="font-medium sm:hidden">Secure</span>
+            </div>
           </div>
         </div>
       </header>

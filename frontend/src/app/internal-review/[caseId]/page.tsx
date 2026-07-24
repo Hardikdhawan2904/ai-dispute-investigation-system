@@ -1850,7 +1850,7 @@ export default function CaseWorkspace() {
                                 : "#60A5FA";
 
             const nextReview    = wfPlan.next_agent ? (reviewLabels[wfPlan.next_agent] ?? { label: wfPlan.next_agent, color: "#94A3B8", action: "Review this case" }) : null;
-            const isEscalated   = wfPlan.escalation_required === true || (wfPlan.escalation_level && wfPlan.escalation_level !== "NONE");
+            const isEscalated   = wfPlan.escalation_required === true || !!wfPlan.escalation_level;
             const nextAction    = nextReview?.action
               ?? (isEscalated
                   ? "Assign to Senior Fraud Analyst for final review and decision."
@@ -2349,7 +2349,7 @@ export default function CaseWorkspace() {
             {false && (
               <div style={{ marginTop: "0.5rem" }}>
                 <Label>Assigned Queue</Label>
-                <span style={{ fontSize: "0.7rem", color: "#94A3B8" }}>{caseData.assigned_queue?.replace(/_/g, " ")}</span>
+                <span style={{ fontSize: "0.7rem", color: "#94A3B8" }}>{caseData?.assigned_queue?.replace(/_/g, " ")}</span>
               </div>
             )}
             {caseData.fraud_suspicion && (
