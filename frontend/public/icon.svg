@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#0B1120"/>
+    </linearGradient>
+    <linearGradient id="shieldGrad" x1="6" y1="4" x2="26" y2="28" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="12" y1="10" x2="20" y2="22" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded container -->
+  <rect width="32" height="32" rx="7" fill="url(#bgGrad)"/>
+  
+  <!-- Outer Shield -->
+  <path d="M16 4.5L6.5 8.5V15C6.5 21.2 10.6 26.1 16 27.5C21.4 26.1 25.5 21.2 25.5 15V8.5L16 4.5Z" fill="url(#shieldGrad)"/>
+  
+  <!-- Inner Shield Highlight -->
+  <path d="M16 6.8L8.5 10V15C8.5 19.9 11.7 23.9 16 25.1C20.3 23.9 23.5 19.9 23.5 15V10L16 6.8Z" fill="url(#accentGrad)" opacity="0.4"/>
+
+  <!-- Secure Checkmark emblem -->
+  <path d="M12.5 15.5L15 18L20 12.5" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

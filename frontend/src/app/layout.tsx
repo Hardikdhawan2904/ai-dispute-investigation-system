@@ -5,7 +5,14 @@ import ToasterProvider from "@/components/ToasterProvider";
 export const metadata: Metadata = {
   title: "BFSI Dispute Resolution Platform",
   description: "Enterprise banking dispute investigation and resolution system",
-  icons: { icon: "/favicon.ico" },
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico" },
+    ],
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
